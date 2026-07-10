@@ -1,0 +1,13 @@
+{
+  "name": "openelis-api-e2e",
+  "version": "1.0.0",
+  "description": "Black-box REST/FHIR API e2e suite for OpenELIS backend (Java baseline → migration parity oracle). No browser.",
+  "scripts": {
+    "test": "playwright test",
+    "test:readonly": "playwright test --project=api-readonly",
+    "test:mutating": "playwright test --project=api-mutating"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
+  }
+}
