@@ -12,6 +12,7 @@ copyright: "Copyright &copy; 2023 DIGI - University Of Washington"
 nav:
     - Home: index.md
     - About: about.md
+    - User Manual (Screen Guide): user-manual.md
     - Install OpenELIS Global: install.md
     - Upgrade to the Newest Version: upgrade.md
     - Upgrade from 2.x to 2.7: 27upgrade.md
