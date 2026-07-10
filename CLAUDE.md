@@ -170,6 +170,24 @@ this, work targets the wrong branch/directory.
 **Full guide:** `.specify/guides/playwright-best-practices.md` **Quality
 report:** `.specify/guides/playwright-e2e-quality-report.md`
 
+### Branch Policy — Migration vs e2e (CRITICAL)
+
+Two tracks fork from **different** base branches. Do **not** create branches
+yourself — the maintainer handles branch creation. These rules define the names
+and fork points only.
+
+| Track | Purpose | Fork from | Prefix |
+|-------|---------|-----------|--------|
+| **Migration** | Go port implementation (endpoint/type at a time) | `migration-base` | `migration/` |
+| **e2e** | e2e / parity **test** additions or updates | `develop` | `e2e` |
+
+- **Migration** branches **never** fork from `develop`.
+- **e2e** branches **always** fork from `develop` (not `migration-base`).
+- **Before adding or updating any e2e test, ASK the user whether it should be
+  added to e2e.** Never add e2e specs unprompted.
+- Full convention:
+  [migration/branch-naming.md](migration/branch-naming.md).
+
 ---
 
 ## Quick Links

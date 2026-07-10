@@ -4,11 +4,23 @@ Status: **draft / proposal**
 Companion to [endpoint-migration-order.md](endpoint-migration-order.md) and
 [endpoint-migration-taxonomy.md](endpoint-migration-taxonomy.md).
 
-Every migration branch **forks from `migration-base`** (never from `develop`).
+There are **two tracks**, and they fork from **different** base branches:
 
-Convention: `migration/<type><seq>-<slug>` — lowercase kebab. `<type>` is the
-taxonomy letter (A–J), `<seq>` orders branches within a type, `<slug>` is a
-short human label.
+| Track | Purpose | Fork from | Prefix |
+|-------|---------|-----------|--------|
+| **Migration** | Go port implementation, one endpoint/type at a time | `migration-base` | `migration/` |
+| **e2e** | e2e / parity **test** additions or updates | `develop` | `e2e` |
+
+> **Migration** branches **never** fork from `develop`. **e2e** branches
+> **always** fork from `develop` (not `migration-base`), because the test suite
+> follows the mainline lineage.
+>
+> **Before adding or updating any e2e test, ASK the user whether it should be
+> added to e2e.** Do not add e2e specs unprompted.
+
+Convention (migration): `migration/<type><seq>-<slug>` — lowercase kebab.
+`<type>` is the taxonomy letter (A–J), `<seq>` orders branches within a type,
+`<slug>` is a short human label.
 
 ---
 
@@ -43,10 +55,25 @@ Type G (binary/file) rides on its owning context's branch. Type J
 
 ---
 
+## e2e test branches
+
+e2e / parity **test** work (the `openelis-api-e2e` suite, `frontend/playwright`,
+new parity specs) is a **separate track**:
+
+- Fork point: **`develop`** (not `migration-base`).
+- Prefix: **`e2e`** — e.g. `e2e/type-a-parity`, `e2e/config-crud`.
+- Merge target: `develop`.
+- **Ask the user first** whether the change should be added to e2e before
+  creating the branch or adding specs.
+
+---
+
 ## Rules
 
-- Fork point: always `migration-base`.
-- One branch = one reviewable unit (a type, a wave slice, or a single H module).
-- Merge target: `migration-base` (not `develop`) during coexistence.
+- **Migration** fork point: always `migration-base`. **e2e** fork point: always
+  `develop`.
+- One branch = one reviewable unit (a type, a wave slice, a single H module, or
+  one e2e change set).
+- Merge target: migration → `migration-base`; e2e → `develop`.
 - `a1-pilot-server-time` merges first; it establishes the Go service, proxy
   wiring, and parity harness the later branches build on.
