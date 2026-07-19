@@ -1,0 +1,10 @@
+# build artifacts / local files not needed in the image
+*.exe
+/openelis
+/openelis.exe
+*.test
+*.out
+README.md
+Dockerfile
+.dockerignore
+docker-compose.go.yml

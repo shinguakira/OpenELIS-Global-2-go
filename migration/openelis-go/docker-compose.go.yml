@@ -1,0 +1,30 @@
+# Adds the Go service ALONGSIDE the Java stack for parity / compatibility checks.
+# It does NOT touch the nginx proxy — Java keeps serving every route. Go is
+# exposed on its own port (:8090) so a parity check can hit BOTH Java and Go and
+# compare responses (e.g. server-time timezone). This is a side-by-side harness,
+# NOT a strangler cutover.
+#
+# Run together with the main stack, from the repo root:
+#   docker compose -f docker-compose.yml -f migration/openelis-go/docker-compose.go.yml up -d --build
+#
+# Then compare (same TZ for both containers via the shared TZ env):
+#   Java: https://<host>/api/OpenELIS-Global/rest/server-time   (authed, via proxy)
+#   Go:   http://<host>:8090/rest/server-time                   (direct)
+
+services:
+    go.openelis.org:
+        container_name: openelisglobal-go
+        build:
+            context: ./migration/openelis-go
+            dockerfile: Dockerfile
+        platform: linux/amd64
+        ports:
+            - "8090:8090"
+        environment:
+            # SAME TZ var the Java webapp uses (docker-compose.yml), so both
+            # resolve the same zone id — that is the compatibility being checked.
+            - TZ=${TZ:-UTC}
+            - OE_GO_ADDR=:8090
+        networks:
+            - default
+        restart: unless-stopped
