@@ -1,0 +1,6 @@
+# Go build artifacts
+/openelis
+/openelis.exe
+*.exe
+*.test
+*.out

@@ -33,13 +33,17 @@ Companion docs in this folder: `OpenMRS-Go-Migration-Plan` (see `openmrs-core-go
 
 OpenELIS uses a strict, repeated **5-layer pattern per domain** (`Valueholder → DAO → Service → Controller → Form`). This regularity is a gift for migration — one template, ~120 applications of it.
 
-| OpenELIS Java layer | Location (per domain pkg under `org.openelisglobal.*`) | Go equivalent |
-|---------------------|--------------------------------------------------------|---------------|
-| **Valueholder** (Hibernate entity/POJO, ~120 `valueholder/` dirs) | `<domain>/valueholder/` | Plain structs in a `domain` package. Flatten the `BaseObject`/audit base classes into embedded structs. |
-| **DAO / DAOImpl** (~118 interfaces / ~87 impls) | `<domain>/dao/`, `<domain>/daoimpl/` | Repository interfaces with **explicit SQL** via `sqlc`/`pgx`. **No ORM** — write the queries. Biggest translation risk (see §4). |
-| **Service** (~133 `service/` dirs, `@Transactional`) | `<domain>/service/` (+ `impl/`) | Go interfaces + implementations, one package per bounded context. Transaction boundary = the service method. |
-| **Controller** (~78, many with `controller/rest`) | `<domain>/controller/`, `<domain>/controller/rest/` | Go HTTP handlers (`chi`/`echo`/stdlib) mirroring the **REST** subcontrollers. **Skip the non-REST MVC controllers** (legacy UI). |
-| **Form** (~51 form-backing beans) | `<domain>/form/` | Request/response DTOs on the REST handlers. The Spring `Form` beans are an MVC artifact — do not port wholesale. |
+Go paths **mirror the Java paths during migration** (see layout decision below):
+`internal/<domain>/<layer>/`. The "Go path" column is that mirror; the reorg to
+idiomatic Go happens at the end.
+
+| OpenELIS Java layer | Java location (under `org.openelisglobal.*`) | Go path (mirrored) | Go equivalent |
+|---------------------|----------------------------------------------|--------------------|---------------|
+| **Valueholder** (Hibernate entity/POJO, ~120 `valueholder/` dirs) | `<domain>/valueholder/` | `internal/<domain>/valueholder/` | Plain structs. Flatten the `BaseObject`/audit base classes into embedded structs. |
+| **DAO / DAOImpl** (~118 interfaces / ~87 impls) | `<domain>/dao/`, `<domain>/daoimpl/` | `internal/<domain>/dao/` (+ `daoimpl/`) | Repository interfaces with **explicit SQL** via `sqlc`/`pgx`. **No ORM** — write the queries. Biggest translation risk (see §4). |
+| **Service** (~133 `service/` dirs, `@Transactional`) | `<domain>/service/` (+ `impl/`) | `internal/<domain>/service/` | Go interfaces + implementations. Transaction boundary = the service method. |
+| **Controller** (~78, many with `controller/rest`) | `<domain>/controller/`, `<domain>/controller/rest/` | `internal/<domain>/controller/rest/` | **stdlib `net/http`** handlers (`ServeMux` method routing) mirroring the **REST** subcontrollers; a `Routes(mux)` per domain. **Skip the non-REST MVC controllers** (legacy UI). |
+| **Form** (~51 form-backing beans) | `<domain>/form/` | `internal/<domain>/form/` | Request/response DTOs on the REST handlers. The Spring `Form` beans are an MVC artifact — do not port wholesale. |
 | **Spring Security + role/rolemodule** | `login/`, `role/`, `rolemodule/`, `security/` | Auth middleware + a `context.Context`-carried principal; port the module/permission model as an authorization layer. |
 | **Hibernate interceptors / audit** (`audittrail/`, `history/`, `interceptor/`) | `audittrail/`, `interceptor/` | Centralized audit + `sysUserId`/timestamp stamping in the tx/repository layer. Miss this and every write is subtly wrong. |
 | **Liquibase changelogs** (277) | `src/main/resources/liquibase/` | **Keep Liquibase as-is** during coexistence so both apps agree on schema; convert to `goose`/`golang-migrate` only after Java is retired. |
@@ -47,23 +51,33 @@ OpenELIS uses a strict, repeated **5-layer pattern per domain** (`Valueholder �
 | **Analyzer import** (ASTM/HL7/file) | `analyzer/`, `analyzerimport/`, `analyzerresults/` + plugins submodule | Native Go transports (goroutines/net) **or** keep on Java (D2/D6). Distinct subsystem. |
 | **i18n / React Intl keys** | `frontend` `en.json`, Transifex | Unchanged — the Go backend serves data, the React frontend keeps owning i18n. New keys still land in `en.json` only. |
 
-### Proposed Go project layout
+### Go project layout — mirror Java during migration, reorganize at the end
+
+**Decision:** during the migration the Go folders **mirror the Java source
+layout** (`org.openelisglobal.<domain>.<layer>` → `internal/<domain>/<layer>/`),
+even though that carries Java's redundant per-layer nesting. Rationale: the team
+is Java-native and must be able to find "where did `SampleRestController` go?" by
+the same path. Accept the non-idiomatic structure now; **reorganize into
+idiomatic Go once the port is complete** (that reorg is itself a final migration
+step, verified by the parity suite).
+
 ```
-cmd/openelis/           # main, wiring, config
-internal/domain/        # entity structs, no dependencies
-internal/sample/        # service + repo for one bounded context (sample, accession)
-internal/test/          # test catalog (test, panel, typeoftestresult, testresult)
-internal/analysis/      # analysis + result + resultvalidation + resultlimits
-internal/patient/       # patient, person, samplehuman
-internal/dictionary/    # dictionary, dictionarycategory
-internal/analyzer/      # analyzer import transports (ASTM/HL7/file)  [see D6]
-internal/fhir/          # FHIR transform + facade to HAPI/Go-FHIR      [see D5]
-internal/db/            # pgx connection, tx manager, sqlc-generated code
-internal/auth/          # login, role/rolemodule, privilege checks
-internal/rest/          # HTTP handlers mirroring controller/rest
-internal/platform/      # shared: audit fields, uuid, site config, global properties
-test/parity/            # golden tests comparing Go vs Java (REST + FHIR)
+cmd/openelis/main.go                         # entrypoint; wires each domain's Routes()
+internal/common/web/                          # shared HTTP plumbing (~ org.openelisglobal.common)
+internal/system/controller/rest/system.go     # <- system/controller/rest/SystemRestController.java (a1)
+internal/<domain>/controller/rest/            # <- <domain>/controller/rest/*RestController.java
+internal/<domain>/service/                     # <- <domain>/service/
+internal/<domain>/dao/  (or daoimpl/)          # <- <domain>/dao/ + daoimpl/ (pgx/sqlc, see §4)
+internal/<domain>/valueholder/                 # <- <domain>/valueholder/ (entity structs)
+internal/db/                                   # pgx connection, tx manager, sqlc
+internal/auth/                                 # login, role/rolemodule, privilege checks
+test/parity/                                   # golden tests comparing Go vs Java (REST + FHIR)
 ```
+
+> The **end-of-migration reorg** collapses Java's layer-dirs
+> (`controller/rest/`, `daoimpl/`) into idiomatic flat domain packages
+> (`internal/system/`, a few files each). Deferred deliberately so Java devs
+> navigate familiar paths throughout the port.
 
 ---
 
