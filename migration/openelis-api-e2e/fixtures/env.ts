@@ -4,6 +4,11 @@
 // the /api/OpenELIS-Global prefix.
 export const BASE_URL =
   process.env.OE_BASE_URL || "https://localhost/api/OpenELIS-Global/";
+
+// The Go port under test, for side-by-side parity: the SAME checks that run
+// against Java (BASE_URL) also run against this base. Trailing slash required.
+export const GO_BASE_URL = process.env.OE_GO_URL || "http://localhost:8090/";
+
 export const ADMIN_USER = process.env.OE_ADMIN_USER || "admin";
 export const ADMIN_PASS = process.env.OE_ADMIN_PASS || "adminADMIN!";
 
