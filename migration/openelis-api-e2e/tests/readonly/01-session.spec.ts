@@ -12,9 +12,6 @@ test.describe("session", () => {
     expect(Array.isArray(s.roles)).toBe(true);
     expect(s.roles).toContain("Global Administrator");
   });
-
-  test("server-time endpoint responds", async ({ request }) => {
-    const res = await request.get("rest/server-time");
-    expect(res.status()).toBe(200);
-  });
+  // (removed a redundant "server-time responds" 200-only check — server-time is
+  //  fully asserted in 03-type-a.spec.ts, shape + IANA timezone.)
 });
