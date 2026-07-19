@@ -205,10 +205,23 @@ asserts: `GET rest/server-time` → **200** and an authed (non-login-HTML) JSON
 body.
 
 **Level 1 — port correctness (this task).** Run the a1 assertions against the Go
-service directly (`http://localhost:8090/`). server-time needs no auth in Go, so
-the check is: status 200, `Content-Type: application/json`, body parses to an
-object with keys `date`, `time`, `timezone`, and (with matching `TZ`) `timezone`
-equals the Java baseline's. This is the gate that closes a1.
+service directly (`http://localhost:8090/`). server-time needs no auth in Go. The
+`03-type-a` spec has **two** a1 cases:
+
+1. `returns 200 and an authed JSON body` — status + not-login-HTML.
+2. `shape + IANA timezone (Java/Go parity)` — asserts `Content-Type:
+   application/json`, keys `{date,time,timezone}`, `date`=`yyyy-MM-dd`,
+   `time`=`HH:mm`, and — the timezone-compatibility guarantee — that `timezone`
+   is a **valid IANA id** (`Etc/UTC`, `Asia/Tokyo`, `UTC`, `GMT`), **not** a Go
+   abbreviation like `JST`. This is the check that would fail loudly if the Go
+   port emitted an abbreviation (see §5).
+
+> **Environment note:** the IANA-timezone assertion holds wherever `time.Local`
+> resolves an IANA zone — the Linux container (`TZ=Etc/UTC`) and Linux CI. On a
+> **Windows dev box with `TZ` unset**, the current Go falls back to the
+> abbreviation (`JST`) and this assertion RED-flags it — which is correct: it is
+> exactly the incompatibility the test exists to catch. Run the Go process with
+> `TZ` set (as the container does) for a faithful parity run.
 
 **Level 2 — full strangler integration (later, NOT this task).** Flip the nginx
 route `/rest/server-time` → Go while auth/session stays on Java, then run the
