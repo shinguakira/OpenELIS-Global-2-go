@@ -20,6 +20,7 @@
 // agree — a seed-independent behavioral guarantee, plus strict type checks that
 // catch serialization drift (e.g. Go emitting id as a number instead of "1").
 import { test, expect } from "@playwright/test";
+import { readJson } from "../../fixtures/assert";
 
 const MATH = "rest/math-functions";
 const SAMPLE_ITEM_STATUS = "rest/sample-item-status-types";
@@ -62,15 +63,6 @@ const LOCALE_KEYS = [
   "localeCode",
   "sortOrder",
 ];
-
-async function readJson(res: import("@playwright/test").APIResponse, label: string) {
-  expect(res.status(), `${label} status`).toBe(200);
-  expect(
-    (res.headers()["content-type"] ?? "").toLowerCase(),
-    `${label} content-type`,
-  ).toContain("application/json");
-  return res.json();
-}
 
 // A SupportedLocaleDTO row must have EXACTLY these six keys with these types.
 // The type checks are the serialization contract: id is a string ("1", not 1),
