@@ -13,5 +13,5 @@ test.describe("session", () => {
     expect(s.roles).toContain("Global Administrator");
   });
   // (removed a redundant "server-time responds" 200-only check — server-time is
-  //  fully asserted in 03-type-a.spec.ts, shape + IANA timezone.)
+  //  fully asserted in a1-server-time.spec.ts, shape + IANA timezone.)
 });

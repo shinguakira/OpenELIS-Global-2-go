@@ -200,13 +200,13 @@ No new dependencies. `go build`/`go vet` stay clean.
 ## 7. e2e / parity gate — how we prove it passes
 
 The e2e we already wrote is
-`openelis-api-e2e/tests/readonly/03-type-a.spec.ts`, whose **a1 pilot** case
+`openelis-api-e2e/tests/readonly/a1-server-time.spec.ts`, whose case
 asserts: `GET rest/server-time` → **200** and an authed (non-login-HTML) JSON
 body.
 
 **Level 1 — port correctness (this task).** Run the a1 assertions against the Go
 service directly (`http://localhost:8090/`). server-time needs no auth in Go. The
-`03-type-a` spec has **two** a1 cases:
+`a1-server-time` spec has **two** cases:
 
 1. `returns 200 and an authed JSON body` — status + not-login-HTML.
 2. `shape + IANA timezone (Java/Go parity)` — asserts `Content-Type:

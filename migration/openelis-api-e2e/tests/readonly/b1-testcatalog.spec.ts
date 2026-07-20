@@ -4,7 +4,7 @@
 // leverage reads — everything downstream joins to them — so the port must
 // reproduce their exact shape and, where Java guarantees one, their ORDER.
 //
-// Design (same as 03-type-a): assert the real contract, not "HTTP 200 + not the
+// Design (same as a2-static-reads): assert the real contract, not "HTTP 200 + not the
 // login page". Ordering is asserted ONLY where the Java source guarantees it:
 //   - lab-units → options.sort(compareToIgnoreCase)  → case-insensitive name asc
 //   - panels    → SQL ORDER BY panelName (active only) → name asc (case-insensitive,
