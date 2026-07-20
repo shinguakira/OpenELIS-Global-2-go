@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"os"
 
+	commonrest "openelis-go/internal/common/rest"
 	"openelis-go/internal/common/web"
 	systemrest "openelis-go/internal/system/controller/rest"
+	calculatedrest "openelis-go/internal/testcalculated/controller/rest"
 )
 
 func main() {
@@ -26,7 +28,9 @@ func main() {
 
 	// Register each domain's REST routes (mirrors Spring auto-discovering
 	// @RestController beans). One line per ported domain.
-	systemrest.Routes(mux)
+	systemrest.Routes(mux)     // a1: rest/server-time
+	calculatedrest.Routes(mux) // a2: rest/math-functions
+	commonrest.Routes(mux)     // a2: rest/sample-item-status-types
 
 	srv := &http.Server{Addr: addr, Handler: mux}
 	log.Printf("openelis-go listening on %s", addr)

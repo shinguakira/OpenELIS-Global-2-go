@@ -10,10 +10,16 @@ import (
 
 // WriteJSON writes v as a JSON response — the analog of Spring returning
 // ResponseEntity with produces=APPLICATION_JSON_VALUE.
+//
+// SetEscapeHTML(false) matches Jackson, which does NOT HTML-escape: Java emits
+// ">=", "<=", "&&" literally, whereas Go's encoder defaults to ">=" etc.
+// Disabling it keeps the response bytes identical to the Java baseline.
 func WriteJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(v)
 }
 
 // Register mounts h at both the full proxied path
