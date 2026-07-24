@@ -31,12 +31,12 @@ export default defineConfig({
     },
     // Go port, side-by-side parity: the SAME assertions from the ported migration
     // units run against the Go service. No auth setup (Go needs none), anon cookie
-    // jar. Only ported units are listed in testMatch. Run with:
+    // jar. Only ported units are listed in testMatch — add each unit here as it
+    // passes against Go. Run with:
     //   npx playwright test --project=go-parity   (requires the Go service up)
-    // When a2 is ported, add a2-static-reads.spec.ts to this testMatch.
     {
       name: "go-parity",
-      testMatch: /readonly[\\/]a1-server-time\.spec\.ts/,
+      testMatch: /readonly[\\/](a1-server-time|a2-static-reads)\.spec\.ts/,
       use: {
         baseURL: GO_BASE_URL,
         ignoreHTTPSErrors: true,

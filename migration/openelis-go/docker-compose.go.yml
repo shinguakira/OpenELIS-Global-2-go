@@ -25,6 +25,14 @@ services:
             # resolve the same zone id — that is the compatibility being checked.
             - TZ=${TZ:-UTC}
             - OE_GO_ADDR=:8090
+            # a2: connect to the SAME Postgres as Java. On the shared compose
+            # network the db is reachable by its container name at :5432 (the
+            # host-published :15432 is only for host-run parity checks).
+            - OE_DB_HOST=openelisglobal-database
+            - OE_DB_PORT=5432
+            - OE_DB_NAME=clinlims
+            - OE_DB_USER=postgres
+            - OE_DB_PASSWORD=admin
         networks:
             - default
         restart: unless-stopped

@@ -8,8 +8,12 @@ import (
 	"net/http"
 	"os"
 
+	"openelis-go/internal/common/db"
 	commonrest "openelis-go/internal/common/rest"
 	"openelis-go/internal/common/web"
+	localizationrest "openelis-go/internal/localization/controller/rest"
+	localizationdao "openelis-go/internal/localization/daoimpl"
+	localizationservice "openelis-go/internal/localization/service"
 	systemrest "openelis-go/internal/system/controller/rest"
 	calculatedrest "openelis-go/internal/testcalculated/controller/rest"
 )
@@ -31,6 +35,18 @@ func main() {
 	systemrest.Routes(mux)     // a1: rest/server-time
 	calculatedrest.Routes(mux) // a2: rest/math-functions
 	commonrest.Routes(mux)     // a2: rest/sample-item-status-types
+
+	// a2: rest/supportedlocales{,/active,/fallback} — DB-backed. The static routes
+	// above always work; these register only if Postgres is reachable.
+	if database, err := db.Open(); err != nil {
+		log.Printf("WARN: DB unavailable (%v); supportedlocales routes disabled", err)
+	} else {
+		svc := &localizationservice.SupportedLocaleService{
+			DAO: &localizationdao.SupportedLocaleDAO{DB: database},
+		}
+		localizationrest.Routes(mux, svc)
+		log.Printf("supportedlocales routes enabled (DB connected)")
+	}
 
 	srv := &http.Server{Addr: addr, Handler: mux}
 	log.Printf("openelis-go listening on %s", addr)
