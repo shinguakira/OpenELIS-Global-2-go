@@ -11,14 +11,13 @@
 // Retarget at a Go port:  OE_BASE_URL=https://go-host/... npm test -- a2-static-reads
 //  1. math-functions            → exact 14-operator catalog (compiled-in constant)
 //  2. sample-item-status-types  → exact 3-item list (compiled-in constant)
-//  3. supportedlocales          → full supported_locale list, exact DTO shape
-//  4. supportedlocales/active   → active rows only, ascending sortOrder
-//  5. supportedlocales/fallback → the single fallback locale (object, not array) or 404
+//  3. supportedlocales          → exactly the seeded rows (set-equality; getAll is unordered)
+//  4. supportedlocales/active   → exactly the active rows, ordered by sortOrder
+//  5. supportedlocales/fallback → exactly the fallback row (a single object)
 //
-// The three supportedlocales views are cross-checked against each other, so the
-// filtering (active), selection (fallback) and per-row serialization must all
-// agree — a seed-independent behavioral guarantee, plus strict type checks that
-// catch serialization drift (e.g. Go emitting id as a number instead of "1").
+// supported_locale is stable reference data, so all three assert the EXACT seeded
+// rows (values, types, count, and — where the query guarantees it — order). Exact
+// equality also catches serialization drift (e.g. id as a number instead of "1").
 import { test, expect } from "@playwright/test";
 import { readJson } from "../../fixtures/assert";
 
@@ -54,31 +53,15 @@ const SAMPLE_ITEM_STATUS_TYPES = [
   { id: "disposed", value: "Disposed" },
 ];
 
-// The exact key set of a SupportedLocaleDTO (sorted for comparison).
-const LOCALE_KEYS = [
-  "active",
-  "displayName",
-  "fallback",
-  "id",
-  "localeCode",
-  "sortOrder",
-];
-
-// A SupportedLocaleDTO row must have EXACTLY these six keys with these types.
-// The type checks are the serialization contract: id is a string ("1", not 1),
-// active/fallback are real booleans, sortOrder is an integer. A Go port that
-// diverges on any of these fails here instead of passing silently.
-function assertLocaleShape(row: any, label: string) {
-  expect(Object.keys(row).sort(), `${label} keys`).toEqual(LOCALE_KEYS);
-  expect(typeof row.id, `${label} id is string`).toBe("string");
-  expect(row.id.length, `${label} id non-empty`).toBeGreaterThan(0);
-  expect(typeof row.localeCode, `${label} localeCode is string`).toBe("string");
-  expect(row.localeCode.length, `${label} localeCode non-empty`).toBeGreaterThan(0);
-  expect(typeof row.displayName, `${label} displayName is string`).toBe("string");
-  expect(typeof row.active, `${label} active is boolean`).toBe("boolean");
-  expect(typeof row.fallback, `${label} fallback is boolean`).toBe("boolean");
-  expect(Number.isInteger(row.sortOrder), `${label} sortOrder is integer`).toBe(true);
-}
+// supported_locale is stable reference data (no CRUD in normal operation), so we
+// pin the EXACT seeded rows. Deep equality (toEqual) enforces values, the full key
+// set, types (id "1" is a string, not 1) and count in one shot. Captured live from
+// the Java baseline == the clinlims seed.
+const EN = { id: "1", localeCode: "en", displayName: "English", active: true, fallback: true, sortOrder: 1 };
+const FR = { id: "2", localeCode: "fr", displayName: "Francais", active: true, fallback: false, sortOrder: 2 };
+const LOCALES_ALL = [EN, FR]; // getAll: no ORDER BY → compared order-independently (by id)
+const LOCALES_ACTIVE_ORDERED = [EN, FR]; // is_active rows, ORDER BY sort_order ASC
+const LOCALE_FALLBACK = EN; // the single is_fallback row
 
 test.describe("a2 — static + locale reads (Type A)", () => {
   test("math-functions returns the exact 14-operator catalog", async ({ request }) => {
@@ -93,77 +76,27 @@ test.describe("a2 — static + locale reads (Type A)", () => {
     expect(body, `${SAMPLE_ITEM_STATUS} exact contract`).toEqual(SAMPLE_ITEM_STATUS_TYPES);
   });
 
-  test("supportedlocales returns the full locale list with the exact DTO shape", async ({ request }) => {
+  test("supportedlocales returns exactly the seeded locales", async ({ request }) => {
     const body = await readJson(await request.get(LOCALES), LOCALES);
-    expect(Array.isArray(body), `${LOCALES} is an array`).toBe(true);
-    expect(body.length, `${LOCALES} non-empty`).toBeGreaterThan(0);
-    for (const row of body) assertLocaleShape(row, `${LOCALES} row`);
-
-    // id and localeCode are identifiers — must be unique across the list.
-    const ids = body.map((r: any) => r.id);
-    const codes = body.map((r: any) => r.localeCode);
-    expect(new Set(ids).size, `${LOCALES} id unique`).toBe(ids.length);
-    expect(new Set(codes).size, `${LOCALES} localeCode unique`).toBe(codes.length);
+    // getAll() has no ORDER BY → order is DB-natural, so compare as a set (by id).
+    // Exact values/keys/types/count: catches id-as-number, wrong displayName, an
+    // extra/missing row or key, etc.
+    const byId = [...body].sort((a: any, b: any) => a.id.localeCompare(b.id));
+    expect(byId, `${LOCALES} exact seeded rows`).toEqual(LOCALES_ALL);
   });
 
-  test("supportedlocales/active = the active rows of the full list, ascending sortOrder", async ({ request }) => {
-    const base = await readJson(await request.get(LOCALES), LOCALES);
+  test("supportedlocales/active returns exactly the active locales, ordered by sortOrder", async ({ request }) => {
     const active = await readJson(await request.get(LOCALES_ACTIVE), LOCALES_ACTIVE);
-    expect(Array.isArray(active), `${LOCALES_ACTIVE} is an array`).toBe(true);
-
-    const byId = new Map(base.map((r: any) => [r.id, r]));
-
-    for (const row of active) {
-      assertLocaleShape(row, `${LOCALES_ACTIVE} row`);
-      // The filtering contract: /active must contain ONLY active=true rows.
-      expect(row.active, `${LOCALES_ACTIVE} contains only active=true rows`).toBe(true);
-      // Cross-view serialization parity: the same locale must serialize
-      // identically in /active and in the full list.
-      expect(row, `${LOCALES_ACTIVE} row ${row.id} matches full-list row`).toEqual(
-        byId.get(row.id),
-      );
-    }
-
-    // /active is EXACTLY the active subset of the full list (same id set).
-    const baseActiveIds = base.filter((r: any) => r.active).map((r: any) => r.id).sort();
-    expect(active.map((r: any) => r.id).sort(), `${LOCALES_ACTIVE} = active subset of full list`).toEqual(
-      baseActiveIds,
-    );
-
-    // The ordering contract: ORDER BY sort_order ASC → non-decreasing sortOrder.
-    const orders = active.map((r: any) => r.sortOrder);
-    for (let i = 1; i < orders.length; i++) {
-      expect(
-        orders[i] >= orders[i - 1],
-        `${LOCALES_ACTIVE} sortOrder ascending (index ${i}: ${orders[i - 1]} → ${orders[i]})`,
-      ).toBe(true);
-    }
+    // WHERE is_active ORDER BY sort_order ASC — order IS guaranteed, so assert the
+    // exact ordered list (no inactive row may leak in).
+    expect(active, `${LOCALES_ACTIVE} exact ordered`).toEqual(LOCALES_ACTIVE_ORDERED);
   });
 
-  test("supportedlocales/fallback returns the single fallback locale (object, not array)", async ({ request }) => {
-    const base = await readJson(await request.get(LOCALES), LOCALES);
-    const baseFallback = base.filter((r: any) => r.fallback);
-    const res = await request.get(LOCALES_FALLBACK);
-
-    // Contract: fallback is a single row selection. If the seed has no
-    // fallback=true row, Java returns 404; otherwise a single object (NOT a list).
-    if (baseFallback.length === 0) {
-      expect(res.status(), `${LOCALES_FALLBACK} 404 when no fallback row`).toBe(404);
-      return;
-    }
-
-    const fb = await readJson(res, LOCALES_FALLBACK);
+  test("supportedlocales/fallback returns exactly the fallback locale as a single object", async ({ request }) => {
+    const fb = await readJson(await request.get(LOCALES_FALLBACK), LOCALES_FALLBACK);
+    // A single object, NOT an array; exactly the is_fallback row. (The seed always
+    // has a fallback, so the 404-when-none code path isn't exercised here.)
     expect(Array.isArray(fb), `${LOCALES_FALLBACK} is a single object, not an array`).toBe(false);
-    assertLocaleShape(fb, LOCALES_FALLBACK);
-    expect(fb.fallback, `${LOCALES_FALLBACK} .fallback === true`).toBe(true);
-
-    // It must BE one of the full list's fallback rows, serialized identically.
-    const match = base.find((r: any) => r.id === fb.id);
-    expect(match, `${LOCALES_FALLBACK} row ${fb.id} exists in the full list`).toBeTruthy();
-    expect(fb, `${LOCALES_FALLBACK} matches its full-list row`).toEqual(match);
-    expect(
-      baseFallback.some((r: any) => r.id === fb.id),
-      `${LOCALES_FALLBACK} is a fallback=true row`,
-    ).toBe(true);
+    expect(fb, `${LOCALES_FALLBACK} exact`).toEqual(LOCALE_FALLBACK);
   });
 });
