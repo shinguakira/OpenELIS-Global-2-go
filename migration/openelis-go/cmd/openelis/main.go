@@ -10,6 +10,7 @@ import (
 
 	"openelis-go/internal/common/db"
 	commonrest "openelis-go/internal/common/rest"
+	commonservices "openelis-go/internal/common/services"
 	"openelis-go/internal/common/web"
 	localizationrest "openelis-go/internal/localization/controller/rest"
 	localizationdao "openelis-go/internal/localization/daoimpl"
@@ -45,7 +46,14 @@ func main() {
 			DAO: &localizationdao.SupportedLocaleDAO{DB: database},
 		}
 		localizationrest.Routes(mux, svc)
-		log.Printf("supportedlocales routes enabled (DB connected)")
+
+		// Type-B status-type reads (status_of_sample).
+		if statusSvc, err := commonservices.NewStatusService(database); err != nil {
+			log.Printf("WARN: status service init failed (%v)", err)
+		} else {
+			commonrest.StatusRoutes(mux, statusSvc)
+		}
+		log.Printf("DB-backed routes enabled (supportedlocales, status-types)")
 	}
 
 	srv := &http.Server{Addr: addr, Handler: mux}
