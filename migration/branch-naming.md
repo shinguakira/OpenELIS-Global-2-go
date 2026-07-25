@@ -29,9 +29,18 @@ Convention (migration): `migration/<type><seq>-<slug>` — lowercase kebab.
 | Branch | Scope | Endpoints |
 |--------|-------|-----------|
 | `migration/a1-pilot-server-time` | **First sample migration** — one endpoint ported end-to-end (Go handler + nginx route + parity test) to prove the whole mechanism and rollback. | `GET rest/server-time` |
-| `migration/a2-static-reads` | **All of Type A** — the remaining static / computed / read-only config endpoints. | `configuration-properties`, `open-configuration-properties`, `math-functions`, `analysis-status-types`, `sample-status-types`, `sample-item-status-types`, `supportedlocales/*`, `menu`, `menu/{elementId}`, `admin/menu/{elementId}` |
+| `migration/a2-static-reads` | **Static + first single-table DB reads + status-type reference data.** 7 endpoints; Stages 1–3 complete, Stage 4 (i18n `display_key` lookup) planned. See [a2-static-reads-migration.md](a2-static-reads-migration.md). | `math-functions`, `sample-item-status-types`, `supportedlocales`, `supportedlocales/active`, `supportedlocales/fallback`, `analysis-status-types`, `sample-status-types` |
 
-Both fork from `migration-base`. `a1` is the pilot; `a2` covers Type A in full.
+Both fork from `migration-base`. `a1` is the pilot; `a2` covers the safe static
+and first single-table DB reads including i18n infrastructure for all future units.
+
+Deferred from original a2 list — moved to their own branches:
+
+| Endpoint | Goes to |
+|----------|---------|
+| `open-configuration-properties` | a dedicated config branch |
+| `configuration-properties` | a dedicated config branch |
+| `menu`, `menu/{elementId}`, `admin/menu/{elementId}` | Type C (`migration/c-menu`) |
 
 ---
 
