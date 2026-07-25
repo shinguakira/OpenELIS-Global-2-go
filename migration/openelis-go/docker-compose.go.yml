@@ -33,6 +33,8 @@ services:
             - OE_DB_NAME=clinlims
             - OE_DB_USER=postgres
             - OE_DB_PASSWORD=admin
+        depends_on:
+            - openelisglobal-database
         networks:
             - default
         restart: unless-stopped

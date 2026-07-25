@@ -3,9 +3,7 @@
 # ---- build stage ----
 FROM golang:1.26-alpine AS build
 WORKDIR /src
-# No external deps yet (go.mod only, no go.sum). Copy source and build a static
-# binary so the runtime image can stay minimal.
-COPY go.mod ./
+COPY go.mod go.sum ./
 COPY cmd ./cmd
 COPY internal ./internal
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/openelis ./cmd/openelis
