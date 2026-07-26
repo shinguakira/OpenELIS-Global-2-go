@@ -66,12 +66,14 @@ func main() {
 	}
 	localizationrest.Routes(mux, svc)
 
+	log.Printf("DB-backed routes enabled (supportedlocales)")
+
 	if statusSvc, err := commonservices.NewStatusService(database); err != nil {
-		log.Printf("WARN: status service init failed (%v)", err)
+		log.Printf("WARN: status service init failed (%v); status-type routes disabled", err)
 	} else {
 		commonrest.StatusRoutes(mux, statusSvc)
+		log.Printf("DB-backed routes enabled (status-types)")
 	}
-	log.Printf("DB-backed routes enabled (supportedlocales, status-types)")
 
 	srv := &http.Server{Addr: addr, Handler: mux}
 	log.Printf("openelis-go listening on %s", addr)

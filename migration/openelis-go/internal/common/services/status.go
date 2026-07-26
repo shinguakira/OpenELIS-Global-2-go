@@ -30,7 +30,12 @@ func NewStatusService(db *sql.DB) (*StatusService, error) {
 	return &StatusService{idByKey: m}, rows.Err()
 }
 
-// IDByName returns the status id for (statusType, internal name), or "" if absent.
+// IDByName returns the status id for (statusType, internal name).
+// Returns "-1" if absent — matching Java's StatusService.getStatusID behaviour
+// (returns "-1" when the enum→row map has no entry for the given status).
 func (s *StatusService) IDByName(statusType, name string) string {
-	return s.idByKey[statusType+"\x00"+name]
+	if id, ok := s.idByKey[statusType+"\x00"+name]; ok {
+		return id
+	}
+	return "-1"
 }
