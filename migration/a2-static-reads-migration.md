@@ -141,7 +141,7 @@ mapping against the live schema (Hibernate `@Column`), so the Go SQL matches.
 ## 3. e2e parity gate — STRICT rewrite landed ✅ (Java baseline captured)
 
 The shallow "200 + not-login" a2 loop was **replaced** with strict per-endpoint
-tests in `tests/readonly/03-type-a.spec.ts` (uncommitted; e2e-track). Verified:
+tests in `tests/readonly/a2-static-reads.spec.ts`. Verified:
 **8/8 pass against Java**, and a one-value mutation was confirmed to turn it red
 (the assertions have teeth). Live-captured Java baseline (the frozen contract the
 Go port must reproduce):
@@ -162,9 +162,9 @@ What each test now guarantees (pass ⇒ behavior, not just reachability):
   (same ids, each row serialized identically), non-decreasing `sortOrder`;
   `/fallback` = the full list's single fallback row as an object (or 404 if none).
 
-Remaining at migrate time: extend the `go-parity` grep (currently `/server-time/`)
-to also run these 5 against the Go port. Path already fixed to `supportedlocales`
-(no trailing slash).
+Remaining at migrate time: add `a2-static-reads.spec.ts` to the `go-parity`
+testMatch so these 5 also run against the Go port. Path already fixed to
+`supportedlocales` (no trailing slash).
 
 ---
 

@@ -1,6 +1,6 @@
 // DB oracle — schema + reference-data inventory. These are Java-baseline
 // invariants (post `core`+`harness` fixtures); the Go port must reproduce them
-// against the same schema. Widens the DB assertion surface beyond 02-testcatalog.
+// against the same schema. Widens the DB assertion surface beyond b1-testcatalog.
 import { test, expect } from "@playwright/test";
 import { count, query } from "../../fixtures/db";
 

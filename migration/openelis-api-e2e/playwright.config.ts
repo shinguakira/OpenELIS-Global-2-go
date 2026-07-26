@@ -29,14 +29,14 @@ export default defineConfig({
       use: { storageState: AUTH_STATE },
       workers: 1,
     },
-    // Go port, side-by-side parity: the SAME server-time assertions from
-    // 03-type-a run against the Go service. No auth setup (Go needs none), anon
-    // cookie jar. Run only ported endpoints via grep. Run with:
+    // Go port, side-by-side parity: the SAME assertions from the ported migration
+    // units run against the Go service. No auth setup (Go needs none), anon cookie
+    // jar. Only ported units are listed in testMatch — add each unit here as it
+    // passes against Go. Run with:
     //   npx playwright test --project=go-parity   (requires the Go service up)
     {
       name: "go-parity",
-      testMatch: /readonly[\\/]03-type-a\.spec\.ts/,
-      grep: /server-time/,
+      testMatch: /readonly[\\/](a1-server-time|a2-static-reads)\.spec\.ts/,
       use: {
         baseURL: GO_BASE_URL,
         ignoreHTTPSErrors: true,
