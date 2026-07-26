@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"openelis-go/internal/common/db"
+	"openelis-go/internal/common/i18n"
 	commonrest "openelis-go/internal/common/rest"
 	commonservices "openelis-go/internal/common/services"
 	"openelis-go/internal/common/web"
@@ -68,7 +69,8 @@ func main() {
 
 	log.Printf("DB-backed routes enabled (supportedlocales)")
 
-	if statusSvc, err := commonservices.NewStatusService(database); err != nil {
+	msgs := i18n.Messages()
+	if statusSvc, err := commonservices.NewStatusService(database, msgs); err != nil {
 		log.Printf("WARN: status service init failed (%v); status-type routes disabled", err)
 	} else {
 		commonrest.StatusRoutes(mux, statusSvc)
