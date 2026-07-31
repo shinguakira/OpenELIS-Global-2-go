@@ -1,6 +1,6 @@
 # a2 — Static + first single-table DB reads (scoped migration plan)
 
-Status: **Stages 1–3 complete ✅; Stage 4 (i18n) planned.**
+Status: **All stages complete ✅ (Stages 1–4).**
 Branch: `migration/a2-static-reads` (forked from `migration-base`).
 Companion to [a1-server-time-migration.md](a1-server-time-migration.md),
 [endpoint-migration-taxonomy.md](endpoint-migration-taxonomy.md),
@@ -285,4 +285,4 @@ for all subsequent migration units.
 | 2 | Static handlers: `math-functions`, `sample-item-status-types` | ✅ done |
 | 3 | Postgres wiring + `supported_locale` DAO/service/controller + e2e strict rewrite + `go-parity` extension | ✅ done |
 | 4 | Type-B status reads: `status_of_sample` `StatusService` + `analysis-/sample-status-types` routes (Stage 3 — hardcoded labels) | ✅ done |
-| 5 | **Stage 4 — i18n**: `internal/common/i18n` properties loader, extend `StatusService` to use `display_key`, remove hardcoded labels from `display_list.go` | **planned** |
+| 5 | **Stage 4 — i18n**: `internal/common/i18n` properties loader, extend `StatusService` to use `display_key`, remove hardcoded labels from `display_list.go` | ✅ done |
