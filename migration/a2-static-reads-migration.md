@@ -1,19 +1,19 @@
 # a2 — Static + first single-table DB reads (scoped migration plan)
 
-Status: **investigation saved / NOT YET IMPLEMENTED** (no Go code written yet).
-Branch (to be created by maintainer from `migration-base`):
-`migration/a2-static-reads`.
+Status: **All stages complete ✅ (Stages 1–4).**
+Branch: `migration/a2-static-reads` (forked from `migration-base`).
 Companion to [a1-server-time-migration.md](a1-server-time-migration.md),
 [endpoint-migration-taxonomy.md](endpoint-migration-taxonomy.md),
 [branch-naming.md](branch-naming.md).
 
 This doc captures the source investigation for the a2 batch and freezes the
-**re-scoped** plan agreed with the maintainer: a2 covers **5** endpoints, not
-the 10 originally listed under "Type A static reads".
+**re-scoped** plan agreed with the maintainer: a2 covers **7** endpoints —
+the original 5 low-risk ones plus the 2 status-type endpoints that were pulled
+in mid-branch (they share the same DB infrastructure pattern and belong here).
 
 ---
 
-## 0. Why a2 was re-scoped (10 → 5)
+## 0. Why a2 was re-scoped (10 → 7)
 
 The `branch-naming.md` a2 row listed 10 endpoints as "static / computed /
 read-only config". Reading the Java source shows that framing is wrong for half
@@ -21,34 +21,36 @@ of them — only **2 of 10 are genuinely static**; the rest hit the DB, the
 `ConfigurationProperties` subsystem, or build a cached recursive tree. Porting
 all 10 now would drag Waves 1–5 infrastructure into the pilot.
 
-**a2 is therefore scoped to the 5 low-risk endpoints** and given a coherent
-theme: **"static handlers + the first single-table Postgres read."**
+**a2 is therefore scoped to 7 endpoints** with a coherent theme:
+**"static handlers + first single-table Postgres reads + status-type
+reference data (DB ids + i18n labels)."**
 
-### In scope (5)
+### In scope (7) — all ported ✅
 
-| # | Endpoint | Data source | Bucket |
-|---|----------|-------------|--------|
-| 1 | `GET /rest/math-functions` | hardcoded 14-item list, no DB | **static** |
-| 2 | `GET /rest/sample-item-status-types` | hardcoded 3-item list, no DB | **static** |
-| 3 | `GET /rest/supportedlocales` | `supported_locale` table, `getAll()` unordered | **1-table DB** |
-| 4 | `GET /rest/supportedlocales/active` | same table, `WHERE is_active ORDER BY sort_order ASC` | **1-table DB** |
-| 5 | `GET /rest/supportedlocales/fallback` | same table, single row or 404 | **1-table DB** |
+| # | Endpoint | Data source | Bucket | Stage |
+|---|----------|-------------|--------|-------|
+| 1 | `GET /rest/math-functions` | hardcoded 14-item list, no DB | **static** | 1 |
+| 2 | `GET /rest/sample-item-status-types` | hardcoded 3-item list, no DB | **static** | 1 |
+| 3 | `GET /rest/supportedlocales` | `supported_locale` table, `getAll()` unordered | **1-table DB** | 2 |
+| 4 | `GET /rest/supportedlocales/active` | same table, `WHERE is_active ORDER BY sort_order ASC` | **1-table DB** | 2 |
+| 5 | `GET /rest/supportedlocales/fallback` | same table, single row or 404 | **1-table DB** | 2 |
+| 6 | `GET /rest/analysis-status-types` | `status_of_sample` + `message_en.properties` | **DB + i18n** | 3→4 |
+| 7 | `GET /rest/sample-status-types` | `status_of_sample` + `message_en.properties` | **DB + i18n** | 3→4 |
 
-a2's new capability = **Go → Postgres**, proven on the safest possible table
-(`supported_locale`: one flat table, tiny DTO, one `ORDER BY`, one `WHERE`,
-one single-row lookup). Endpoints 1–2 need no infra beyond the a1 static pattern.
+Endpoints 6–7 were initially listed as "deferred to Type B" in an earlier draft
+but were pulled into a2 mid-branch: they share the same DB connection and follow
+the same `(status_type, name) → id` pattern as the locale endpoints. Stage 3
+ported them with hardcoded English labels; Stage 4 (this plan) replaces the
+hardcoded values with the real `display_key → message_en.properties` lookup
+that Java uses.
 
-### Deferred (5) — moved to their proper branches
+### Deferred (3) — moved to their proper branches
 
 | Endpoint | Why not a2 | Goes to |
 |----------|-----------|---------|
-| `analysis-status-types` | reads `status_of_sample` via `StatusService`; **DB-generated IDs** + localized names | Type B (reference reads) |
-| `sample-status-types` | same `StatusService` / `status_of_sample` mechanism | Type B (reference reads) |
 | `open-configuration-properties` | whole `ConfigurationProperties` subsystem + `site_information` + localization + OAuth/SAML | a dedicated config branch |
 | `configuration-properties` | superset of open-config + name-regex from DB charset; auth-only | a dedicated config branch |
 | `menu` | **Type C** — cached recursive tree + plugin injection + external JSON include/exclude filter | Type C (`migration/c-menu` later) |
-
-`branch-naming.md` a2 row should be updated to reflect this 5-endpoint scope.
 
 ---
 
@@ -138,13 +140,14 @@ mapping against the live schema (Hibernate `@Column`), so the Go SQL matches.
 
 ---
 
-## 3. e2e parity gate — STRICT rewrite landed ✅ (Java baseline captured)
+## 3. e2e parity gate — STRICT ✅ (Java baseline captured, 9/9 pass against Go)
 
 The shallow "200 + not-login" a2 loop was **replaced** with strict per-endpoint
-tests in `tests/readonly/a2-static-reads.spec.ts`. Verified:
-**8/8 pass against Java**, and a one-value mutation was confirmed to turn it red
-(the assertions have teeth). Live-captured Java baseline (the frozen contract the
-Go port must reproduce):
+tests in `tests/readonly/a2-static-reads.spec.ts`.
+`go-parity` runs `a1-server-time.spec.ts` + `a2-static-reads.spec.ts`; all
+**9 tests pass against both Java and Go** (a1: 2 tests, a2: 7 tests).
+
+Live-captured Java baseline (the frozen contract the Go port must reproduce):
 
 | Endpoint | Captured baseline (Java) |
 |----------|--------------------------|
@@ -153,90 +156,133 @@ Go port must reproduce):
 | `supportedlocales` | 2 rows: `en`(active,**fallback**,sort 1), `fr`(active,not-fallback,sort 2); **`id` is a STRING** (`"1"`), `active`/`fallback` booleans, `sortOrder` int |
 | `supportedlocales/active` | same 2 rows (both active), ascending `sortOrder` |
 | `supportedlocales/fallback` | **single object** (not array) = the `en` row; 200 (seed has a fallback) |
+| `analysis-status-types` | `[{id:"0",value:""},{id:"4",value:"Not started"},…]` — 6 entries |
+| `sample-status-types` | `[{id:"0",value:""},{id:"1",value:"No tests have been run…"},…]` — 3 entries |
 
 What each test now guarantees (pass ⇒ behavior, not just reachability):
-- **exact deep-equality** for the two compiled-in lists (any drift/reorder fails);
+- **exact deep-equality** (`toEqual`) for all 7 endpoints — any drift in value,
+  type, count, or key set fails;
 - **strict types** on locale rows (`id` string, `active`/`fallback` boolean,
   `sortOrder` int, exactly the 6 keys) — catches Go serialization drift;
 - **cross-view invariants**: `/active` = the active subset of the full list
   (same ids, each row serialized identically), non-decreasing `sortOrder`;
-  `/fallback` = the full list's single fallback row as an object (or 404 if none).
+  `/fallback` = the full list's single fallback row as an object (or 404 if none);
+- Status-type values are pinned to the live-captured English labels (which come
+  from `message_en.properties` via `display_key` — see Stage 4 below).
 
-Remaining at migrate time: add `a2-static-reads.spec.ts` to the `go-parity`
-testMatch so these 5 also run against the Go port. Path already fixed to
-`supportedlocales` (no trailing slash).
 
 ---
 
-## 3-old. What the e2e checked BEFORE the rewrite  ⚠️ (near nothing)
+## 4. Status-type Java source (endpoints 6–7)
 
-Files: `tests/readonly/03-type-a.spec.ts` (a2 loop) + `playwright.config.ts`
-(`go-parity` project) + `fixtures/contract.ts`.
+Both endpoints are in `DisplayListController.java` (`:459`, `:483`) and call
+`IStatusService.getStatusID(enum)` + `IStatusService.getStatusName(enum)`.
 
-**Per-endpoint, the entire assertion today is:**
+`getStatusName(AnalysisStatus)` traces through:
 ```
-expect(res.status()).toBe(200);
-expect(isAuthedResponse(status, body)).toBe(true);   // body does NOT start with "<!DOCTYPE html"
+StatusService.analysisStatusToObjectMap.get(enum)          → StatusOfSample row
+StatusOfSample.getLocalizedName()                          → BaseObject.getLocalizedName()
+  nameKey = status_of_sample.display_key  (HBM: StatusOfSample.hbm.xml:36)
+  MessageUtil.getContextualMessage(nameKey)                → message_en.properties lookup
+  fallback: StatusOfSample.getDefaultLocalizedName()       → getStatusOfSampleName() = DB `name` col
 ```
-That's it. **No JSON parse, no keys, no values, no count, no ordering, no
-content-type.** This is exactly the "checking 200 is meaningless" problem we
-already fixed for a1 — the a1 pilot has a deep shape + IANA-timezone assertion,
-but the a2 siblings are shallow 200-only.
 
-Concrete gaps for the 5:
+Key finding: **`display_key` is a real column in `status_of_sample`**, mapped via
+the legacy Hibernate HBM file (`src/main/resources/hibernate/hbm/StatusOfSample.hbm.xml:36`)
+as `<property name="nameKey" column="display_key">`. The `@Transient` annotation
+on `BaseObject.nameKey` is overridden by the HBM mapping for this entity.
 
-| Endpoint | In `03-type-a` TYPE_A list? | What's asserted | Runs vs Go? |
-|----------|-----------------------------|-----------------|-------------|
-| `math-functions` | yes | 200 + not-login only | **no** |
-| `sample-item-status-types` | yes | 200 + not-login only | **no** |
-| `supportedlocales` (real, no slash) | **NO** — list has `supportedlocales/` (slash) which **404s** on Java | the real path is untested; the listed one is a failing test | **no** |
-| `supportedlocales/active` | yes | 200 + not-login only | **no** |
-| `supportedlocales/fallback` | yes | 200 + not-login only | **no** |
+`StatusService` builds maps at `@PostConstruct` by matching DB `name` column
+to enum members:
+- `"Not Tested"` → `AnalysisStatus.NotStarted` → `display_key` = `status.test.notStarted`
+  → `message_en.properties` → **"Not started"**
+- `"Test Entered"` → `OrderStatus.Entered` → `display_key` = `status.sample.notStarted`
+  → `message_en.properties` → **"No tests have been run for this sample"**
 
-Plus:
-- **`go-parity` project greps `/server-time/`** — so **none of these 5 run
-  against Go** at all. Zero Go parity coverage today.
-- **`90-endpoint-auth-coverage.spec.ts`** hits the param-less ones too, but only
-  for the same generic check (anon→blocked, authed→app-response) — reachability,
-  not shape.
-
-**Bottom line:** for the 5 a2 endpoints the suite currently proves only "Java
-returns 200 and not the login page" (and even that is broken for
-`supportedlocales/` due to the trailing slash). There is **no behavioral parity
-assertion** and **no Go-side check** yet.
+Relevant keys in `message_en.properties` (lines 6903–6916):
+```
+status.sample.notStarted      = No tests have been run for this sample
+status.sample.started         = Some tests have been run on this sample
+status.test.biologist.reject  = Not accepted by biologist
+status.test.canceled          = Canceled
+status.test.notStarted        = Not started
+status.test.tech.accepted     = Accepted by technician
+status.test.tech.rejected     = Not accepted by technician
+```
 
 ---
 
-## 4. What a real a2 parity gate needs (to add when we migrate — NOT yet)
+## 5. Stage 4 plan — i18n: replace hardcoded labels with real lookup
 
-Behavioral assertions (deep, like a1's), each an exact/near-exact contract:
+**Why:** Stage 3 ported endpoints 6–7 with hardcoded English values (a known
+shortcut). The correct source is `display_key` → `message_en.properties`. Stage 4
+implements the real lookup, matching Java's behavior exactly and establishing the
+shared i18n infrastructure all future migration units will reuse.
 
-- `math-functions`: JSON array of exactly **14** `{id,value}`; assert the full id
-  set (`+ - / * ( ) == != >= <= IS_IN_NORMAL_RANGE IS_OUTSIDE_NORMAL_RANGE && ||`)
-  and their values. Fixed contract → exact equality.
-- `sample-item-status-types`: exactly `[{"","All"},{"active","Active"},
-  {"disposed","Disposed"}]`. Exact equality.
-- `supportedlocales`: array of DTOs with keys `{id, localeCode, displayName,
-  active, fallback, sortOrder}`; assert the key set + expected locale codes.
-- `supportedlocales/active`: subset where `active===true`, **assert
-  `sortOrder` is ascending** (the one ordering behavior).
-- `supportedlocales/fallback`: **single object** (not array) with
-  `fallback===true`, or 404 — assert the shape, not just 200.
+### Step 1 — Properties loader (`internal/common/i18n/properties.go`)
 
-Harness changes:
-- Fix the path: `supportedlocales/` → `supportedlocales` (no slash).
-- Extend `go-parity` grep from `/server-time/` to also match the 5 once ported
-  (or split a dedicated grep list), so the SAME assertions run Java + Go.
-- (e2e edits are the **e2e track** — fork from `develop`, prefix `e2e`, and
-  ask first per `branch-naming.md`.)
+- Parse `src/main/resources/languages/message_en.properties` (key `=` value lines;
+  `#` comment lines ignored; leading/trailing whitespace trimmed).
+- Return `map[string]string` (`"status.test.notStarted"` → `"Not started"`).
+- Use `//go:embed` to bundle the file into the binary at compile time — same
+  immutability guarantee as the Java WAR. The embed path is relative to the Go
+  module root, pointing at the Java source tree.
+- Load once at startup; pass into any service that needs label resolution.
+
+### Step 2 — Extend `StatusService` (`internal/common/services/status.go`)
+
+- Add `display_key` to the query:
+  `SELECT id::text, status_type, name, display_key FROM clinlims.status_of_sample`
+- Accept a `map[string]string` (the properties map) at construction.
+- Store `(status_type + "\x00" + name) → {id, label}` where
+  `label = props[displayKey]` if `displayKey != ""`, else fallback to `name`
+  (mirrors Java's `getDefaultLocalizedName()` path).
+- Expose `EntryByName(statusType, name string) (id, label string)` (or two
+  separate accessors — `IDByName` stays, `LabelByName` is added).
+
+### Step 3 — Remove hardcoded values from `display_list.go`
+
+- Drop the `value string` field from `statusEntry`; the label now comes from
+  `StatusService`.
+- `statusList` calls `svc.EntryByName(e.statusType, e.internalName)` for both id
+  and label in one shot.
+
+### Step 4 — Wire in `main.go`
+
+- Load `i18n.LoadProperties(...)` once at startup → pass `props` to
+  `NewStatusService(db, props)`.
+
+### Fallback / error contract
+
+- Missing `display_key` (empty or null): fall back to the `name` column —
+  same as Java's `getDefaultLocalizedName()`.
+- Missing properties key (key present but not in the file): fall back to the
+  key string itself — same as Java's
+  `localizedName.equals(nameKey.trim())` fallback path.
+- Properties file missing at embed time: compile error — intentional, same as
+  the WAR refusing to build without its resources.
+
+### Cross-cutting note for future migration units
+
+The `display_key` → `message_en.properties` pattern appears in many entities
+beyond `status_of_sample` (`gender`, `type_of_sample`, `test_section`, etc. all
+extend `BaseObject` and likely have `display_key` columns via their own HBM
+files). Every future migration unit that returns a localized name **must**:
+1. Fetch `display_key` alongside the row.
+2. Look it up in the shared `i18n.LoadProperties` map (loaded once at startup).
+3. Fall back to the `name`/`description` column if `display_key` is null/empty.
+
+The `internal/common/i18n` package built in Stage 4 is the shared infrastructure
+for all subsequent migration units.
 
 ---
 
-## 5. Planned commit groups (when implementing — NOT yet)
+## 6. Commit groups (historical + pending)
 
-1. this plan doc + `branch-naming.md` a2 scope update.
-2. static handlers: `math-functions`, `sample-item-status-types`.
-3. Postgres wiring + `supported_locale` DAO/service/controller (the 3 locale reads).
-4. deep parity assertions + `go-parity` extension + trailing-slash fix (e2e track).
-
-No code is written until the maintainer creates `migration/a2-static-reads`.
+| # | Commit | Status |
+|---|--------|--------|
+| 1 | Plan doc + `branch-naming.md` a2 scope update | ✅ done |
+| 2 | Static handlers: `math-functions`, `sample-item-status-types` | ✅ done |
+| 3 | Postgres wiring + `supported_locale` DAO/service/controller + e2e strict rewrite + `go-parity` extension | ✅ done |
+| 4 | Type-B status reads: `status_of_sample` `StatusService` + `analysis-/sample-status-types` routes (Stage 3 — hardcoded labels) | ✅ done |
+| 5 | **Stage 4 — i18n**: `internal/common/i18n` properties loader, extend `StatusService` to use `display_key`, remove hardcoded labels from `display_list.go` | ✅ done |

@@ -4,11 +4,14 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"openelis-go/internal/common/db"
+	"openelis-go/internal/common/i18n"
 	commonrest "openelis-go/internal/common/rest"
 	commonservices "openelis-go/internal/common/services"
 	"openelis-go/internal/common/web"
@@ -37,23 +40,41 @@ func main() {
 	calculatedrest.Routes(mux) // a2: rest/math-functions
 	commonrest.Routes(mux)     // a2: rest/sample-item-status-types
 
-	// a2: rest/supportedlocales{,/active,/fallback} — DB-backed. The static routes
-	// above always work; these register only if Postgres is reachable.
-	if database, err := db.Open(); err != nil {
-		log.Printf("WARN: DB unavailable (%v); supportedlocales routes disabled", err)
-	} else {
-		svc := &localizationservice.SupportedLocaleService{
-			DAO: &localizationdao.SupportedLocaleDAO{DB: database},
-		}
-		localizationrest.Routes(mux, svc)
+	// a2: rest/supportedlocales{,/active,/fallback} + status-type endpoints —
+	// DB-backed. Retry connecting to Postgres so a slow Compose startup (where
+	// the DB container starts before Postgres is ready to accept connections)
+	// does not permanently disable these routes. On exhaustion we log.Fatal so
+	// the restart policy (restart: unless-stopped) retries the whole process.
+	const maxAttempts = 10
+	const retryDelay = 3 * time.Second
 
-		// Type-B status-type reads (status_of_sample).
-		if statusSvc, err := commonservices.NewStatusService(database); err != nil {
-			log.Printf("WARN: status service init failed (%v)", err)
-		} else {
-			commonrest.StatusRoutes(mux, statusSvc)
+	var database *sql.DB
+	for i := 1; i <= maxAttempts; i++ {
+		conn, err := db.Open()
+		if err == nil {
+			database = conn
+			break
 		}
-		log.Printf("DB-backed routes enabled (supportedlocales, status-types)")
+		if i == maxAttempts {
+			log.Fatalf("DB unavailable after %d attempts (%v); exiting so restart policy can retry", maxAttempts, err)
+		}
+		log.Printf("DB not ready (attempt %d/%d): %v — retrying in %s", i, maxAttempts, err, retryDelay)
+		time.Sleep(retryDelay)
+	}
+
+	svc := &localizationservice.SupportedLocaleService{
+		DAO: &localizationdao.SupportedLocaleDAO{DB: database},
+	}
+	localizationrest.Routes(mux, svc)
+
+	log.Printf("DB-backed routes enabled (supportedlocales)")
+
+	msgs := i18n.Messages()
+	if statusSvc, err := commonservices.NewStatusService(database, msgs); err != nil {
+		log.Printf("WARN: status service init failed (%v); status-type routes disabled", err)
+	} else {
+		commonrest.StatusRoutes(mux, statusSvc)
+		log.Printf("DB-backed routes enabled (status-types)")
 	}
 
 	srv := &http.Server{Addr: addr, Handler: mux}
