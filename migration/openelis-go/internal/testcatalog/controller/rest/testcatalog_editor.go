@@ -4,132 +4,81 @@
 package rest
 
 import (
-	"database/sql"
 	"net/http"
-	"sort"
-	"strings"
 
 	"openelis-go/internal/common/web"
+	panelsvc "openelis-go/internal/panel/service"
+	panelvh "openelis-go/internal/panel/valueholder"
+	testsvc "openelis-go/internal/test/service"
+	testvh "openelis-go/internal/test/valueholder"
+	tossvc "openelis-go/internal/typeofsample/service"
+	tosvh "openelis-go/internal/typeofsample/valueholder"
 )
 
-// idNameOption mirrors LabUnitOption / SampleTypeOption / PanelOption: {id, name}.
-type idNameOption struct {
+// idNameDTO mirrors the IdValuePair the Java controller returns for lab-units,
+// sample-types, and panels: {id: string, name: string}.
+type idNameDTO struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-// TestCatalogEditorService provides read access to test_section, type_of_sample, panel.
-type TestCatalogEditorService struct {
-	DB *sql.DB
+func sectionToDTO(ts testvh.TestSection) idNameDTO {
+	return idNameDTO{ID: ts.ID, Name: ts.Name}
 }
 
-// labUnits mirrors listLabUnits():
-// all test sections; English name via localization_value; sorted case-insensitively.
-func (s *TestCatalogEditorService) labUnits() ([]idNameOption, error) {
-	rows, err := s.DB.Query(`
-		SELECT ts.id::text,
-		       COALESCE(lv.value, ts.name, '') AS name
-		FROM clinlims.test_section ts
-		LEFT JOIN clinlims.localization_value lv
-		    ON lv.localization_id = ts.name_localization_id
-		    AND lv.locale = 'en'`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	list := []idNameOption{}
-	for rows.Next() {
-		var opt idNameOption
-		if err := rows.Scan(&opt.ID, &opt.Name); err != nil {
-			return nil, err
-		}
-		list = append(list, opt)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	// Java: options.sort((a,b) -> a.name.compareToIgnoreCase(b.name)).
-	sort.Slice(list, func(i, j int) bool {
-		return strings.ToLower(list[i].Name) < strings.ToLower(list[j].Name)
-	})
-	return list, nil
+func sampleTypeToDTO(t tosvh.TypeOfSample) idNameDTO {
+	return idNameDTO{ID: t.ID, Name: t.Name}
 }
 
-// sampleTypes mirrors listSampleTypes():
-// all type_of_sample ordered by sort_order; name = description || localAbbreviation.
-func (s *TestCatalogEditorService) sampleTypes() ([]idNameOption, error) {
-	rows, err := s.DB.Query(`
-		SELECT id::text,
-		       CASE WHEN description IS NOT NULL AND TRIM(description) != ''
-		            THEN description
-		            ELSE COALESCE(local_abbrev, '') END AS name
-		FROM clinlims.type_of_sample
-		ORDER BY sort_order`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	list := []idNameOption{}
-	for rows.Next() {
-		var opt idNameOption
-		if err := rows.Scan(&opt.ID, &opt.Name); err != nil {
-			return nil, err
-		}
-		list = append(list, opt)
-	}
-	return list, rows.Err()
+func panelToDTO(p panelvh.Panel) idNameDTO {
+	return idNameDTO{ID: p.ID, Name: p.PanelName}
 }
 
-// panels mirrors listPanels():
-// active panels (is_active='Y') ordered by panel name (SQL ORDER BY NAME).
-func (s *TestCatalogEditorService) panels() ([]idNameOption, error) {
-	rows, err := s.DB.Query(`
-		SELECT id::text, COALESCE(name, '') AS name
-		FROM clinlims.panel
-		WHERE is_active = 'Y'
-		ORDER BY name`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	list := []idNameOption{}
-	for rows.Next() {
-		var opt idNameOption
-		if err := rows.Scan(&opt.ID, &opt.Name); err != nil {
-			return nil, err
-		}
-		list = append(list, opt)
-	}
-	return list, rows.Err()
+// TestCatalogEditorRestController mirrors TestCatalogEditorRestController.
+type TestCatalogEditorRestController struct {
+	TestSectionService  *testsvc.TestSectionService
+	TypeOfSampleService *tossvc.TypeOfSampleService
+	PanelService        *panelsvc.PanelService
 }
 
 // Routes registers /rest/test-catalog/lab-units, /sample-types, /panels.
-func Routes(mux *http.ServeMux, svc *TestCatalogEditorService) {
+func Routes(mux *http.ServeMux, ctrl *TestCatalogEditorRestController) {
 	web.Register(mux, "GET", "rest/test-catalog/lab-units", func(w http.ResponseWriter, r *http.Request) {
-		list, err := svc.labUnits()
+		sections, err := ctrl.TestSectionService.GetAllTestSections()
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		web.WriteJSON(w, http.StatusOK, list)
+		dtos := make([]idNameDTO, len(sections))
+		for i, s := range sections {
+			dtos[i] = sectionToDTO(s)
+		}
+		web.WriteJSON(w, http.StatusOK, dtos)
 	})
+
 	web.Register(mux, "GET", "rest/test-catalog/sample-types", func(w http.ResponseWriter, r *http.Request) {
-		list, err := svc.sampleTypes()
+		samples, err := ctrl.TypeOfSampleService.GetAllTypeOfSamplesSortOrdered()
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		web.WriteJSON(w, http.StatusOK, list)
+		dtos := make([]idNameDTO, len(samples))
+		for i, s := range samples {
+			dtos[i] = sampleTypeToDTO(s)
+		}
+		web.WriteJSON(w, http.StatusOK, dtos)
 	})
+
 	web.Register(mux, "GET", "rest/test-catalog/panels", func(w http.ResponseWriter, r *http.Request) {
-		list, err := svc.panels()
+		panels, err := ctrl.PanelService.GetAllActivePanels()
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		web.WriteJSON(w, http.StatusOK, list)
+		dtos := make([]idNameDTO, len(panels))
+		for i, p := range panels {
+			dtos[i] = panelToDTO(p)
+		}
+		web.WriteJSON(w, http.StatusOK, dtos)
 	})
 }

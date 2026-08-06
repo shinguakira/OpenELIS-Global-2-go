@@ -15,15 +15,46 @@ import (
 	commonrest "openelis-go/internal/common/rest"
 	commonservices "openelis-go/internal/common/services"
 	"openelis-go/internal/common/web"
+
+	// dictionarycategory layers
+	dictcatdaoimpl "openelis-go/internal/dictionarycategory/daoimpl"
 	dictcatrest "openelis-go/internal/dictionarycategory/controller/rest"
+	dictcatservice "openelis-go/internal/dictionarycategory/service"
+
+	// localization layers (a2)
 	localizationrest "openelis-go/internal/localization/controller/rest"
 	localizationdao "openelis-go/internal/localization/daoimpl"
 	localizationservice "openelis-go/internal/localization/service"
+
+	// panel layers
+	paneldaoimpl "openelis-go/internal/panel/daoimpl"
+	panelservice "openelis-go/internal/panel/service"
+
+	// system (a1)
 	systemrest "openelis-go/internal/system/controller/rest"
+
+	// test domain layers (TestSection)
+	testdaoimpl "openelis-go/internal/test/daoimpl"
+	testservice "openelis-go/internal/test/service"
+
+	// testcalculated (a2)
 	calculatedrest "openelis-go/internal/testcalculated/controller/rest"
+
+	// testcatalog editor controller
 	testcatalogrest "openelis-go/internal/testcatalog/controller/rest"
+
+	// testconfiguration layers (TestCatalog)
 	testconfigrest "openelis-go/internal/testconfiguration/controller/rest"
+	testconfigservice "openelis-go/internal/testconfiguration/service"
+
+	// typeofsample layers
+	tosdaoimpl "openelis-go/internal/typeofsample/daoimpl"
+	tosservice "openelis-go/internal/typeofsample/service"
+
+	// unitofmeasure layers
+	uomdaoimpl "openelis-go/internal/unitofmeasure/daoimpl"
 	uomrest "openelis-go/internal/unitofmeasure/controller/rest"
+	uomservice "openelis-go/internal/unitofmeasure/service"
 )
 
 func main() {
@@ -70,7 +101,6 @@ func main() {
 		DAO: &localizationdao.SupportedLocaleDAO{DB: database},
 	}
 	localizationrest.Routes(mux, svc)
-
 	log.Printf("DB-backed routes enabled (supportedlocales)")
 
 	msgs := i18n.Messages()
@@ -81,11 +111,45 @@ func main() {
 		log.Printf("DB-backed routes enabled (status-types)")
 	}
 
+	// -----------------------------------------------------------------------
 	// b1: dictionary + test-catalog reference reads.
-	dictcatrest.Routes(mux, &dictcatrest.DictionaryCategoryService{DB: database})
-	uomrest.Routes(mux, &uomrest.UomService{DB: database})
-	testcatalogrest.Routes(mux, &testcatalogrest.TestCatalogEditorService{DB: database})
-	testconfigrest.Routes(mux, &testconfigrest.TestCatalogService{DB: database})
+	// Wire each domain: DAO → service → controller, then register routes.
+	// -----------------------------------------------------------------------
+
+	// dictionarycategory
+	dictcatDAO := &dictcatdaoimpl.DictionaryCategoryDAOImpl{DB: database}
+	dictcatSvc := &dictcatservice.DictionaryCategoryService{DAO: dictcatDAO}
+	dictcatrest.Routes(mux, &dictcatrest.DictionaryMenuRestController{Service: dictcatSvc})
+
+	// unitofmeasure
+	uomDAO := &uomdaoimpl.UnitOfMeasureDAOImpl{DB: database}
+	uomTypeMapDAO := &uomdaoimpl.UomTypeMapDAOImpl{DB: database}
+	uomSvc := &uomservice.UnitOfMeasureService{UomDAO: uomDAO, UomTypeMapDAO: uomTypeMapDAO}
+	uomrest.Routes(mux, &uomrest.UnitOfMeasureRestController{Service: uomSvc})
+
+	// test domain: TestSection (used by TestCatalogEditor + TestCatalog)
+	testSectionDAO := &testdaoimpl.TestSectionDAOImpl{DB: database}
+	testSectionSvc := &testservice.TestSectionService{DAO: testSectionDAO}
+
+	// typeofsample
+	tosDAO := &tosdaoimpl.TypeOfSampleDAOImpl{DB: database}
+	tosSvc := &tosservice.TypeOfSampleService{DAO: tosDAO}
+
+	// panel
+	panelDAO := &paneldaoimpl.PanelDAOImpl{DB: database}
+	panelSvc := &panelservice.PanelService{DAO: panelDAO}
+
+	// testcatalog editor (lab-units, sample-types, panels)
+	testcatalogrest.Routes(mux, &testcatalogrest.TestCatalogEditorRestController{
+		TestSectionService:  testSectionSvc,
+		TypeOfSampleService: tosSvc,
+		PanelService:        panelSvc,
+	})
+
+	// testconfiguration: TestCatalog (full catalog read)
+	testconfigSvc := &testconfigservice.TestCatalogService{DB: database}
+	testconfigrest.Routes(mux, &testconfigrest.TestCatalogRestController{Service: testconfigSvc})
+
 	log.Printf("DB-backed routes enabled (b1: dictionary-categories, uom, test-catalog, TestCatalog)")
 
 	srv := &http.Server{Addr: addr, Handler: mux}
