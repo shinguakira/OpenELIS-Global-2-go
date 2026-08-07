@@ -123,17 +123,35 @@ Endpoints 3–5 all read table `supported_locale` via
 
 Go work a2 introduces (mirroring the Java folder layout, per the
 Java-mirror decision — see [[go-folder-mirrors-java]]):
-- a Postgres connection (`database/sql` + `pq`, or `pgx`) wired from the same env
+- a Postgres connection (`database/sql` + `pq`) wired from the same env
   the Java app uses (`DATABASE_HOST/PORT/NAME/USER/PASSWORD`), pointed at the
   **same** DB the parity harness runs against;
-- `internal/localization/valueholder/` — the `SupportedLocaleDTO` struct
+- `internal/localization/valueholder/` — the `SupportedLocale` struct (plain Go
+  struct, **no JSON tags** — JSON shape is a DTO defined in the controller):
   (`id, localeCode, displayName, active, fallback, sortOrder`);
-- `internal/localization/dao/` — `getAll` / `getAllActive` / `getFallback`
+- `internal/localization/daoimpl/` — `getAll` / `getAllActive` / `getFallback`
   reproducing the exact SQL (incl. `ORDER BY sort_order ASC` on active, and the
-  no-order on getAll);
+  no-order on getAll). **All `database/sql` imports live here only.**
 - `internal/localization/service/` — thin pass-through (mirrors Java service);
 - `internal/localization/controller/rest/` — the 3 routes, `/fallback` before
   `/{id}` in match priority, single-object vs list shapes, 404-on-empty.
+  **No `database/sql` imports; converts valueholder → DTO for JSON output.**
+
+### Go layer structure
+
+Each DB-backed domain in a2 (localization, status-types) follows the same 4-layer
+pattern as b1. SQL lives only in `daoimpl/`; `controller/rest/` is a thin HTTP
+adapter with no SQL and no `database/sql` imports.
+
+| Java layer | Go location | Mandatory content | Forbidden |
+|---|---|---|---|
+| `valueholder/` | `internal/<domain>/valueholder/` | Plain structs, no SQL | JSON tags, `database/sql` |
+| `daoimpl/` | `internal/<domain>/daoimpl/` | SQL queries, `database/sql` | Business logic, HTTP |
+| `service/` | `internal/<domain>/service/` | Business logic, calls DAO | SQL, `database/sql`, HTTP |
+| `controller/rest/` | `internal/<domain>/controller/rest/` | HTTP handler, DTO structs (JSON tags), route registration | SQL, `database/sql`, business logic |
+
+The static handlers (math-functions, sample-item-status-types) have **no DB** and
+consist only of a `controller/rest/` file — the same exception as a1.
 
 **Verify before coding:** the exact column names / `is_active` vs `active`
 mapping against the live schema (Hibernate `@Column`), so the Go SQL matches.

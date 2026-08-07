@@ -17,7 +17,7 @@ response the parity e2e accepts as equivalent to the Java baseline.
 | In scope | Out of scope (later waves) |
 |----------|----------------------------|
 | `GET /rest/server-time` handler in Go | Any other endpoint |
-| Response shape parity with Java | nginx route flip / auth pass-through (§7 Level 2) |
+| Response shape parity with Java | nginx route flip / auth pass-through (§8 Level 2) |
 | Local parity test against the Go service | DB, ORM, FHIR — this endpoint touches none |
 | IANA timezone resolution (the one real risk) | Session auth in Go (proxy/Java keeps owning it) |
 
@@ -73,7 +73,25 @@ emits hash order). Parity compares the *parsed object*, not the raw string.
 
 ---
 
-## 3. Java → Go code mapping
+## 3. Go layer structure
+
+`server-time` is a **Type A** endpoint — static/computed, no DB access, no
+business logic. The Java source has only a controller class; Go mirrors that
+with only a controller file.
+
+| Java layer | Go file | Present? | Why |
+|---|---|---|---|
+| `valueholder/` | — | **no** | No entity — endpoint returns computed values only |
+| `daoimpl/` | — | **no** | No DB access |
+| `service/` | — | **no** | No business logic beyond the controller |
+| `controller/rest/` | `internal/system/controller/rest/system.go` | **yes** | Handler, DTO (inline map), route registration |
+
+For DB-backed endpoints (b1 onward) all four layers are present and the rule is:
+SQL lives only in `daoimpl/`; `controller/rest/` is a thin HTTP adapter only.
+
+---
+
+## 4. Java → Go code mapping
 
 Folder paths **mirror the Java source** (`system/controller/rest/`); the Go
 package for the file is `rest` (the leaf dir), imported as `systemrest`.
@@ -83,13 +101,13 @@ package for the file is `rest` (the leaf dir), imported as `systemrest`.
 | M1 | `@RestController @RequestMapping("/rest")` class (`system/controller/rest/`) | `internal/system/controller/rest/system.go`, `package rest` |
 | M2 | `@GetMapping("/server-time")` | `web.Register(mux, "GET", "rest/server-time", ServerTime)` in `Routes(mux)` |
 | M3 | `Map<String,Object> response = new HashMap<>()` | `map[string]string{...}` |
-| M4 | `ZoneId.systemDefault()` | `systemZoneID()` (TZ env → IANA, §5) |
+| M4 | `ZoneId.systemDefault()` | `systemZoneID()` (TZ env → IANA, §6) |
 | M5 | `LocalDate.now(zone).format(ISO_LOCAL_DATE)` | `time.Now().Format("2006-01-02")` |
 | M6 | `LocalTime.now(zone).format("HH:mm")` | `time.Now().Format("15:04")` |
 | M7 | `zoneId.getId()` | `systemZoneID()` returns the IANA id |
 | M8 | `ResponseEntity.ok(map)` (Jackson → JSON) | `web.WriteJSON(w, 200, map)` (`encoding/json`) |
 | M9 | `produces = APPLICATION_JSON_VALUE` | `web.WriteJSON` sets `Content-Type: application/json` |
-| M10 | Spring Security `/rest/**` authenticated | **not** in Go — auth stays at proxy/Java (§7) |
+| M10 | Spring Security `/rest/**` authenticated | **not** in Go — auth stays at proxy/Java (§8) |
 | M11 | `try/catch → 500` | omitted — no failure path; handler cannot error |
 
 Shared plumbing (`web.Register`, `web.WriteJSON`) lives in
@@ -150,20 +168,20 @@ systemrest.Routes(mux) // a1
 
 ---
 
-## 4. Field-by-field format equivalence
+## 5. Field-by-field format equivalence
 
 | Field | Java format | Go layout | Same? |
 |-------|-------------|-----------|-------|
 | date | `ISO_LOCAL_DATE` = `yyyy-MM-dd` | `2006-01-02` | ✅ identical |
 | time | `HH:mm` (24-hour) | `15:04` | ✅ identical |
-| timezone | `ZoneId.getId()` IANA | `systemZoneID()` | ⚠️ see §5 |
+| timezone | `ZoneId.getId()` IANA | `systemZoneID()` | ⚠️ see §6 |
 
 `date`/`time` are clock-dependent, so parity asserts **format/shape**, not exact
 value (both read the same wall clock in the same zone within a second).
 
 ---
 
-## 5. The one divergence risk: `timezone`
+## 6. The one divergence risk: `timezone`
 
 - Java `ZoneId.systemDefault().getId()` → a full **IANA id** (`Etc/UTC`,
   `Asia/Tokyo`).
@@ -181,7 +199,7 @@ same zone id.
 
 ---
 
-## 6. Files touched
+## 7. Files touched
 
 Folder layout **mirrors the Java source** (`system/controller/rest/…`) during
 migration; idiomatic Go reorg is deferred to the end.
@@ -197,7 +215,7 @@ No new dependencies. `go build`/`go vet` stay clean.
 
 ---
 
-## 7. e2e / parity gate — how we prove it passes
+## 8. e2e / parity gate — how we prove it passes
 
 The e2e we already wrote is
 `openelis-api-e2e/tests/readonly/a1-server-time.spec.ts`, whose case
@@ -214,7 +232,7 @@ service directly (`http://localhost:8090/`). server-time needs no auth in Go. Th
    `time`=`HH:mm`, and — the timezone-compatibility guarantee — that `timezone`
    is a **valid IANA id** (`Etc/UTC`, `Asia/Tokyo`, `UTC`, `GMT`), **not** a Go
    abbreviation like `JST`. This is the check that would fail loudly if the Go
-   port emitted an abbreviation (see §5).
+   port emitted an abbreviation (see §6).
 
 > **Environment note:** the IANA-timezone assertion holds wherever `time.Local`
 > resolves an IANA zone — the Linux container (`TZ=Etc/UTC`) and Linux CI. On a
@@ -234,7 +252,7 @@ the boundary is explicit; it is not required to call the port itself correct.
 
 ---
 
-## 8. Checklist
+## 9. Checklist
 
 - [ ] `system.go` created (handler + `systemZoneID`)
 - [ ] route registered in `router.go`

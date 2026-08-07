@@ -72,6 +72,35 @@ test.describe("b1 — dictionary + test-catalog reference reads", () => {
     // order: getAll() with no ORDER BY → DB-natural, NOT asserted.
   });
 
+  test("uom?type=SAMPLE_COLLECTION: typed subset with {id,value} shape", async ({ request }) => {
+    // Java: getUnitOfMeasuresByType(type) → UomTypeMapDAO → joins uom_type_map.
+    // Liquibase (018-uom-type-mapping-table.xml) seeds mL, uL, tubes, slides for this type.
+    const body = await readJsonArray(await request.get(`${UOM}?type=SAMPLE_COLLECTION`), `${UOM}?type=`);
+    for (const row of body) {
+      expectExactKeys(row, ["id", "value"], `${UOM}?type= row`);
+      expectNonEmptyString(row.id, `${UOM}?type= id`);
+      expect(typeof row.value, `${UOM}?type= value`).toBe("string");
+    }
+    expectUnique(body.map((r: any) => r.id), `${UOM}?type= id`);
+    // DB oracle: row count must match the seeded uom_type_map entries.
+    expect(body.length, `${UOM}?type=SAMPLE_COLLECTION count`).toBe(
+      count("uom_type_map", "uom_type = 'SAMPLE_COLLECTION'"),
+    );
+  });
+
+  test("uom?type=NONEXISTENT: unknown type returns empty array", async ({ request }) => {
+    // Java: getUnitOfMeasuresByType("NONEXISTENT_XYZ") → empty list (no matching rows).
+    const res = await request.get(`${UOM}?type=NONEXISTENT_TYPE_XYZ_999`);
+    expect(res.status(), `${UOM}?type=unknown status`).toBe(200);
+    expect(
+      (res.headers()["content-type"] ?? "").toLowerCase(),
+      `${UOM}?type=unknown content-type`,
+    ).toContain("application/json");
+    const body = await res.json();
+    expect(Array.isArray(body), `${UOM}?type=unknown is array`).toBe(true);
+    expect(body.length, `${UOM}?type=unknown empty`).toBe(0);
+  });
+
   test("test-catalog/lab-units: {id,name}, unique, case-insensitive name order", async ({ request }) => {
     const body = await readJsonArray(await request.get(LAB_UNITS), LAB_UNITS);
     for (const row of body) assertIdName(row, `${LAB_UNITS} row`);
@@ -126,5 +155,7 @@ test.describe("b1 — dictionary + test-catalog reference reads", () => {
     expect(count("test"), "test rows").toBe(BASELINE.test);
     expect(count("dictionary"), "dictionary rows").toBe(BASELINE.dictionary);
     expect(count("type_of_sample"), "sample types").toBe(BASELINE.typeOfSample);
+    // Liquibase (018-uom-type-mapping-table.xml) seeds exactly 4 SAMPLE_COLLECTION UOMs.
+    expect(count("uom_type_map", "uom_type = 'SAMPLE_COLLECTION'"), "SAMPLE_COLLECTION uom_type_map").toBe(4);
   });
 });

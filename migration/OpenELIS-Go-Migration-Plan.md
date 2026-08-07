@@ -61,6 +61,33 @@ the same path. Accept the non-idiomatic structure now; **reorganize into
 idiomatic Go once the port is complete** (that reorg is itself a final migration
 step, verified by the parity suite).
 
+### Layer rules — what goes in each Go file (MANDATORY)
+
+Before writing any Go code for a domain, check `src/main/java/org/openelisglobal/<domain>/`
+and create a corresponding Go file for each Java layer present.
+
+| Java layer | Go file | Contains | Must NOT contain |
+|---|---|---|---|
+| `valueholder/X.java` | `internal/<domain>/valueholder/x.go` | Plain structs; no JSON tags | SQL, HTTP, business logic |
+| `daoimpl/XDAOImpl.java` | `internal/<domain>/daoimpl/x_dao_impl.go` | **All** database/ORM access — SQL, row scanning, projection→entity aggregation | Business logic, HTTP |
+| `service/XServiceImpl.java` | `internal/<domain>/service/x_service_impl.go` | Calls DAO(s); business logic | SQL, HTTP, any DB/ORM import (`database/sql`, `gorm.io/gorm`) |
+| `controller/rest/XRestController.java` | `internal/<domain>/controller/rest/x.go` | Parse request → call service → convert to DTO → write JSON | **SQL, DB/ORM imports, business logic** |
+
+**`daoimpl/` is the only layer allowed to import a database or ORM package.**
+A `*gorm.DB` (or `*sql.DB`) field belongs in a DAO struct and nowhere else.
+Services hold a `*daoimpl.XDAOImpl`, never a DB handle — that is what makes them
+testable without a database.
+
+**The controller/rest layer is a thin HTTP adapter — nothing more.**
+If you find yourself writing a `DB.Raw()`, a `DB.Query()`, or a `for rows.Next()`
+loop in a controller or service file, stop and move it to `daoimpl/`.
+
+JSON tags live on DTO structs **in the controller package**, not on valueholder
+structs. Valueholders are plain Go structs with no serialization concerns.
+
+**Reference implementation:** `internal/localization/` (a2) — one file per Java
+layer, correct separation throughout.
+
 ```
 cmd/openelis/main.go                         # entrypoint; wires each domain's Routes()
 internal/common/web/                          # shared HTTP plumbing (~ org.openelisglobal.common)
