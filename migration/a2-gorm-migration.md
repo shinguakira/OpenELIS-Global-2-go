@@ -1,7 +1,10 @@
 # a2 GORM Migration
 
-Branch: new `migration/a2-gorm` (fork from `migration-base`)  
-Depends on: b1 GORM rewrite (commit c0f2aa6cf) — `gorm.io/gorm v1.31.2` already in `go.mod`
+Branch: `migration/a2-static-reads`
+Depends on: b1 GORM rewrite (merged to `migration-base` via PR #7,
+commit c0f2aa6cf) — `gorm.io/gorm v1.31.2` already in `go.mod` (currently
+marked `// indirect` since nothing on this branch imports it directly yet;
+that clears once the DAO edits below land).
 
 ---
 
@@ -12,10 +15,18 @@ Two a2 files still use raw `database/sql`:
 | File | Current | Change to |
 |---|---|---|
 | `internal/localization/daoimpl/supported_locale_dao_impl.go` | `DB *sql.DB`; manual `rows.Next()/rows.Scan()` | `DB *gorm.DB`; `db.Raw().Scan()` |
-| `internal/common/services/status.go` | `NewStatusService(db *sql.DB, ...)` | `NewStatusService(db *gorm.DB, ...)` |
+| `internal/common/services/status.go` | `NewStatusService(db *sql.DB, ...)` runs `db.Query()` itself | Extract a DAO; `StatusService` takes the DAO, holds no DB handle |
 | `cmd/openelis/main.go` | extracts `sqlDB` from `gormDB.DB()` for a2 | pass `gormDB` directly; remove `sqlDB` extraction |
 
 a1 (system/server-time) has no DB access — no change needed.
+
+**Layer note:** `status.go` currently runs `db.Query()` directly inside a
+`services` package — the same DAO-bypass pattern that Codex/Copilot flagged in
+b1's `TestCatalogService` (fixed in commit 9892eb2a2). Per the tightened rule in
+[OpenELIS-Go-Migration-Plan.md](OpenELIS-Go-Migration-Plan.md) ("`daoimpl/` is
+the only layer allowed to import a database or ORM package"), this migration
+extracts a DAO for status too, rather than just swapping `*sql.DB` → `*gorm.DB`
+in place and carrying the same violation forward.
 
 ---
 
@@ -52,6 +63,9 @@ const cols = `id::text AS id, locale_code, display_name, is_active, is_fallback,
 func (d *SupportedLocaleDAO) GetAll() ([]valueholder.SupportedLocale, error) {
     var list []valueholder.SupportedLocale
     result := d.DB.Raw(`SELECT ` + cols + ` FROM clinlims.supported_locale`).Scan(&list)
+    if list == nil {
+        list = []valueholder.SupportedLocale{}
+    }
     return list, result.Error
 }
 
@@ -60,6 +74,9 @@ func (d *SupportedLocaleDAO) GetAllActive() ([]valueholder.SupportedLocale, erro
     result := d.DB.Raw(
         `SELECT ` + cols + ` FROM clinlims.supported_locale WHERE is_active = true ORDER BY sort_order ASC`,
     ).Scan(&list)
+    if list == nil {
+        list = []valueholder.SupportedLocale{}
+    }
     return list, result.Error
 }
 
@@ -78,31 +95,75 @@ func (d *SupportedLocaleDAO) GetFallback() (*valueholder.SupportedLocale, error)
 }
 ```
 
-Note: the `query()` helper is deleted; the three methods inline the scan directly.
+Note: the `query()` helper is deleted; the three methods inline the scan directly
+(see empty-slice invariant below — inlined directly this time instead of as a
+follow-up).
 
-### 3. `internal/common/services/status.go`
+### 3. New: `internal/common/valueholder/status_row.go`
 
-Replace `*sql.DB` + manual cursor with `*gorm.DB` + `Raw().Scan()`.
-
-Define an internal scan target with exported fields:
+DAO scan target — mirrors the `testconfiguration/valueholder/test_row.go`
+pattern from the b1 fix. Fields exported for GORM reflection.
 
 ```go
-import "gorm.io/gorm"
+// Package valueholder holds DB projections for internal/common domains.
+package valueholder
 
-type statusRow struct {
+// StatusRow is the raw projection of one clinlims.status_of_sample row.
+type StatusRow struct {
     ID         string `gorm:"column:id"`
     StatusType string `gorm:"column:status_type"`
     Name       string `gorm:"column:name"`
     DisplayKey string `gorm:"column:display_key"`
 }
+```
 
-func NewStatusService(db *gorm.DB, msgs map[string]string) (*StatusService, error) {
-    var rows []statusRow
-    result := db.Raw(`
+### 4. New: `internal/common/daoimpl/status_dao_impl.go`
+
+The extracted DAO — the only place in this domain that imports `gorm.io/gorm`:
+
+```go
+// Package daoimpl ports the status_of_sample data access used by StatusService.
+package daoimpl
+
+import (
+    "gorm.io/gorm"
+
+    "openelis-go/internal/common/valueholder"
+)
+
+// StatusDAOImpl reads clinlims.status_of_sample.
+type StatusDAOImpl struct {
+    DB *gorm.DB
+}
+
+// GetAll returns every status_of_sample row.
+func (d *StatusDAOImpl) GetAll() ([]valueholder.StatusRow, error) {
+    var rows []valueholder.StatusRow
+    result := d.DB.Raw(`
         SELECT id::text AS id, status_type, name, COALESCE(display_key, '') AS display_key
         FROM clinlims.status_of_sample`).Scan(&rows)
-    if result.Error != nil {
-        return nil, result.Error
+    return rows, result.Error
+}
+```
+
+### 5. `internal/common/services/status.go`
+
+`StatusService` no longer holds a DB handle. `NewStatusService` takes the DAO,
+calls it once, and builds the in-memory map — pure business logic, no SQL:
+
+```go
+import "openelis-go/internal/common/daoimpl"
+
+type StatusService struct {
+    entryByKey map[string]statusEntry
+}
+
+// NewStatusService loads status_of_sample rows via the DAO into an in-memory
+// map. msgs is the parsed message_en.properties (from i18n.Messages()).
+func NewStatusService(dao *daoimpl.StatusDAOImpl, msgs map[string]string) (*StatusService, error) {
+    rows, err := dao.GetAll()
+    if err != nil {
+        return nil, err
     }
 
     m := map[string]statusEntry{}
@@ -117,13 +178,19 @@ func NewStatusService(db *gorm.DB, msgs map[string]string) (*StatusService, erro
 }
 ```
 
-### 4. `cmd/openelis/main.go`
+`IDByName` / `LabelByName` are unchanged.
 
-Remove the `sqlDB` extraction step; pass `gormDB` directly to both a2 constructors:
+### 6. `cmd/openelis/main.go`
+
+Remove the `sqlDB` extraction step. Wire a `StatusDAOImpl`, pass `gormDB`
+directly to `SupportedLocaleDAO`:
 
 ```go
 // Before:
 sqlDB, err := gormDB.DB()
+if err != nil {
+    log.Fatalf("failed to extract *sql.DB from GORM: %v", err)
+}
 ...
 &localizationdao.SupportedLocaleDAO{DB: sqlDB}
 ...
@@ -132,8 +199,11 @@ commonservices.NewStatusService(sqlDB, msgs)
 // After:
 &localizationdao.SupportedLocaleDAO{DB: gormDB}
 ...
-commonservices.NewStatusService(gormDB, msgs)
+statusDAO := &commondaoimpl.StatusDAOImpl{DB: gormDB}
+commonservices.NewStatusService(statusDAO, msgs)
 ```
+
+Add the import: `commondaoimpl "openelis-go/internal/common/daoimpl"`.
 
 ---
 
@@ -145,20 +215,12 @@ go build ./...
 go vet ./...
 ```
 
-Both must produce no output.
+Both must produce no output. Also confirm no file under `internal/common/services/`
+or `internal/localization/service/` imports `gorm.io/gorm` — only the two
+`daoimpl/` packages should:
 
----
-
-## Empty-slice invariant
-
-`GetAll()` and `GetAllActive()` must still return `[]SupportedLocale{}` (not nil)
-when the table is empty, so the controller serialises `[]` not `null`.
-GORM's `Scan()` into a pre-declared `var list []T` leaves it as nil on zero rows.
-Fix with:
-
-```go
-if list == nil {
-    list = []valueholder.SupportedLocale{}
-}
-return list, result.Error
+```bash
+grep -rl 'gorm.io/gorm' internal/common/services internal/localization/service
 ```
+
+Expect no output.
