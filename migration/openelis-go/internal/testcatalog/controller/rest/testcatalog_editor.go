@@ -5,6 +5,7 @@ package rest
 
 import (
 	"net/http"
+	"strconv"
 
 	"openelis-go/internal/common/web"
 	panelsvc "openelis-go/internal/panel/service"
@@ -23,15 +24,15 @@ type idNameDTO struct {
 }
 
 func sectionToDTO(ts testvh.TestSection) idNameDTO {
-	return idNameDTO{ID: ts.ID, Name: ts.Name}
+	return idNameDTO{ID: strconv.FormatInt(ts.ID, 10), Name: ts.Name}
 }
 
 func sampleTypeToDTO(t tosvh.TypeOfSample) idNameDTO {
-	return idNameDTO{ID: t.ID, Name: t.Name}
+	return idNameDTO{ID: strconv.FormatInt(t.ID, 10), Name: t.Name}
 }
 
 func panelToDTO(p panelvh.Panel) idNameDTO {
-	return idNameDTO{ID: p.ID, Name: p.PanelName}
+	return idNameDTO{ID: strconv.FormatInt(p.ID, 10), Name: p.PanelName}
 }
 
 // TestCatalogEditorRestController mirrors TestCatalogEditorRestController.

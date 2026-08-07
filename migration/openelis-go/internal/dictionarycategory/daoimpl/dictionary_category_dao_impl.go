@@ -9,23 +9,24 @@ import (
 )
 
 // DictionaryCategoryDAOImpl ports DictionaryCategoryDAOImpl — reads
-// clinlims.dictionary_category via GORM.
+// clinlims.dictionary_category via GORM's query builder (Select + Find), the
+// same auto-generated-SQL path Hibernate uses for simple entity reads. The
+// Select() fragment is needed only for the COALESCE(...,'') null-guards — the
+// FROM clause comes from DictionaryCategory.TableName(), not a manual string.
 type DictionaryCategoryDAOImpl struct {
 	DB *gorm.DB
 }
 
 // GetAll mirrors BaseDAOImpl.getAll() — every row, no ORDER BY (DB-natural order).
 // Java: DictionaryCategoryServiceImpl inherits getAll() from BaseObjectService.
-// id::text cast is explicit — OpenELIS PKs are BIGSERIAL but Java exposes them
-// as String; GORM Raw keeps that cast rather than relying on pgx type coercion.
 func (d *DictionaryCategoryDAOImpl) GetAll() ([]valueholder.DictionaryCategory, error) {
 	var categories []valueholder.DictionaryCategory
-	result := d.DB.Raw(`
-		SELECT id::text                          AS id,
-		       COALESCE(description, '')         AS description,
-		       COALESCE(local_abbrev, '')        AS local_abbreviation,
-		       COALESCE(name, '')               AS category_name,
-		       lastupdated
-		FROM clinlims.dictionary_category`).Scan(&categories)
+	result := d.DB.
+		Select(`id,
+		        COALESCE(description, '')   AS description,
+		        COALESCE(local_abbrev, '')  AS local_abbreviation,
+		        COALESCE(name, '')          AS category_name,
+		        lastupdated`).
+		Find(&categories)
 	return categories, result.Error
 }

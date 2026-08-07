@@ -6,13 +6,19 @@ import "time"
 
 // DictionaryCategory mirrors dictionarycategory/valueholder/DictionaryCategory.java.
 // Maps to clinlims.dictionary_category.
+// ID is int64 — the real Postgres BIGSERIAL type, no cast needed for GORM to
+// scan it. Java's getId() returns String; that conversion happens at the DTO
+// boundary in the controller (strconv.FormatInt), not here — same split as
+// Hibernate entity (native type) vs Jackson DTO (serialized shape).
 // Lastupdated is *time.Time; nil when the DB row has no timestamp.
-// The controller converts *time.Time → *int64 (epoch ms) for JSON output to match
-// Jackson's default Date serialisation.
 type DictionaryCategory struct {
-	ID                string     `gorm:"column:id"`
+	ID                int64      `gorm:"column:id"`
 	Description       string     `gorm:"column:description"`
 	LocalAbbreviation string     `gorm:"column:local_abbreviation"`
 	CategoryName      string     `gorm:"column:category_name"`
 	Lastupdated       *time.Time `gorm:"column:lastupdated"`
 }
+
+// TableName pins the GORM table name — clinlims schema, singular (Postgres
+// table is not pluralized), overriding GORM's default pluralization guess.
+func (DictionaryCategory) TableName() string { return "clinlims.dictionary_category" }
