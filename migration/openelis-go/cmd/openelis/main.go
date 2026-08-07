@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"openelis-go/internal/common/db"
+	commondaoimpl "openelis-go/internal/common/daoimpl"
 	"openelis-go/internal/common/i18n"
 	commonrest "openelis-go/internal/common/rest"
 	commonservices "openelis-go/internal/common/services"
@@ -98,22 +99,16 @@ func main() {
 		time.Sleep(retryDelay)
 	}
 
-	// a2 domains (localization, status-types) use *sql.DB — extract from GORM
-	// to share the single underlying connection pool.
-	sqlDB, err := gormDB.DB()
-	if err != nil {
-		log.Fatalf("failed to extract *sql.DB from GORM: %v", err)
-	}
-
 	// a2: rest/supportedlocales{,/active,/fallback}
 	svc := &localizationservice.SupportedLocaleService{
-		DAO: &localizationdao.SupportedLocaleDAO{DB: sqlDB},
+		DAO: &localizationdao.SupportedLocaleDAO{DB: gormDB},
 	}
 	localizationrest.Routes(mux, svc)
 	log.Printf("DB-backed routes enabled (supportedlocales)")
 
 	msgs := i18n.Messages()
-	if statusSvc, err := commonservices.NewStatusService(sqlDB, msgs); err != nil {
+	statusDAO := &commondaoimpl.StatusDAOImpl{DB: gormDB}
+	if statusSvc, err := commonservices.NewStatusService(statusDAO, msgs); err != nil {
 		log.Printf("WARN: status service init failed (%v); status-type routes disabled", err)
 	} else {
 		commonrest.StatusRoutes(mux, statusSvc)
