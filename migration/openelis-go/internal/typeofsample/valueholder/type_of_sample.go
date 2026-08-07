@@ -6,7 +6,7 @@ package valueholder
 // clinlims.type_of_sample. Name is the display name returned by the endpoint:
 // description when non-empty, otherwise localAbbreviation.
 type TypeOfSample struct {
-	ID        string
-	Name      string
-	SortOrder int
+	ID        string `gorm:"column:id"`
+	Name      string `gorm:"column:name"`
+	SortOrder int    `gorm:"column:sort_order"`
 }

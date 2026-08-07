@@ -5,6 +5,6 @@ package valueholder
 // UnitOfMeasure mirrors unitofmeasure/valueholder/UnitOfMeasure.java.
 // Maps to clinlims.unit_of_measure columns.
 type UnitOfMeasure struct {
-	ID   string
-	Name string
+	ID   string `gorm:"column:id"`
+	Name string `gorm:"column:name"`
 }

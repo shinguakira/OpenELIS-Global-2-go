@@ -6,6 +6,6 @@ package valueholder
 // clinlims.test_section. Name holds the English localized name (resolved from
 // localization_value JOIN); falls back to the raw name column.
 type TestSection struct {
-	ID   string
-	Name string
+	ID   string `gorm:"column:id"`
+	Name string `gorm:"column:name"`
 }

@@ -4,6 +4,6 @@ package valueholder
 
 // Panel mirrors panel/valueholder/Panel.java — one row of clinlims.panel.
 type Panel struct {
-	ID        string
-	PanelName string
+	ID        string `gorm:"column:id"`
+	PanelName string `gorm:"column:panel_name"`
 }

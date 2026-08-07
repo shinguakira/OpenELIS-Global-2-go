@@ -4,11 +4,12 @@
 package main
 
 import (
-	"database/sql"
 	"log"
 	"net/http"
 	"os"
 	"time"
+
+	"gorm.io/gorm"
 
 	"openelis-go/internal/common/db"
 	"openelis-go/internal/common/i18n"
@@ -75,19 +76,18 @@ func main() {
 	calculatedrest.Routes(mux) // a2: rest/math-functions
 	commonrest.Routes(mux)     // a2: rest/sample-item-status-types
 
-	// a2: rest/supportedlocales{,/active,/fallback} + status-type endpoints —
-	// DB-backed. Retry connecting to Postgres so a slow Compose startup (where
-	// the DB container starts before Postgres is ready to accept connections)
-	// does not permanently disable these routes. On exhaustion we log.Fatal so
-	// the restart policy (restart: unless-stopped) retries the whole process.
+	// Connect to Postgres via GORM. Retry so a slow Compose startup (where
+	// the DB container starts before Postgres is ready) does not permanently
+	// disable DB-backed routes. On exhaustion we log.Fatal so the restart
+	// policy (restart: unless-stopped) retries the whole process.
 	const maxAttempts = 10
 	const retryDelay = 3 * time.Second
 
-	var database *sql.DB
+	var gormDB *gorm.DB
 	for i := 1; i <= maxAttempts; i++ {
-		conn, err := db.Open()
+		conn, err := db.OpenGORM()
 		if err == nil {
-			database = conn
+			gormDB = conn
 			break
 		}
 		if i == maxAttempts {
@@ -97,14 +97,22 @@ func main() {
 		time.Sleep(retryDelay)
 	}
 
+	// a2 domains (localization, status-types) use *sql.DB — extract from GORM
+	// to share the single underlying connection pool.
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		log.Fatalf("failed to extract *sql.DB from GORM: %v", err)
+	}
+
+	// a2: rest/supportedlocales{,/active,/fallback}
 	svc := &localizationservice.SupportedLocaleService{
-		DAO: &localizationdao.SupportedLocaleDAO{DB: database},
+		DAO: &localizationdao.SupportedLocaleDAO{DB: sqlDB},
 	}
 	localizationrest.Routes(mux, svc)
 	log.Printf("DB-backed routes enabled (supportedlocales)")
 
 	msgs := i18n.Messages()
-	if statusSvc, err := commonservices.NewStatusService(database, msgs); err != nil {
+	if statusSvc, err := commonservices.NewStatusService(sqlDB, msgs); err != nil {
 		log.Printf("WARN: status service init failed (%v); status-type routes disabled", err)
 	} else {
 		commonrest.StatusRoutes(mux, statusSvc)
@@ -113,30 +121,31 @@ func main() {
 
 	// -----------------------------------------------------------------------
 	// b1: dictionary + test-catalog reference reads.
+	// All b1 DAOs receive *gorm.DB.
 	// Wire each domain: DAO → service → controller, then register routes.
 	// -----------------------------------------------------------------------
 
 	// dictionarycategory
-	dictcatDAO := &dictcatdaoimpl.DictionaryCategoryDAOImpl{DB: database}
+	dictcatDAO := &dictcatdaoimpl.DictionaryCategoryDAOImpl{DB: gormDB}
 	dictcatSvc := &dictcatservice.DictionaryCategoryService{DAO: dictcatDAO}
 	dictcatrest.Routes(mux, &dictcatrest.DictionaryMenuRestController{Service: dictcatSvc})
 
 	// unitofmeasure
-	uomDAO := &uomdaoimpl.UnitOfMeasureDAOImpl{DB: database}
-	uomTypeMapDAO := &uomdaoimpl.UomTypeMapDAOImpl{DB: database}
+	uomDAO := &uomdaoimpl.UnitOfMeasureDAOImpl{DB: gormDB}
+	uomTypeMapDAO := &uomdaoimpl.UomTypeMapDAOImpl{DB: gormDB}
 	uomSvc := &uomservice.UnitOfMeasureService{UomDAO: uomDAO, UomTypeMapDAO: uomTypeMapDAO}
 	uomrest.Routes(mux, &uomrest.UnitOfMeasureRestController{Service: uomSvc})
 
 	// test domain: TestSection (used by TestCatalogEditor + TestCatalog)
-	testSectionDAO := &testdaoimpl.TestSectionDAOImpl{DB: database}
+	testSectionDAO := &testdaoimpl.TestSectionDAOImpl{DB: gormDB}
 	testSectionSvc := &testservice.TestSectionService{DAO: testSectionDAO}
 
 	// typeofsample
-	tosDAO := &tosdaoimpl.TypeOfSampleDAOImpl{DB: database}
+	tosDAO := &tosdaoimpl.TypeOfSampleDAOImpl{DB: gormDB}
 	tosSvc := &tosservice.TypeOfSampleService{DAO: tosDAO}
 
 	// panel
-	panelDAO := &paneldaoimpl.PanelDAOImpl{DB: database}
+	panelDAO := &paneldaoimpl.PanelDAOImpl{DB: gormDB}
 	panelSvc := &panelservice.PanelService{DAO: panelDAO}
 
 	// testcatalog editor (lab-units, sample-types, panels)
@@ -147,7 +156,7 @@ func main() {
 	})
 
 	// testconfiguration: TestCatalog (full catalog read)
-	testconfigSvc := &testconfigservice.TestCatalogService{DB: database}
+	testconfigSvc := &testconfigservice.TestCatalogService{DB: gormDB}
 	testconfigrest.Routes(mux, &testconfigrest.TestCatalogRestController{Service: testconfigSvc})
 
 	log.Printf("DB-backed routes enabled (b1: dictionary-categories, uom, test-catalog, TestCatalog)")

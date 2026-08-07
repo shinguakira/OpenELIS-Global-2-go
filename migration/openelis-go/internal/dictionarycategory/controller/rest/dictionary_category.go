@@ -12,7 +12,8 @@ import (
 )
 
 // dictCategoryDTO is the JSON shape for each DictionaryCategory row.
-// lastupdated is omitted when nil: mirrors Jackson @JsonInclude(NON_NULL).
+// lastupdated is epoch-milliseconds (int64) to match Jackson's default Date
+// serialisation; omitted when nil (mirrors @JsonInclude(NON_NULL)).
 type dictCategoryDTO struct {
 	ID                string `json:"id"`
 	Description       string `json:"description"`
@@ -21,14 +22,21 @@ type dictCategoryDTO struct {
 	Lastupdated       *int64 `json:"lastupdated,omitempty"`
 }
 
+// toDTO converts a DictionaryCategory valueholder to its JSON DTO.
+// Lastupdated *time.Time → *int64 (epoch ms) so the JSON output is identical
+// to what Jackson produces for Java Date fields.
 func toDTO(c valueholder.DictionaryCategory) dictCategoryDTO {
-	return dictCategoryDTO{
+	dto := dictCategoryDTO{
 		ID:                c.ID,
 		Description:       c.Description,
 		LocalAbbreviation: c.LocalAbbreviation,
 		CategoryName:      c.CategoryName,
-		Lastupdated:       c.Lastupdated,
 	}
+	if c.Lastupdated != nil {
+		ms := c.Lastupdated.UnixMilli()
+		dto.Lastupdated = &ms
+	}
+	return dto
 }
 
 // DictionaryMenuRestController mirrors DictionaryMenuRestController.

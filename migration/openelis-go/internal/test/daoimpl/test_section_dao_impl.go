@@ -3,38 +3,27 @@
 package daoimpl
 
 import (
-	"database/sql"
+	"gorm.io/gorm"
 
 	"openelis-go/internal/test/valueholder"
 )
 
-// TestSectionDAOImpl ports TestSectionDAOImpl — reads clinlims.test_section.
+// TestSectionDAOImpl ports TestSectionDAOImpl — reads clinlims.test_section
+// via GORM.
 type TestSectionDAOImpl struct {
-	DB *sql.DB
+	DB *gorm.DB
 }
 
 // GetAll mirrors TestSectionDAOImpl.getAllTestSections() — every section with
 // English name resolved from localization_value; falls back to the raw name column.
 func (d *TestSectionDAOImpl) GetAll() ([]valueholder.TestSection, error) {
-	rows, err := d.DB.Query(`
-		SELECT ts.id::text,
+	var sections []valueholder.TestSection
+	result := d.DB.Raw(`
+		SELECT ts.id::text AS id,
 		       COALESCE(lv.value, ts.name, '') AS name
 		FROM clinlims.test_section ts
 		LEFT JOIN clinlims.localization_value lv
 		    ON lv.localization_id = ts.name_localization_id
-		    AND lv.locale = 'en'`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	list := []valueholder.TestSection{}
-	for rows.Next() {
-		var ts valueholder.TestSection
-		if err := rows.Scan(&ts.ID, &ts.Name); err != nil {
-			return nil, err
-		}
-		list = append(list, ts)
-	}
-	return list, rows.Err()
+		    AND lv.locale = 'en'`).Scan(&sections)
+	return sections, result.Error
 }

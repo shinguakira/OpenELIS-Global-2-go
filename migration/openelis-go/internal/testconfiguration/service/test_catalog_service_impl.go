@@ -6,10 +6,10 @@
 package service
 
 import (
-	"database/sql"
 	"math"
 	"sort"
-	"strconv"
+
+	"gorm.io/gorm"
 
 	locvh "openelis-go/internal/localization/valueholder"
 	"openelis-go/internal/testconfiguration/form"
@@ -17,23 +17,34 @@ import (
 )
 
 // testRow is the raw DB projection from fetchTests — internal to the service.
+// Fields are exported so GORM's Scan can populate them via reflection.
 type testRow struct {
-	testID      string
-	sectionName string
-	sortOrder   int64
-	locID       sql.NullString
-	sampleType  string
-	active      string
-	orderable   string
-	loinc       sql.NullString
-	uomName     string
+	TestID      string  `gorm:"column:test_id"`
+	SectionName string  `gorm:"column:section_name"`
+	SortOrder   int64   `gorm:"column:sort_order"`
+	LocID       *string `gorm:"column:name_localization_id"`
+	SampleType  string  `gorm:"column:sample_type"`
+	Active      string  `gorm:"column:is_active"`
+	Orderable   string  `gorm:"column:orderable"`
+	Loinc       *string `gorm:"column:loinc"`
+	UomName     string  `gorm:"column:uom_name"`
 }
 
-// TestCatalogService assembles the TestCatalogForm from the DB.
+// locRow is the raw DB projection from fetchLocalizations — internal to the service.
+type locRow struct {
+	LocID         string  `gorm:"column:localization_id"`
+	Description   *string `gorm:"column:description"`
+	LastupdatedMs *int64  `gorm:"column:lastupdated_ms"`
+	LvID          string  `gorm:"column:lv_id"`
+	Locale        string  `gorm:"column:locale"`
+	Value         string  `gorm:"column:value"`
+}
+
+// TestCatalogService assembles the TestCatalogForm from the DB via GORM.
 // Mirrors the read path of TestCatalogRestController.showTestCatalog() +
 // createTestList().
 type TestCatalogService struct {
-	DB *sql.DB
+	DB *gorm.DB
 }
 
 // BuildForm mirrors TestCatalogRestController.showTestCatalog() +
@@ -57,9 +68,9 @@ func (s *TestCatalogService) BuildForm() (*form.TestCatalogForm, error) {
 	locIDs := make([]string, 0, len(tests))
 	seenLoc := map[string]bool{}
 	for _, t := range tests {
-		if t.locID.Valid && !seenLoc[t.locID.String] {
-			locIDs = append(locIDs, t.locID.String)
-			seenLoc[t.locID.String] = true
+		if t.LocID != nil && !seenLoc[*t.LocID] {
+			locIDs = append(locIDs, *t.LocID)
+			seenLoc[*t.LocID] = true
 		}
 	}
 	locMap, err := s.fetchLocalizations(locIDs)
@@ -69,13 +80,13 @@ func (s *TestCatalogService) BuildForm() (*form.TestCatalogForm, error) {
 
 	// Sort by (sectionName, sampleType, testSortOrder) — mirrors Java Comparator.
 	sort.SliceStable(tests, func(i, j int) bool {
-		if tests[i].sectionName != tests[j].sectionName {
-			return tests[i].sectionName < tests[j].sectionName
+		if tests[i].SectionName != tests[j].SectionName {
+			return tests[i].SectionName < tests[j].SectionName
 		}
-		if tests[i].sampleType != tests[j].sampleType {
-			return tests[i].sampleType < tests[j].sampleType
+		if tests[i].SampleType != tests[j].SampleType {
+			return tests[i].SampleType < tests[j].SampleType
 		}
-		return tests[i].sortOrder < tests[j].sortOrder
+		return tests[i].SortOrder < tests[j].SortOrder
 	})
 
 	catalogList := make([]testvh.TestCatalog, 0, len(tests))
@@ -84,43 +95,43 @@ func (s *TestCatalogService) BuildForm() (*form.TestCatalogForm, error) {
 
 	for _, t := range tests {
 		loc := locvh.Localization{Values: map[string]locvh.LocalizationValue{}}
-		if t.locID.Valid {
-			if entry, ok := locMap[t.locID.String]; ok {
+		if t.LocID != nil {
+			if entry, ok := locMap[*t.LocID]; ok {
 				loc = entry
 			}
 		}
 
 		active := "Active"
-		if t.active != "Y" {
+		if t.Active != "Y" {
 			active = "Not active"
 		}
 		orderable := "Orderable"
-		if t.orderable != "true" {
+		if t.Orderable != "true" {
 			orderable = "Not orderable"
 		}
 
 		item := testvh.TestCatalog{
-			ID:                t.testID,
-			Localization:      loc,
-			TestUnit:          t.sectionName,
-			SampleType:        t.sampleType,
-			Panel:             "None",
-			ResultType:        "",
-			Active:            active,
-			Orderable:         orderable,
-			Uom:               t.uomName,
-			SignificantDigits:  "n/a",
-			TestSortOrder:     t.sortOrder,
+			ID:               t.TestID,
+			Localization:     loc,
+			TestUnit:         t.SectionName,
+			SampleType:       t.SampleType,
+			Panel:            "None",
+			ResultType:       "",
+			Active:           active,
+			Orderable:        orderable,
+			Uom:              t.UomName,
+			SignificantDigits: "n/a",
+			TestSortOrder:    t.SortOrder,
 		}
-		if t.loinc.Valid {
-			v := t.loinc.String
+		if t.Loinc != nil {
+			v := *t.Loinc
 			item.Loinc = &v
 		}
 		catalogList = append(catalogList, item)
 
-		if !seenSections[t.sectionName] {
-			seenSections[t.sectionName] = true
-			sectionList = append(sectionList, t.sectionName)
+		if !seenSections[t.SectionName] {
+			seenSections[t.SectionName] = true
+			sectionList = append(sectionList, t.SectionName)
 		}
 	}
 
@@ -134,18 +145,20 @@ func (s *TestCatalogService) BuildForm() (*form.TestCatalogForm, error) {
 // fetchTests returns all tests with their section names and basic fields for sorting.
 // Uses a LATERAL subquery to pick the first sample type per test (mirrors Java's
 // typeOfSampleTests.get(0)).
+// GORM Raw + Scan replaces manual rows.Next() / rows.Scan() cursor iteration.
 func (s *TestCatalogService) fetchTests() ([]testRow, error) {
-	rows, err := s.DB.Query(`
+	var rows []testRow
+	result := s.DB.Raw(`
 		SELECT
-		    t.id::text,
-		    COALESCE(ts_lv.value, ts.name, '') AS section_name,
-		    COALESCE(t.sort_order, $1)::bigint  AS sort_order,
-		    t.name_localization_id::text,
-		    COALESCE(tos_lv.value, tos.description, tos.local_abbrev, 'n/a') AS sample_type,
-		    COALESCE(t.is_active, 'N'),
-		    COALESCE(t.orderable::text, 'false'),
-		    t.loinc,
-		    COALESCE(uom.name, 'n/a') AS uom_name
+		    t.id::text                                                              AS test_id,
+		    COALESCE(ts_lv.value, ts.name, '')                                     AS section_name,
+		    COALESCE(t.sort_order, ?)::bigint                                       AS sort_order,
+		    t.name_localization_id::text                                            AS name_localization_id,
+		    COALESCE(tos_lv.value, tos.description, tos.local_abbrev, 'n/a')       AS sample_type,
+		    COALESCE(t.is_active, 'N')                                              AS is_active,
+		    COALESCE(t.orderable::text, 'false')                                    AS orderable,
+		    t.loinc                                                                 AS loinc,
+		    COALESCE(uom.name, 'n/a')                                              AS uom_name
 		FROM clinlims.test t
 		LEFT JOIN clinlims.test_section ts ON ts.id = t.test_section_id
 		LEFT JOIN clinlims.localization_value ts_lv ON (
@@ -162,92 +175,56 @@ func (s *TestCatalogService) fetchTests() ([]testRow, error) {
 		    tos_lv.localization_id = tos.name_localization_id AND tos_lv.locale = 'en'
 		)
 		LEFT JOIN clinlims.unit_of_measure uom ON uom.id = t.uom_id`,
-		math.MaxInt32)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var list []testRow
-	for rows.Next() {
-		var r testRow
-		if err := rows.Scan(
-			&r.testID,
-			&r.sectionName,
-			&r.sortOrder,
-			&r.locID,
-			&r.sampleType,
-			&r.active,
-			&r.orderable,
-			&r.loinc,
-			&r.uomName,
-		); err != nil {
-			return nil, err
-		}
-		list = append(list, r)
-	}
-	return list, rows.Err()
+		math.MaxInt32).Scan(&rows)
+	return rows, result.Error
 }
 
 // fetchLocalizations builds a localizationID → Localization map for the given IDs.
+// GORM Raw handles the IN ? clause with a slice natively — no manual placeholder
+// building required.
 func (s *TestCatalogService) fetchLocalizations(ids []string) (map[string]locvh.Localization, error) {
 	if len(ids) == 0 {
 		return map[string]locvh.Localization{}, nil
 	}
 
-	placeholders := make([]any, len(ids))
-	paramSQL := "$1"
-	for i, id := range ids {
-		placeholders[i] = id
-		if i > 0 {
-			paramSQL += ", $" + strconv.Itoa(i+1)
-		}
+	var rows []locRow
+	result := s.DB.Raw(`
+		SELECT lv.localization_id::text                              AS localization_id,
+		       l.description                                         AS description,
+		       EXTRACT(EPOCH FROM l.lastupdated)::bigint * 1000      AS lastupdated_ms,
+		       lv.id::text                                           AS lv_id,
+		       lv.locale                                             AS locale,
+		       lv.value                                              AS value
+		FROM clinlims.localization l
+		JOIN clinlims.localization_value lv ON lv.localization_id = l.id
+		WHERE l.id IN ?`, ids).Scan(&rows)
+	if result.Error != nil {
+		return nil, result.Error
 	}
 
-	q := `SELECT lv.localization_id::text,
-		         l.description,
-		         EXTRACT(EPOCH FROM l.lastupdated)::bigint * 1000,
-		         lv.id::text,
-		         lv.locale,
-		         lv.value
-		  FROM clinlims.localization l
-		  JOIN clinlims.localization_value lv ON lv.localization_id = l.id
-		  WHERE l.id IN (` + paramSQL + `)`
-
-	rows, err := s.DB.Query(q, placeholders...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := map[string]locvh.Localization{}
-	for rows.Next() {
-		var locID, lvID, locale, value string
-		var description sql.NullString
-		var lastupdatedMs sql.NullInt64
-		if err := rows.Scan(&locID, &description, &lastupdatedMs, &lvID, &locale, &value); err != nil {
-			return nil, err
-		}
-		entry, ok := result[locID]
+	// Aggregate the flat rows into a localizationID → Localization map.
+	locMap := map[string]locvh.Localization{}
+	for _, row := range rows {
+		entry, ok := locMap[row.LocID]
 		if !ok {
 			entry = locvh.Localization{
-				ID:     locID,
+				ID:     row.LocID,
 				Values: map[string]locvh.LocalizationValue{},
 			}
-			if description.Valid {
-				entry.Description = description.String
+			if row.Description != nil {
+				entry.Description = *row.Description
 			}
-			if lastupdatedMs.Valid {
-				ms := lastupdatedMs.Int64
+			if row.LastupdatedMs != nil {
+				ms := *row.LastupdatedMs
 				entry.Lastupdated = &ms
 			}
 		}
-		entry.Values[locale] = locvh.LocalizationValue{
-			ID:     lvID,
-			Locale: locale,
-			Value:  value,
+		entry.Values[row.Locale] = locvh.LocalizationValue{
+			ID:     row.LvID,
+			Locale: row.Locale,
+			Value:  row.Value,
 		}
-		result[locID] = entry
+		locMap[row.LocID] = entry
 	}
-	return result, rows.Err()
+	return locMap, nil
 }

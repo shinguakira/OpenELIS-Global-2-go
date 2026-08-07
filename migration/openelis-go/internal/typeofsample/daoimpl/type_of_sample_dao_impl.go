@@ -3,40 +3,29 @@
 package daoimpl
 
 import (
-	"database/sql"
+	"gorm.io/gorm"
 
 	"openelis-go/internal/typeofsample/valueholder"
 )
 
-// TypeOfSampleDAOImpl ports TypeOfSampleDAOImpl — reads clinlims.type_of_sample.
+// TypeOfSampleDAOImpl ports TypeOfSampleDAOImpl — reads clinlims.type_of_sample
+// via GORM.
 type TypeOfSampleDAOImpl struct {
-	DB *sql.DB
+	DB *gorm.DB
 }
 
 // GetAllSortOrdered mirrors TypeOfSampleDAOImpl.getAllTypeOfSamplesSortOrdered():
 // all rows ordered by sort_order ascending.
 // Name = description when non-blank, else local_abbrev (mirrors getLocalizedName()).
 func (d *TypeOfSampleDAOImpl) GetAllSortOrdered() ([]valueholder.TypeOfSample, error) {
-	rows, err := d.DB.Query(`
-		SELECT id::text,
+	var samples []valueholder.TypeOfSample
+	result := d.DB.Raw(`
+		SELECT id::text AS id,
 		       CASE WHEN description IS NOT NULL AND TRIM(description) != ''
 		            THEN description
 		            ELSE COALESCE(local_abbrev, '') END AS name,
-		       COALESCE(sort_order, 0)
+		       COALESCE(sort_order, 0) AS sort_order
 		FROM clinlims.type_of_sample
-		ORDER BY sort_order`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	list := []valueholder.TypeOfSample{}
-	for rows.Next() {
-		var t valueholder.TypeOfSample
-		if err := rows.Scan(&t.ID, &t.Name, &t.SortOrder); err != nil {
-			return nil, err
-		}
-		list = append(list, t)
-	}
-	return list, rows.Err()
+		ORDER BY sort_order`).Scan(&samples)
+	return samples, result.Error
 }

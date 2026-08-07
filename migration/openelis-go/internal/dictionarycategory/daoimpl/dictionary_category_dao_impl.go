@@ -3,44 +3,29 @@
 package daoimpl
 
 import (
-	"database/sql"
+	"gorm.io/gorm"
 
 	"openelis-go/internal/dictionarycategory/valueholder"
 )
 
 // DictionaryCategoryDAOImpl ports DictionaryCategoryDAOImpl — reads
-// clinlims.dictionary_category.
+// clinlims.dictionary_category via GORM.
 type DictionaryCategoryDAOImpl struct {
-	DB *sql.DB
+	DB *gorm.DB
 }
 
 // GetAll mirrors BaseDAOImpl.getAll() — every row, no ORDER BY (DB-natural order).
 // Java: DictionaryCategoryServiceImpl inherits getAll() from BaseObjectService.
+// id::text cast is explicit — OpenELIS PKs are BIGSERIAL but Java exposes them
+// as String; GORM Raw keeps that cast rather than relying on pgx type coercion.
 func (d *DictionaryCategoryDAOImpl) GetAll() ([]valueholder.DictionaryCategory, error) {
-	rows, err := d.DB.Query(`
-		SELECT id::text,
-		       COALESCE(description, '')   AS description,
-		       COALESCE(local_abbrev, '')  AS local_abbreviation,
-		       COALESCE(name, '')          AS category_name,
-		       EXTRACT(EPOCH FROM lastupdated)::bigint * 1000 AS lastupdated_ms
-		FROM clinlims.dictionary_category`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	list := []valueholder.DictionaryCategory{}
-	for rows.Next() {
-		var c valueholder.DictionaryCategory
-		var ms sql.NullInt64
-		if err := rows.Scan(&c.ID, &c.Description, &c.LocalAbbreviation, &c.CategoryName, &ms); err != nil {
-			return nil, err
-		}
-		if ms.Valid {
-			v := ms.Int64
-			c.Lastupdated = &v
-		}
-		list = append(list, c)
-	}
-	return list, rows.Err()
+	var categories []valueholder.DictionaryCategory
+	result := d.DB.Raw(`
+		SELECT id::text                          AS id,
+		       COALESCE(description, '')         AS description,
+		       COALESCE(local_abbrev, '')        AS local_abbreviation,
+		       COALESCE(name, '')               AS category_name,
+		       lastupdated
+		FROM clinlims.dictionary_category`).Scan(&categories)
+	return categories, result.Error
 }
