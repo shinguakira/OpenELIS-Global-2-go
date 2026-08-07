@@ -62,7 +62,11 @@ db.Delete(&category)           // DELETE (soft delete if DeletedAt field present
 db.Transaction(func(tx *gorm.DB) error { ... }) // transaction boundary
 ```
 
-These are the operations the service layer will use when write endpoints are ported.
+These calls live in **`daoimpl/` only** — the DAO exposes them as methods
+(`Insert`, `Update`, `Delete`). The service layer orchestrates those DAO methods
+and owns the business decisions; it never holds a `*gorm.DB`. This is the same
+rule the read path follows and it mirrors Java, where `@Transactional` sits on
+the service but Hibernate session access stays in the DAO.
 
 ---
 
@@ -114,14 +118,18 @@ Liquibase has 277 changesets across ~260 XML files. The SQL inside each changese
 can be extracted directly — it is standard PostgreSQL DDL.
 
 Steps when the time comes:
-1. Run `mvn liquibase:updateSQL` against the production DB to get the full applied
-   SQL history as a single file.
+1. Run `mvn liquibase:updateSQL` against an **empty database** — Liquibase emits
+   only changesets that are *pending* for the target DB, so a clean DB yields the
+   complete schema history. (Running it against production, where everything is
+   already recorded in `DATABASECHANGELOG`, produces almost nothing.)
 2. Split by changeset into numbered goose files.
 3. Write `-- +goose Down` reversal for each (or mark `-- +goose NO TRANSACTION`
    for DDL that cannot be rolled back in a transaction).
 4. Run goose against a clean DB and verify the schema matches the Liquibase-managed
    production schema.
-5. Remove Liquibase and Java; goose takes ownership.
+5. Baseline production so goose does not re-run the history (see the full
+   procedure in [liquibase-to-goose-plan.md](liquibase-to-goose-plan.md) §6).
+6. Remove Liquibase and Java; goose takes ownership.
 
 ### Goose file layout
 
@@ -136,10 +144,10 @@ migration/openelis-go/db/migrations/
 ### Goose version tracking
 
 Goose creates a `goose_db_version` table (like Liquibase's `databasechangelog`).
-When cutting over, mark all existing migrations as applied with:
-```
-goose -dir db/migrations postgres "DSN" up-to-date
-```
+Production already carries the full Liquibase-built schema, so goose must be told
+those migrations are done **without executing them** — goose has no built-in
+"baseline" command for this, so it is done by seeding the version table directly.
+Full procedure in [liquibase-to-goose-plan.md](liquibase-to-goose-plan.md) §6.
 
 ---
 

@@ -45,6 +45,7 @@ import (
 	testcatalogrest "openelis-go/internal/testcatalog/controller/rest"
 
 	// testconfiguration layers (TestCatalog)
+	testconfigdaoimpl "openelis-go/internal/testconfiguration/daoimpl"
 	testconfigrest "openelis-go/internal/testconfiguration/controller/rest"
 	testconfigservice "openelis-go/internal/testconfiguration/service"
 
@@ -156,7 +157,8 @@ func main() {
 	})
 
 	// testconfiguration: TestCatalog (full catalog read)
-	testconfigSvc := &testconfigservice.TestCatalogService{DB: gormDB}
+	testconfigDAO := &testconfigdaoimpl.TestCatalogDAOImpl{DB: gormDB}
+	testconfigSvc := &testconfigservice.TestCatalogService{DAO: testconfigDAO}
 	testconfigrest.Routes(mux, &testconfigrest.TestCatalogRestController{Service: testconfigSvc})
 
 	log.Printf("DB-backed routes enabled (b1: dictionary-categories, uom, test-catalog, TestCatalog)")

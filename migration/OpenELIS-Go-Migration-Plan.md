@@ -69,13 +69,18 @@ and create a corresponding Go file for each Java layer present.
 | Java layer | Go file | Contains | Must NOT contain |
 |---|---|---|---|
 | `valueholder/X.java` | `internal/<domain>/valueholder/x.go` | Plain structs; no JSON tags | SQL, HTTP, business logic |
-| `daoimpl/XDAOImpl.java` | `internal/<domain>/daoimpl/x_dao_impl.go` | SQL (`database/sql`), row scanning | Business logic, HTTP |
-| `service/XServiceImpl.java` | `internal/<domain>/service/x_service_impl.go` | Calls DAO(s); business logic | SQL, HTTP, `database/sql` import |
-| `controller/rest/XRestController.java` | `internal/<domain>/controller/rest/x.go` | Parse request → call service → convert to DTO → write JSON | **SQL, `database/sql`, business logic** |
+| `daoimpl/XDAOImpl.java` | `internal/<domain>/daoimpl/x_dao_impl.go` | **All** database/ORM access — SQL, row scanning, projection→entity aggregation | Business logic, HTTP |
+| `service/XServiceImpl.java` | `internal/<domain>/service/x_service_impl.go` | Calls DAO(s); business logic | SQL, HTTP, any DB/ORM import (`database/sql`, `gorm.io/gorm`) |
+| `controller/rest/XRestController.java` | `internal/<domain>/controller/rest/x.go` | Parse request → call service → convert to DTO → write JSON | **SQL, DB/ORM imports, business logic** |
+
+**`daoimpl/` is the only layer allowed to import a database or ORM package.**
+A `*gorm.DB` (or `*sql.DB`) field belongs in a DAO struct and nowhere else.
+Services hold a `*daoimpl.XDAOImpl`, never a DB handle — that is what makes them
+testable without a database.
 
 **The controller/rest layer is a thin HTTP adapter — nothing more.**
-If you find yourself writing a `DB.Query()` or a `for rows.Next()` loop in a
-controller file, stop and move it to `daoimpl/`.
+If you find yourself writing a `DB.Raw()`, a `DB.Query()`, or a `for rows.Next()`
+loop in a controller or service file, stop and move it to `daoimpl/`.
 
 JSON tags live on DTO structs **in the controller package**, not on valueholder
 structs. Valueholders are plain Go structs with no serialization concerns.
