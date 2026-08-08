@@ -5,6 +5,7 @@ package rest
 
 import (
 	"net/http"
+	"strconv"
 
 	"openelis-go/internal/common/web"
 	"openelis-go/internal/dictionarycategory/service"
@@ -27,7 +28,7 @@ type dictCategoryDTO struct {
 // to what Jackson produces for Java Date fields.
 func toDTO(c valueholder.DictionaryCategory) dictCategoryDTO {
 	dto := dictCategoryDTO{
-		ID:                c.ID,
+		ID:                strconv.FormatInt(c.ID, 10),
 		Description:       c.Description,
 		LocalAbbreviation: c.LocalAbbreviation,
 		CategoryName:      c.CategoryName,

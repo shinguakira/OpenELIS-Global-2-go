@@ -5,6 +5,7 @@ package rest
 
 import (
 	"net/http"
+	"strconv"
 
 	"openelis-go/internal/common/web"
 	"openelis-go/internal/localization/service"
@@ -24,7 +25,7 @@ type supportedLocaleDTO struct {
 
 func toDTO(l valueholder.SupportedLocale) supportedLocaleDTO {
 	return supportedLocaleDTO{
-		Id:          l.Id,
+		Id:          strconv.FormatInt(l.Id, 10),
 		LocaleCode:  l.LocaleCode,
 		DisplayName: l.DisplayName,
 		Active:      l.Active,

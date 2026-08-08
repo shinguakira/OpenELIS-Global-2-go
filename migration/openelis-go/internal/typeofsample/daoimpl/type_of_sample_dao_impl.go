@@ -9,7 +9,7 @@ import (
 )
 
 // TypeOfSampleDAOImpl ports TypeOfSampleDAOImpl — reads clinlims.type_of_sample
-// via GORM.
+// via GORM's query builder.
 type TypeOfSampleDAOImpl struct {
 	DB *gorm.DB
 }
@@ -19,13 +19,13 @@ type TypeOfSampleDAOImpl struct {
 // Name = description when non-blank, else local_abbrev (mirrors getLocalizedName()).
 func (d *TypeOfSampleDAOImpl) GetAllSortOrdered() ([]valueholder.TypeOfSample, error) {
 	var samples []valueholder.TypeOfSample
-	result := d.DB.Raw(`
-		SELECT id::text AS id,
-		       CASE WHEN description IS NOT NULL AND TRIM(description) != ''
-		            THEN description
-		            ELSE COALESCE(local_abbrev, '') END AS name,
-		       COALESCE(sort_order, 0) AS sort_order
-		FROM clinlims.type_of_sample
-		ORDER BY sort_order`).Scan(&samples)
+	result := d.DB.
+		Select(`id,
+		        CASE WHEN description IS NOT NULL AND TRIM(description) != ''
+		             THEN description
+		             ELSE COALESCE(local_abbrev, '') END AS name,
+		        COALESCE(sort_order, 0) AS sort_order`).
+		Order("sort_order").
+		Find(&samples)
 	return samples, result.Error
 }

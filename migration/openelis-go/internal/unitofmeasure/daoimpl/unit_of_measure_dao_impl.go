@@ -9,7 +9,7 @@ import (
 )
 
 // UnitOfMeasureDAOImpl ports UnitOfMeasureDAOImpl — reads clinlims.unit_of_measure
-// via GORM.
+// via GORM's query builder.
 type UnitOfMeasureDAOImpl struct {
 	DB *gorm.DB
 }
@@ -17,8 +17,6 @@ type UnitOfMeasureDAOImpl struct {
 // GetAll mirrors BaseDAOImpl.getAll() — every UOM row, no ORDER BY.
 func (d *UnitOfMeasureDAOImpl) GetAll() ([]valueholder.UnitOfMeasure, error) {
 	var uoms []valueholder.UnitOfMeasure
-	result := d.DB.Raw(
-		`SELECT id::text AS id, COALESCE(name, '') AS name FROM clinlims.unit_of_measure`,
-	).Scan(&uoms)
+	result := d.DB.Select("id, COALESCE(name, '') AS name").Find(&uoms)
 	return uoms, result.Error
 }

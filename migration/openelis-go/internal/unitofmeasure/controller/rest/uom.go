@@ -5,6 +5,7 @@ package rest
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"openelis-go/internal/common/web"
@@ -20,7 +21,7 @@ type uomDTO struct {
 }
 
 func toDTO(u valueholder.UnitOfMeasure) uomDTO {
-	return uomDTO{ID: u.ID, Value: u.Name}
+	return uomDTO{ID: strconv.FormatInt(u.ID, 10), Value: u.Name}
 }
 
 func toDTOs(list []valueholder.UnitOfMeasure) []uomDTO {
