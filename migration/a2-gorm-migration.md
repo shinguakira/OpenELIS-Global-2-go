@@ -1,32 +1,48 @@
 # a2 GORM Migration
 
-Branch: `migration/a2-static-reads`
-Depends on: b1 GORM rewrite (merged to `migration-base` via PR #7,
-commit c0f2aa6cf) — `gorm.io/gorm v1.31.2` already in `go.mod` (currently
-marked `// indirect` since nothing on this branch imports it directly yet;
-that clears once the DAO edits below land).
+Status: **done** — merged on `migration/a2-static-reads`, commits `41c899f3f`,
+`ebd8a6aaf`, `e2be9b367`. This doc now documents the actual shipped pattern, as
+a reference template for the next domain migrated the same way — not a
+forward-looking plan. Code samples below are the real committed code, not an
+earlier draft; if you're copying a pattern for a new domain, copy from here.
+
+Depends on: b1 GORM rewrite (merged to `migration-base` via PR #7, commit
+c0f2aa6cf) — `gorm.io/gorm v1.31.2` in `go.mod` as a **direct** require (a2's
+own daoimpl files import it directly now, same as b1's).
 
 ---
 
-## What needs changing
+## What changed
 
-Two a2 files still use raw `database/sql`:
+Two a2 files used raw `database/sql`; both moved to GORM's query builder
+(`.Where()`/`.Order()`/`.Select()`/`.Find()`/`.First()`), **not** `db.Raw()` —
+neither query has a join or needs anything a builder can't express:
 
-| File | Current | Change to |
+| File | Before | After |
 |---|---|---|
-| `internal/localization/daoimpl/supported_locale_dao_impl.go` | `DB *sql.DB`; manual `rows.Next()/rows.Scan()` | `DB *gorm.DB`; `db.Raw().Scan()` |
-| `internal/common/services/status.go` | `NewStatusService(db *sql.DB, ...)` runs `db.Query()` itself | Extract a DAO; `StatusService` takes the DAO, holds no DB handle |
-| `cmd/openelis/main.go` | extracts `sqlDB` from `gormDB.DB()` for a2 | pass `gormDB` directly; remove `sqlDB` extraction |
+| `internal/localization/daoimpl/supported_locale_dao_impl.go` | `DB *sql.DB`; manual `rows.Next()/rows.Scan()` | `DB *gorm.DB`; `.Where().Order().Find()` / `.First()` |
+| `internal/common/services/status.go` | `NewStatusService(db *sql.DB, ...)` runs `db.Query()` itself | DAO extracted; `StatusService` takes the DAO, holds no DB handle |
+| `cmd/openelis/main.go` | extracted `sqlDB` from `gormDB.DB()` for a2 | passes `gormDB` directly; `sqlDB` extraction removed entirely |
 
 a1 (system/server-time) has no DB access — no change needed.
 
-**Layer note:** `status.go` currently runs `db.Query()` directly inside a
+**Layer note:** `status.go` used to run `db.Query()` directly inside a
 `services` package — the same DAO-bypass pattern that Codex/Copilot flagged in
 b1's `TestCatalogService` (fixed in commit 9892eb2a2). Per the tightened rule in
 [OpenELIS-Go-Migration-Plan.md](OpenELIS-Go-Migration-Plan.md) ("`daoimpl/` is
-the only layer allowed to import a database or ORM package"), this migration
-extracts a DAO for status too, rather than just swapping `*sql.DB` → `*gorm.DB`
-in place and carrying the same violation forward.
+the only layer allowed to import a database or ORM package"), a DAO was
+extracted for status too, instead of just swapping `*sql.DB` → `*gorm.DB` in
+place and carrying the same violation forward.
+
+**ORM-usage note:** the first pass at this (superseded, not what's below) used
+`db.Raw(fullSQLString).Scan(&x)` for every query, including plain single-table
+reads with no join — that's Hibernate-native-SQL-equivalent usage for queries
+that don't need it. GORM's query builder (`Select`/`Where`/`Order`/`Joins`/`Find`)
+is the equivalent of Hibernate's Criteria/HQL — use it for anything a join or a
+filter can express; reserve `Raw()` for the same tier of complexity where
+Hibernate itself would need `createNativeQuery()` (see
+`testconfiguration/daoimpl/test_catalog_dao_impl.go`'s LATERAL+bulk-IN query —
+the one `Raw()` call left in the whole module).
 
 ---
 
@@ -34,35 +50,44 @@ in place and carrying the same violation forward.
 
 ### 1. `internal/localization/valueholder/supported_locale.go`
 
-Add `gorm:"column:..."` tags so `Raw().Scan()` matches the SQL aliases:
+`Id` is `int64` — the real Postgres type, not a cast-to-string. JSON-string
+conversion happens only in the controller DTO (§ below), matching Java's
+entity-vs-Jackson split. `TableName()` pins the table since GORM's default
+pluralization guess would be wrong:
 
 ```go
 type SupportedLocale struct {
-    Id          string `gorm:"column:id"`
+    Id          int64  `gorm:"column:id"`
     LocaleCode  string `gorm:"column:locale_code"`
     DisplayName string `gorm:"column:display_name"`
     Active      bool   `gorm:"column:is_active"`
     Fallback    bool   `gorm:"column:is_fallback"`
     SortOrder   int    `gorm:"column:sort_order"`
 }
+
+func (SupportedLocale) TableName() string { return "clinlims.supported_locale" }
 ```
 
 ### 2. `internal/localization/daoimpl/supported_locale_dao_impl.go`
 
-Replace `*sql.DB` + helper `query()` method with `*gorm.DB` + `Raw().Scan()`:
+`*gorm.DB` + the query builder — no `.Select()` needed at all here: every
+column maps 1:1 to a struct field via `gorm` tags, and none are nullable (no
+`COALESCE` needed, same as the original Java query had none):
 
 ```go
-import "gorm.io/gorm"
+import (
+    "errors"
+
+    "gorm.io/gorm"
+)
 
 type SupportedLocaleDAO struct {
     DB *gorm.DB
 }
 
-const cols = `id::text AS id, locale_code, display_name, is_active, is_fallback, sort_order`
-
 func (d *SupportedLocaleDAO) GetAll() ([]valueholder.SupportedLocale, error) {
     var list []valueholder.SupportedLocale
-    result := d.DB.Raw(`SELECT ` + cols + ` FROM clinlims.supported_locale`).Scan(&list)
+    result := d.DB.Find(&list)
     if list == nil {
         list = []valueholder.SupportedLocale{}
     }
@@ -71,38 +96,34 @@ func (d *SupportedLocaleDAO) GetAll() ([]valueholder.SupportedLocale, error) {
 
 func (d *SupportedLocaleDAO) GetAllActive() ([]valueholder.SupportedLocale, error) {
     var list []valueholder.SupportedLocale
-    result := d.DB.Raw(
-        `SELECT ` + cols + ` FROM clinlims.supported_locale WHERE is_active = true ORDER BY sort_order ASC`,
-    ).Scan(&list)
+    result := d.DB.Where("is_active = ?", true).Order("sort_order ASC").Find(&list)
     if list == nil {
         list = []valueholder.SupportedLocale{}
     }
     return list, result.Error
 }
 
+// GetFallback uses First() — GORM's canonical single-row read, mirrors JPA's
+// getSingleResult()/NoResultException — instead of Find()+manual empty check.
 func (d *SupportedLocaleDAO) GetFallback() (*valueholder.SupportedLocale, error) {
-    var list []valueholder.SupportedLocale
-    result := d.DB.Raw(
-        `SELECT ` + cols + ` FROM clinlims.supported_locale WHERE is_fallback = true`,
-    ).Scan(&list)
-    if result.Error != nil {
-        return nil, result.Error
-    }
-    if len(list) == 0 {
+    var loc valueholder.SupportedLocale
+    err := d.DB.Where("is_fallback = ?", true).First(&loc).Error
+    if errors.Is(err, gorm.ErrRecordNotFound) {
         return nil, nil
     }
-    return &list[0], nil
+    if err != nil {
+        return nil, err
+    }
+    return &loc, nil
 }
 ```
-
-Note: the `query()` helper is deleted; the three methods inline the scan directly
-(see empty-slice invariant below — inlined directly this time instead of as a
-follow-up).
 
 ### 3. New: `internal/common/valueholder/status_row.go`
 
 DAO scan target — mirrors the `testconfiguration/valueholder/test_row.go`
-pattern from the b1 fix. Fields exported for GORM reflection.
+pattern from the b1 fix. Fields exported for GORM reflection. `ID` is `int64`
+(real Postgres type); `StatusService` converts to string only when it builds
+its in-memory map (§5).
 
 ```go
 // Package valueholder holds DB projections for internal/common domains.
@@ -110,16 +131,20 @@ package valueholder
 
 // StatusRow is the raw projection of one clinlims.status_of_sample row.
 type StatusRow struct {
-    ID         string `gorm:"column:id"`
+    ID         int64  `gorm:"column:id"`
     StatusType string `gorm:"column:status_type"`
     Name       string `gorm:"column:name"`
     DisplayKey string `gorm:"column:display_key"`
 }
+
+func (StatusRow) TableName() string { return "clinlims.status_of_sample" }
 ```
 
 ### 4. New: `internal/common/daoimpl/status_dao_impl.go`
 
-The extracted DAO — the only place in this domain that imports `gorm.io/gorm`:
+The extracted DAO — the only place in this domain that imports `gorm.io/gorm`.
+`.Select()` is needed here (unlike SupportedLocale) because `display_key` is
+nullable and needs `COALESCE`; there's still no join, so `.Find()`, not `Raw()`:
 
 ```go
 // Package daoimpl ports the status_of_sample data access used by StatusService.
@@ -139,9 +164,7 @@ type StatusDAOImpl struct {
 // GetAll returns every status_of_sample row.
 func (d *StatusDAOImpl) GetAll() ([]valueholder.StatusRow, error) {
     var rows []valueholder.StatusRow
-    result := d.DB.Raw(`
-        SELECT id::text AS id, status_type, name, COALESCE(display_key, '') AS display_key
-        FROM clinlims.status_of_sample`).Scan(&rows)
+    result := d.DB.Select("id, status_type, name, COALESCE(display_key, '') AS display_key").Find(&rows)
     return rows, result.Error
 }
 ```
@@ -149,10 +172,17 @@ func (d *StatusDAOImpl) GetAll() ([]valueholder.StatusRow, error) {
 ### 5. `internal/common/services/status.go`
 
 `StatusService` no longer holds a DB handle. `NewStatusService` takes the DAO,
-calls it once, and builds the in-memory map — pure business logic, no SQL:
+calls it once, and builds the in-memory map — pure business logic, no SQL.
+`statusEntry.id` is still `string` (that's the public contract `IDByName`
+returns), so the int64 → string conversion happens right here, once, via
+`strconv.FormatInt` — the one place this domain actually needs the string form:
 
 ```go
-import "openelis-go/internal/common/daoimpl"
+import (
+    "strconv"
+
+    "openelis-go/internal/common/daoimpl"
+)
 
 type StatusService struct {
     entryByKey map[string]statusEntry
@@ -172,7 +202,7 @@ func NewStatusService(dao *daoimpl.StatusDAOImpl, msgs map[string]string) (*Stat
         if label == "" {
             label = r.Name
         }
-        m[r.StatusType+"\x00"+r.Name] = statusEntry{id: r.ID, label: label}
+        m[r.StatusType+"\x00"+r.Name] = statusEntry{id: strconv.FormatInt(r.ID, 10), label: label}
     }
     return &StatusService{entryByKey: m}, nil
 }
