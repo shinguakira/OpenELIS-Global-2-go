@@ -1,0 +1,11 @@
+-- source: liquibase liquibase/qc/002-create-westgard-rule-config.xml::qc-005-insert-default-westgard-rules::openelisglobal
+-- +goose Up
+-- +goose StatementBegin
+-- Insert default Westgard rule definitions for reference
+-- +goose StatementEnd
+
+-- +goose Down
+-- TODO: no safe auto-generated rollback for this changeset.
+-- Liquibase source: liquibase/qc/002-create-westgard-rule-config.xml::qc-005-insert-default-westgard-rules::openelisglobal
+-- Hand-write if this migration must be reversible; see
+-- migration/liquibase-to-goose-plan.md sec 7 (Risk items).

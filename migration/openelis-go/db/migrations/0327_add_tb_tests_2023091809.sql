@@ -1,0 +1,72 @@
+-- source: liquibase liquibase/2.7.x.x/add_tb_tests.xml::2023091809::CIV developer Group
+-- +goose Up
+-- +goose StatementBegin
+INSERT into clinlims.sampletype_test(id, sample_type_id, test_id,is_panel)
+            VALUES
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'GeneXpert MTB/RIF'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire'  limit 1),
+            (select id from	test where description = 'TB LAMP'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire'  limit 1),
+            (select id from	test where description = 'Bacilloscopie Auramine'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire'  limit 1),
+            (select id from	test where description = 'Bacilloscopie Ziehl-Neelsen'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire'  limit 1),
+            (select id from	test where description = 'Culture Milieu LJ'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire'  limit 1),
+            (select id from	test where description = 'Culture Milieu MGIT'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire'  limit 1),
+            (select id from	test where description = 'Rifampicine'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire'  limit 1),
+            (select id from	test where description = 'Isoniazide'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire'  limit 1),
+            (select id from	test where description = 'Fluoroquinolone'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Injectable'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Pyrazinamide'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Ethambutol'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Capreomicine'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Teridizone'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Kanamycine'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Imipenem'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Streptomicine'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Ethionamide'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Prothionamide'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Cyclosérine'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Linezolid'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Moxifloxacine'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Clofazimine'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Levofloxacine'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'PAS'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Imipénème-Cilastatine'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Meropenem'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Bedaquilline'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'Delamanide'),'f'),
+            (nextval('sample_type_test_seq'),(select id from type_of_sample where description = 'Liquide articulaire' limit 1),
+            (select id from	test where description = 'TB LAM urinaire'),'f') ON CONFLICT DO NOTHING;
+-- +goose StatementEnd
+
+-- +goose Down
+-- TODO: no safe auto-generated rollback for this changeset.
+-- Liquibase source: liquibase/2.7.x.x/add_tb_tests.xml::2023091809::CIV developer Group
+-- Hand-write if this migration must be reversible; see
+-- migration/liquibase-to-goose-plan.md sec 7 (Risk items).

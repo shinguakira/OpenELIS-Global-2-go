@@ -1,0 +1,994 @@
+file	liquibase_source	no_transaction	has_down	idempotency_guarded
+0001_convert_id_types_1.sql	liquibase/2.0.x.x/convert_id_types.xml::1::caleb	False	False	True
+0002_convert_id_types_2.sql	liquibase/2.0.x.x/convert_id_types.xml::2::caleb	False	False	False
+0003_validation_site_information_1.sql	liquibase/2.0.x.x/validation_site_information.xml::1::caleb	False	False	False
+0004_fhir_data_export_1.sql	liquibase/2.0.x.x/fhir_data_export.xml::1::caleb	False	False	True
+0005_default_test_1.sql	liquibase/2.0.x.x/default_test.xml::1::caleb	False	True	True
+0006_patient_contact_1.sql	liquibase/2.0.x.x/patient_contact.xml::1::csteele	False	False	True
+0007_patient_contact_2.sql	liquibase/2.0.x.x/patient_contact.xml::2::csteele	False	False	True
+0008_fix_migration_issues_202303244.sql	liquibase/2.1.x.x/fix_migration_issues.xml::202303244::CIV Developer Group	False	False	False
+0009_fix_migration_issues_202303245.sql	liquibase/2.1.x.x/fix_migration_issues.xml::202303245::CIV Developer Group	False	False	False
+0010_fix_migration_issues_202303246.sql	liquibase/2.1.x.x/fix_migration_issues.xml::202303246::CIV Developer Group	False	False	False
+0011_external_connections_1.sql	liquibase/2.1.x.x/external_connections.xml::1::csteele	False	False	True
+0012_external_connections_2.sql	liquibase/2.1.x.x/external_connections.xml::2::csteele	False	False	True
+0013_external_connections_3.sql	liquibase/2.1.x.x/external_connections.xml::3::csteele	False	False	True
+0014_external_connections_4.sql	liquibase/2.1.x.x/external_connections.xml::4::csteele	False	True	True
+0015_external_connections_5.sql	liquibase/2.1.x.x/external_connections.xml::5::csteele	False	True	False
+0016_lab_director_signature_1.sql	liquibase/2.1.x.x/lab_director_signature.xml::1::csteele	False	False	True
+0017_sample_nature_1.sql	liquibase/2.1.x.x/sample_nature.xml::1::csteele	False	False	True
+0018_sample_nature_2.sql	liquibase/2.1.x.x/sample_nature.xml::2::csteele	False	False	True
+0019_client_notifications_1.sql	liquibase/2.1.x.x/client_notifications.xml::1::csteele	False	True	True
+0020_client_notifications_2.sql	liquibase/2.1.x.x/client_notifications.xml::2::csteele	False	False	True
+0021_client_notifications_3.sql	liquibase/2.1.x.x/client_notifications.xml::3::csteele	False	False	True
+0022_client_notifications_4.sql	liquibase/2.1.x.x/client_notifications.xml::4::csteele	False	False	True
+0023_locator_form_integration_1.sql	liquibase/2.1.x.x/locator_form_integration.xml::1::csteele	False	False	True
+0024_user_manual_translation_1.sql	liquibase/2.1.x.x/user_manual_translation.xml::1::csteele	False	False	False
+0025_admin_menu_clean_1.sql	liquibase/2.1.x.x/admin_menu_clean.xml::1::csteele	False	False	False
+0026_patient_status_report_menu_1.sql	liquibase/2.1.x.x/patient_status_report_menu.xml::1::rossumg	False	False	False
+0027_patient_status_report_menu_2.sql	liquibase/2.1.x.x/patient_status_report_menu.xml::2::ctsteele	False	False	False
+0028_sample_batch_entry_module_permission_1.sql	liquibase/2.1.x.x/sample_batch_entry_module_permission.xml::1::csteele	False	False	True
+0029_barcode_label_info_alter_1.sql	liquibase/2.1.x.x/barcode_label_info_alter.xml::1::rossumg	False	False	False
+0030_email_sms_expansion_1.sql	liquibase/2.2.x.x/email_sms_expansion.xml::1::csteele	False	False	True
+0031_email_sms_expansion_2.sql	liquibase/2.2.x.x/email_sms_expansion.xml::2::csteele	False	False	False
+0032_email_sms_expansion_3.sql	liquibase/2.2.x.x/email_sms_expansion.xml::3::csteele	False	True	True
+0033_contact_tracing_fields_1.sql	liquibase/2.3.x.x/contact_tracing_fields.xml::1::csteele	False	True	True
+0034_contact_tracing_fields_2.sql	liquibase/2.3.x.x/contact_tracing_fields.xml::2::csteele	False	False	True
+0035_minor_fixes_1.sql	liquibase/2.3.x.x/minor_fixes.xml::1::csteele	False	False	False
+0036_minor_fixes_2.sql	liquibase/2.3.x.x/minor_fixes.xml::2::csteele	False	False	False
+0037_minor_fixes_3.sql	liquibase/2.3.x.x/minor_fixes.xml::3::csteele	False	False	False
+0038_user_url_permissions_1.sql	liquibase/2.3.x.x/user_url_permissions.xml::1::csteele	False	False	True
+0039_user_url_permissions_2.sql	liquibase/2.3.x.x/user_url_permissions.xml::2::csteele	False	False	True
+0040_user_url_permissions_3.sql	liquibase/2.3.x.x/user_url_permissions.xml::3::csteele	False	False	True
+0041_user_url_permissions_4.sql	liquibase/2.3.x.x/user_url_permissions.xml::4::csteele	False	False	True
+0042_user_url_permissions_5.sql	liquibase/2.3.x.x/user_url_permissions.xml::5::csteele	False	False	True
+0043_user_url_permissions_6.sql	liquibase/2.3.x.x/user_url_permissions.xml::6::csteele	False	False	True
+0044_user_url_permissions_7.sql	liquibase/2.3.x.x/user_url_permissions.xml::7::csteele	False	False	True
+0045_user_url_permissions_8.sql	liquibase/2.3.x.x/user_url_permissions.xml::8::csteele	False	False	True
+0046_national_id_config_1.sql	liquibase/2.3.x.x/national_id_config.xml::1::csteele	False	False	True
+0047_analyzer_experiment_1.sql	liquibase/2.3.x.x/analyzer_experiment.xml::1::csteele	False	False	True
+0048_analyzer_experiment_2.sql	liquibase/2.3.x.x/analyzer_experiment.xml::2::csteele	False	False	False
+0049_new_tests_5.sql	liquibase/2.3.x.x/new_tests.xml::5::rossumg	False	False	False
+0050_new_tests_10.sql	liquibase/2.3.x.x/new_tests.xml::10::rossumg	False	False	False
+0051_new_tests_15.sql	liquibase/2.3.x.x/new_tests.xml::15::rossumg	False	False	True
+0052_new_tests_16.sql	liquibase/2.3.x.x/new_tests.xml::16::rossumg	False	False	True
+0053_new_tests_17.sql	liquibase/2.3.x.x/new_tests.xml::17::rossumg	False	False	True
+0054_new_tests_20.sql	liquibase/2.3.x.x/new_tests.xml::20::rossumg	False	False	True
+0055_new_tests_25.sql	liquibase/2.3.x.x/new_tests.xml::25::rossumg	False	False	True
+0056_new_tests_30.sql	liquibase/2.3.x.x/new_tests.xml::30::rossumg	False	False	True
+0057_new_tests_31.sql	liquibase/2.3.x.x/new_tests.xml::31::rossumg	False	False	False
+0058_new_tests_35.sql	liquibase/2.3.x.x/new_tests.xml::35::rossumg	False	False	True
+0059_new_tests_40.sql	liquibase/2.3.x.x/new_tests.xml::40::rossumg	False	False	True
+0060_new_tests_45.sql	liquibase/2.3.x.x/new_tests.xml::45::rossumg	False	False	True
+0061_new_tests_50.sql	liquibase/2.3.x.x/new_tests.xml::50::rossumg	False	False	True
+0062_new_tests_55.sql	liquibase/2.3.x.x/new_tests.xml::55::rossumg	False	False	True
+0063_new_tests_60.sql	liquibase/2.3.x.x/new_tests.xml::60::rossumg	False	False	True
+0064_new_tests_65.sql	liquibase/2.3.x.x/new_tests.xml::65::rossumg	False	False	True
+0065_new_tests_70.sql	liquibase/2.3.x.x/new_tests.xml::70::rossumg	False	False	True
+0066_new_tests_75.sql	liquibase/2.3.x.x/new_tests.xml::75::rossumg	False	False	True
+0067_new_tests_80.sql	liquibase/2.3.x.x/new_tests.xml::80::rossumg	False	False	True
+0068_new_tests_85.sql	liquibase/2.3.x.x/new_tests.xml::85::rossumg	False	False	True
+0069_new_tests_90.sql	liquibase/2.3.x.x/new_tests.xml::90::rossumg	False	False	True
+0070_new_tests_95.sql	liquibase/2.3.x.x/new_tests.xml::95::rossumg	False	False	True
+0071_new_tests_100.sql	liquibase/2.3.x.x/new_tests.xml::100::rossumg	False	False	True
+0072_new_tests_105.sql	liquibase/2.3.x.x/new_tests.xml::105::rossumg	False	False	True
+0073_new_tests_110.sql	liquibase/2.3.x.x/new_tests.xml::110::rossumg	False	False	True
+0074_new_tests_115.sql	liquibase/2.3.x.x/new_tests.xml::115::rossumg	False	False	True
+0075_new_tests_120.sql	liquibase/2.3.x.x/new_tests.xml::120::rossumg	False	False	True
+0076_new_tests_125.sql	liquibase/2.3.x.x/new_tests.xml::125::rossumg	False	False	True
+0077_new_tests_130.sql	liquibase/2.3.x.x/new_tests.xml::130::rossumg	False	False	True
+0078_new_tests_135.sql	liquibase/2.3.x.x/new_tests.xml::135::rossumg	False	False	True
+0079_new_tests_140.sql	liquibase/2.3.x.x/new_tests.xml::140::rossumg	False	False	True
+0080_new_tests_145.sql	liquibase/2.3.x.x/new_tests.xml::145::rossumg	False	False	True
+0081_new_tests_150.sql	liquibase/2.3.x.x/new_tests.xml::150::rossumg	False	False	True
+0082_new_tests_155.sql	liquibase/2.3.x.x/new_tests.xml::155::rossumg	False	False	True
+0083_new_tests_160.sql	liquibase/2.3.x.x/new_tests.xml::160::rossumg	False	False	True
+0084_new_tests_165.sql	liquibase/2.3.x.x/new_tests.xml::165::rossumg	False	False	True
+0085_new_tests_175.sql	liquibase/2.3.x.x/new_tests.xml::175::rossumg	False	False	True
+0086_new_tests_180.sql	liquibase/2.3.x.x/new_tests.xml::180::rossumg	False	False	True
+0087_new_tests_185.sql	liquibase/2.3.x.x/new_tests.xml::185::rossumg	False	False	True
+0088_new_tests_190.sql	liquibase/2.3.x.x/new_tests.xml::190::rossumg	False	False	True
+0089_new_tests_205.sql	liquibase/2.3.x.x/new_tests.xml::205::rossumg	False	False	True
+0090_new_tests_210.sql	liquibase/2.3.x.x/new_tests.xml::210::rossumg	False	False	True
+0091_new_tests_215.sql	liquibase/2.3.x.x/new_tests.xml::215::rossumg	False	False	True
+0092_new_tests_220.sql	liquibase/2.3.x.x/new_tests.xml::220::rossumg	False	False	True
+0093_new_tests_225.sql	liquibase/2.3.x.x/new_tests.xml::225::rossumg	False	False	True
+0094_new_tests_235.sql	liquibase/2.3.x.x/new_tests.xml::235::rossumg	False	False	True
+0095_new_tests_240.sql	liquibase/2.3.x.x/new_tests.xml::240::rossumg	False	False	True
+0096_new_tests_245.sql	liquibase/2.3.x.x/new_tests.xml::245::rossumg	False	False	True
+0097_new_tests_250.sql	liquibase/2.3.x.x/new_tests.xml::250::rossumg	False	False	True
+0098_new_tests_260.sql	liquibase/2.3.x.x/new_tests.xml::260::rossumg	False	False	True
+0099_new_tests_265.sql	liquibase/2.3.x.x/new_tests.xml::265::rossumg	False	False	True
+0100_new_tests_270.sql	liquibase/2.3.x.x/new_tests.xml::270::rossumg	False	False	True
+0101_new_tests_275.sql	liquibase/2.3.x.x/new_tests.xml::275::rossumg	False	False	True
+0102_new_tests_280.sql	liquibase/2.3.x.x/new_tests.xml::280::rossumg	False	False	True
+0103_new_tests_285.sql	liquibase/2.3.x.x/new_tests.xml::285::rossumg	False	False	True
+0104_new_tests_290.sql	liquibase/2.3.x.x/new_tests.xml::290::rossumg	False	False	True
+0105_new_tests_295.sql	liquibase/2.3.x.x/new_tests.xml::295::rossumg	False	False	True
+0106_new_tests_300.sql	liquibase/2.3.x.x/new_tests.xml::300::rossumg	False	False	True
+0107_new_tests_305.sql	liquibase/2.3.x.x/new_tests.xml::305::rossumg	False	False	True
+0108_new_tests_315.sql	liquibase/2.3.x.x/new_tests.xml::315::rossumg	False	False	True
+0109_new_tests_320.sql	liquibase/2.3.x.x/new_tests.xml::320::rossumg	False	False	True
+0110_new_tests_325.sql	liquibase/2.3.x.x/new_tests.xml::325::rossumg	False	False	True
+0111_new_tests_330.sql	liquibase/2.3.x.x/new_tests.xml::330::rossumg	False	False	True
+0112_new_tests_331.sql	liquibase/2.3.x.x/new_tests.xml::331::csteele	False	False	False
+0113_new_tests_340.sql	liquibase/2.3.x.x/new_tests.xml::340::rossumg	False	False	True
+0114_new_tests_345.sql	liquibase/2.3.x.x/new_tests.xml::345::rossumg	False	False	True
+0115_new_tests_350.sql	liquibase/2.3.x.x/new_tests.xml::350::rossumg	False	False	True
+0116_new_tests_355.sql	liquibase/2.3.x.x/new_tests.xml::355::rossumg	False	False	True
+0117_new_tests_336.sql	liquibase/2.3.x.x/new_tests.xml::336::csteele	False	False	False
+0118_new_tests_365.sql	liquibase/2.3.x.x/new_tests.xml::365::rossumg	False	False	True
+0119_new_tests_370.sql	liquibase/2.3.x.x/new_tests.xml::370::rossumg	False	False	True
+0120_new_tests_375.sql	liquibase/2.3.x.x/new_tests.xml::375::rossumg	False	False	True
+0121_new_tests_380.sql	liquibase/2.3.x.x/new_tests.xml::380::rossumg	False	False	True
+0122_new_tests_385.sql	liquibase/2.3.x.x/new_tests.xml::385::rossumg	False	False	True
+0123_new_tests_395.sql	liquibase/2.3.x.x/new_tests.xml::395::rossumg	False	False	True
+0124_new_tests_400.sql	liquibase/2.3.x.x/new_tests.xml::400::rossumg	False	False	True
+0125_new_tests_405.sql	liquibase/2.3.x.x/new_tests.xml::405::rossumg	False	False	True
+0126_new_tests_410.sql	liquibase/2.3.x.x/new_tests.xml::410::rossumg	False	False	True
+0127_new_tests_420.sql	liquibase/2.3.x.x/new_tests.xml::420::rossumg	False	False	True
+0128_new_tests_425.sql	liquibase/2.3.x.x/new_tests.xml::425::rossumg	False	False	True
+0129_new_tests_430.sql	liquibase/2.3.x.x/new_tests.xml::430::rossumg	False	False	True
+0130_new_tests_435.sql	liquibase/2.3.x.x/new_tests.xml::435::rossumg	False	False	True
+0131_new_tests_445.sql	liquibase/2.3.x.x/new_tests.xml::445::rossumg	False	False	True
+0132_new_tests_450.sql	liquibase/2.3.x.x/new_tests.xml::450::rossumg	False	False	True
+0133_new_tests_455.sql	liquibase/2.3.x.x/new_tests.xml::455::rossumg	False	False	True
+0134_new_tests_490.sql	liquibase/2.3.x.x/new_tests.xml::490::rossumg	False	False	True
+0135_new_tests_495.sql	liquibase/2.3.x.x/new_tests.xml::495::rossumg	False	False	True
+0136_new_tests_505.sql	liquibase/2.3.x.x/new_tests.xml::505::rossumg	False	False	True
+0137_new_tests_510.sql	liquibase/2.3.x.x/new_tests.xml::510::rossumg	False	False	True
+0138_new_tests_515.sql	liquibase/2.3.x.x/new_tests.xml::515::rossumg	False	False	True
+0139_new_tests_520.sql	liquibase/2.3.x.x/new_tests.xml::520::rossumg	False	False	True
+0140_new_tests_530.sql	liquibase/2.3.x.x/new_tests.xml::530::rossumg	False	False	True
+0141_new_tests_535.sql	liquibase/2.3.x.x/new_tests.xml::535::rossumg	False	False	True
+0142_new_tests_540.sql	liquibase/2.3.x.x/new_tests.xml::540::rossumg	False	False	True
+0143_new_tests_545.sql	liquibase/2.3.x.x/new_tests.xml::545::rossumg	False	False	True
+0144_new_tests_550.sql	liquibase/2.3.x.x/new_tests.xml::550::rossumg	False	False	True
+0145_new_tests_560.sql	liquibase/2.3.x.x/new_tests.xml::560::rossumg	False	False	True
+0146_new_tests_565.sql	liquibase/2.3.x.x/new_tests.xml::565::rossumg	False	False	True
+0147_new_tests_570.sql	liquibase/2.3.x.x/new_tests.xml::570::rossumg	False	False	True
+0148_new_tests_575.sql	liquibase/2.3.x.x/new_tests.xml::575::rossumg	False	False	True
+0149_new_tests_585.sql	liquibase/2.3.x.x/new_tests.xml::585::rossumg	False	False	True
+0150_new_tests_590.sql	liquibase/2.3.x.x/new_tests.xml::590::rossumg	False	False	True
+0151_new_tests_595.sql	liquibase/2.3.x.x/new_tests.xml::595::rossumg	False	False	True
+0152_new_tests_624.sql	liquibase/2.3.x.x/new_tests.xml::624::rossumg	False	False	True
+0153_new_tests_625.sql	liquibase/2.3.x.x/new_tests.xml::625::csteele	False	False	True
+0154_new_tests_630.sql	liquibase/2.3.x.x/new_tests.xml::630::csteele	False	False	True
+0155_new_tests_631.sql	liquibase/2.3.x.x/new_tests.xml::631::csteele	False	False	True
+0156_new_tests_635.sql	liquibase/2.3.x.x/new_tests.xml::635::csteele	False	False	False
+0157_new_tests_640.sql	liquibase/2.3.x.x/new_tests.xml::640::csteele	False	False	False
+0158_new_tests_645.sql	liquibase/2.3.x.x/new_tests.xml::645::csteele	False	False	False
+0159_new_tests_650.sql	liquibase/2.3.x.x/new_tests.xml::650::csteele	False	False	False
+0160_new_tests_655.sql	liquibase/2.3.x.x/new_tests.xml::655::csteele	False	False	False
+0161_new_tests_660.sql	liquibase/2.3.x.x/new_tests.xml::660::csteele	False	False	False
+0162_new_tests_665.sql	liquibase/2.3.x.x/new_tests.xml::665::csteele	False	False	False
+0163_new_tests_670.sql	liquibase/2.3.x.x/new_tests.xml::670::csteele	False	False	False
+0164_new_tests_675.sql	liquibase/2.3.x.x/new_tests.xml::675::csteele	False	False	False
+0165_new_tests_680.sql	liquibase/2.3.x.x/new_tests.xml::680::csteele	False	False	False
+0166_new_tests_685.sql	liquibase/2.3.x.x/new_tests.xml::685::csteele	False	False	False
+0167_accession_validation_1.sql	liquibase/2.3.x.x/accession_validation.xml::1::csteele	False	False	True
+0168_accession_validation_2.sql	liquibase/2.3.x.x/accession_validation.xml::2::csteele	False	False	True
+0169_uuid_columns_1.sql	liquibase/2.3.x.x/uuid_columns.xml::1::csteele	False	False	True
+0170_uuid_columns_3.sql	liquibase/2.3.x.x/uuid_columns.xml::3::csteele	False	True	True
+0171_uuid_columns_4.sql	liquibase/2.3.x.x/uuid_columns.xml::4::csteele	False	False	True
+0172_accession_validation_range_1.sql	liquibase/2.3.x.x/accession_validation_range.xml::1::rossumg	False	False	True
+0173_accession_validation_range_access_1.sql	liquibase/2.3.x.x/accession_validation_range_access.xml::1::rossumg	False	False	True
+0174_accession_sequencing_10.sql	liquibase/2.3.x.x/accession_sequencing.xml::10::csteele	False	True	True
+0175_referral_results_1.sql	liquibase/2.3.x.x/referral_results.xml::1::csteele	False	False	True
+0176_in_lab_tests_1.sql	liquibase/2.3.x.x/in_lab_tests.xml::1::csteele	False	True	True
+0177_results_range_1.sql	liquibase/2.3.x.x/results_range.xml::1::csteele	False	False	True
+0178_results_range_2.sql	liquibase/2.3.x.x/results_range.xml::2::csteele	False	False	True
+0179_remove_roles_1.sql	liquibase/2.4.x.x/remove_roles.xml::1::csteele	False	False	False
+0180_barcode_additional_info_1.sql	liquibase/2.5.x.x/barcode_additional_info.xml::1::csteele	False	False	True
+0181_data_resource_retroci_202303241.sql	liquibase/2.6.x.x/data_resource_retroci.xml::202303241::CIV developer Group	False	False	True
+0182_fix_sequences_1.sql	liquibase/2.6.x.x/fix_sequences.xml::1::csteele	False	False	False
+0183_remove_do_suffix_1.sql	liquibase/2.6.x.x/remove_do_suffix.xml::1::csteele	False	False	False
+0184_eorder_search_enhancements_1.sql	liquibase/2.6.x.x/eorder_search_enhancements.xml::1::csteele	False	False	False
+0185_update_roles_1.sql	liquibase/2.6.x.x/update_roles.xml::1::moses_mutesa	False	False	True
+0186_update_roles_2.sql	liquibase/2.6.x.x/update_roles.xml::2::moses_mutesa	False	False	False
+0187_update_roles_202303247.sql	liquibase/2.6.x.x/update_roles.xml::202303247::CIV Developer Group	False	False	True
+0188_update_roles_202303248.sql	liquibase/2.6.x.x/update_roles.xml::202303248::CIV Developer Group	False	False	True
+0189_add_lab_roles_map_table_1.sql	liquibase/2.6.x.x/add_lab_roles_map_table.xml::1::mosesmutesa	False	False	True
+0190_add_lab_roles_map_table_2.sql	liquibase/2.6.x.x/add_lab_roles_map_table.xml::2::mosesmutesa	False	True	True
+0191_add_lab_roles_map_table_3.sql	liquibase/2.6.x.x/add_lab_roles_map_table.xml::3::mosesmutesa	False	False	True
+0192_add_lab_roles_map_table_4.sql	liquibase/2.6.x.x/add_lab_roles_map_table.xml::4::mosesmutesa	False	False	True
+0193_add_lab_roles_map_table_2312131.sql	liquibase/2.6.x.x/add_lab_roles_map_table.xml::2312131::CIV developer Group	False	False	False
+0194_reporting_range_1.sql	liquibase/2.6.x.x/reporting_range.xml::1::cliff	False	True	True
+0195_reporting_range_2.sql	liquibase/2.6.x.x/reporting_range.xml::2::cliff	False	True	True
+0196_update_global_admin_role_1.sql	liquibase/2.6.x.x/update_global_admin_role.xml::1::moses_mutesa	False	False	True
+0197_add_user_filter_permision_1.sql	liquibase/2.6.x.x/add_user_filter_permision.xml::1::moses_mutesa	False	False	True
+0198_address_line_1.sql	liquibase/2.6.x.x/address_line.xml::1::cliff	False	False	True
+0199_geographical_unit_1.sql	liquibase/2.6.x.x/geographical_unit.xml::1::cliff	False	False	True
+0200_geographical_unit_2.sql	liquibase/2.6.x.x/geographical_unit.xml::2::cliff	False	False	True
+0201_localization_1.sql	liquibase/2.6.x.x/localization.xml::1::cliff	False	False	True
+0202_method_1.sql	liquibase/2.6.x.x/method.xml::1::cliff	False	False	False
+0203_method_2.sql	liquibase/2.6.x.x/method.xml::2::cliff	False	True	True
+0204_method_3.sql	liquibase/2.6.x.x/method.xml::3::cliff	False	False	True
+0205_add_order_priority_1.sql	liquibase/2.6.x.x/add_order_priority.xml::1::moses_mutesa	False	True	True
+0206_add_order_priority_2.sql	liquibase/2.6.x.x/add_order_priority.xml::2::moses_mutesa	False	True	True
+0207_add_order_priority_3.sql	liquibase/2.6.x.x/add_order_priority.xml::3::moses_mutesa	False	False	True
+0208_add_order_priority_4.sql	liquibase/2.6.x.x/add_order_priority.xml::4::moses_mutesa	False	False	True
+0209_add_order_priority_5.sql	liquibase/2.6.x.x/add_order_priority.xml::5::moses_mutesa	False	False	False
+0210_provider_1.sql	liquibase/2.6.x.x/provider.xml::1::ctsteele	False	True	True
+0211_provider_2.sql	liquibase/2.6.x.x/provider.xml::2::csteele	False	False	True
+0212_update_non_conformity_roles_1.sql	liquibase/2.6.x.x/update_non_conformity_roles.xml::1::moses_mutesa	False	False	True
+0213_statistics_report_1.sql	liquibase/2.6.x.x/statistics_report.xml::1::moses_mutesa	False	False	True
+0214_add_menu_study_electronic_order_202208291.sql	liquibase/2.6.x.x/add_menu_study_electronic_order.xml::202208291::CIV developer Group	False	False	True
+0215_add_menu_study_electronic_order_202208292.sql	liquibase/2.6.x.x/add_menu_study_electronic_order.xml::202208292::CIV developer Group	False	False	True
+0216_add_menu_study_electronic_order_202208293.sql	liquibase/2.6.x.x/add_menu_study_electronic_order.xml::202208293::CIV developer Group	False	False	True
+0217_disable_menu_reports_export_valid_202208311.sql	liquibase/2.6.x.x/disable_menu_reports_export_valid.xml::202208311::CIV developer Group	False	False	False
+0218_add_retroci_sampletype_test_element_202208312.sql	liquibase/2.6.x.x/add_retroci_sampletype_test_element.xml::202208312::CIV developer Group	False	False	True
+0219_add_retroci_sampletype_test_element_202208313.sql	liquibase/2.6.x.x/add_retroci_sampletype_test_element.xml::202208313::CIV developer Group	False	False	True
+0220_add_dept_org_type_1.sql	liquibase/2.7.x.x/add_dept_org_type.xml::1::moses_mutesa	False	False	True
+0221_add_analyser_import_role_1.sql	liquibase/2.7.x.x/add_analyser_import_role.xml::1::moses_mutesa	False	False	True
+0222_add_analyser_import_role_202303181.sql	liquibase/2.7.x.x/add_analyser_import_role.xml::202303181::CIV developer Group	False	False	True
+0223_add_validation_by_date_1.sql	liquibase/2.7.x.x/add_validation_by_date.xml::1::moses_mutesa	False	False	True
+0224_add_validation_by_date_2.sql	liquibase/2.7.x.x/add_validation_by_date.xml::2::moses_mutesa	False	False	True
+0225_support_reject_sample_1.sql	liquibase/2.7.x.x/support_reject_sample.xml::1::moses_mutesa	False	False	True
+0226_support_reject_sample_2.sql	liquibase/2.7.x.x/support_reject_sample.xml::2::moses_mutesa	False	False	True
+0227_support_reject_sample_3.sql	liquibase/2.7.x.x/support_reject_sample.xml::3::moses_mutesa	False	False	True
+0228_support_reject_sample_4.sql	liquibase/2.7.x.x/support_reject_sample.xml::4::moses_mutesa	False	False	False
+0229_site_information_1.sql	liquibase/2.7.x.x/site_information.xml::1::csteele	False	False	True
+0230_site_information_2.sql	liquibase/2.7.x.x/site_information.xml::2::cliff	False	False	True
+0231_critical_range_1.sql	liquibase/2.7.x.x/critical_range.xml::1::cliff	False	True	True
+0232_critical_range_2.sql	liquibase/2.7.x.x/critical_range.xml::2::cliff	False	True	True
+0233_fix_database_bugs_retroc_202303061.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::202303061::CIV developer Group	False	False	True
+0234_fix_database_bugs_retroc_202304051.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::202304051::CIV developer Group	False	False	True
+0235_fix_database_bugs_retroc_202304052.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::202304052::CIV developer Group	False	False	True
+0236_fix_database_bugs_retroc_202304053.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::202304053::CIV developer Group	False	False	True
+0237_fix_database_bugs_retroc_202304054.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::202304054::CIV developer Group	False	False	True
+0238_fix_database_bugs_retroc_202304055.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::202304055::CIV developer Group	False	False	True
+0239_fix_database_bugs_retroc_202304056.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::202304056::CIV developer Group	False	False	True
+0240_fix_database_bugs_retroc_202304057.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::202304057::CIV developer Group	False	False	True
+0241_fix_database_bugs_retroc_202304058.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::202304058::CIV developer Group	False	False	True
+0242_fix_database_bugs_retroc_202304059.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::202304059::CIV developer Group	False	False	True
+0243_fix_database_bugs_retroc_2023040510.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::2023040510::CIV developer Group	False	False	True
+0244_fix_database_bugs_retroc_2023040511.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::2023040511::CIV developer Group	False	False	True
+0245_fix_database_bugs_retroc_2023040512.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::2023040512::CIV developer Group	False	False	True
+0246_fix_database_bugs_retroc_2023040513.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::2023040513::CIV developer Group	False	False	True
+0247_fix_database_bugs_retroc_2023040514.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::2023040514::CIV developer Group	False	False	True
+0248_fix_database_bugs_retroc_2023040515.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::2023040515::CIV developer Group	False	False	True
+0249_fix_database_bugs_retroc_2023040516.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::2023040516::CIV developer Group	False	False	True
+0250_fix_database_bugs_retroc_202303062.sql	liquibase/2.7.x.x/fix_database_bugs_retroc.xml::202303062::CIV developer Group	False	False	True
+0251_add_psc_sampletype_test_element_202305021.sql	liquibase/2.7.x.x/add_psc_sampletype_test_element.xml::202305021::CIV developer Group	False	False	True
+0252_add_psc_sampletype_test_element_202305022.sql	liquibase/2.7.x.x/add_psc_sampletype_test_element.xml::202305022::CIV developer Group	False	False	True
+0253_add_psc_sampletype_test_element_202305023.sql	liquibase/2.7.x.x/add_psc_sampletype_test_element.xml::202305023::CIV developer Group	False	False	True
+0254_add_admin_default_roles_1.sql	liquibase/2.7.x.x/add_admin_default_roles.xml::1::moses_mutesa	False	False	True
+0255_add_admin_default_roles_2.sql	liquibase/2.7.x.x/add_admin_default_roles.xml::2::moses_mutesa	False	False	True
+0256_fix_person_table_1.sql	liquibase/2.7.x.x/fix_person_table.xml::1::mozzymutesa	False	False	False
+0257_add_tb_menu_2023081001.sql	liquibase/2.7.x.x/add_TB_menu.xml::2023081001::CIV developer Group	False	False	True
+0258_add_tb_menu_2023081004.sql	liquibase/2.7.x.x/add_TB_menu.xml::2023081004::CIV developer Group	False	False	True
+0259_add_tb_menu_2023081005.sql	liquibase/2.7.x.x/add_TB_menu.xml::2023081005::CIV developer Group	False	False	True
+0260_add_tb_menu_2023081002.sql	liquibase/2.7.x.x/add_TB_menu.xml::2023081002::CIV developer Group	False	False	True
+0261_add_tb_menu_2023081003.sql	liquibase/2.7.x.x/add_TB_menu.xml::2023081003::CIV developer Group	False	False	True
+0262_add_tb_menu_2023092401.sql	liquibase/2.7.x.x/add_TB_menu.xml::2023092401::CIV developer Group	False	False	True
+0263_add_tb_menu_2023092402.sql	liquibase/2.7.x.x/add_TB_menu.xml::2023092402::CIV developer Group	False	False	True
+0264_add_tb_menu_2023100301.sql	liquibase/2.7.x.x/add_TB_menu.xml::2023100301::CIV developer Group	False	False	True
+0265_add_tb_menu_23102501.sql	liquibase/2.7.x.x/add_TB_menu.xml::23102501::CIV developer Group	False	False	True
+0266_add_tb_menu_23102502.sql	liquibase/2.7.x.x/add_TB_menu.xml::23102502::CIV developer Group	False	False	False
+0267_add_tb_menu_23102503.sql	liquibase/2.7.x.x/add_TB_menu.xml::23102503::CIV developer Group	False	False	True
+0268_add_tb_menu_23102504.sql	liquibase/2.7.x.x/add_TB_menu.xml::23102504::CIV developer Group	False	False	True
+0269_add_tb_menu_23102505.sql	liquibase/2.7.x.x/add_TB_menu.xml::23102505::CIV developer Group	False	False	True
+0270_add_tb_menu_23110301.sql	liquibase/2.7.x.x/add_TB_menu.xml::23110301::CIV developer Group	False	False	False
+0271_add_patient_upid_23082801.sql	liquibase/2.7.x.x/add_patient_upid.xml::23082801::CIV developer Group	False	True	True
+0272_extend_person_state_column_23090601.sql	liquibase/2.7.x.x/extend_person_state_column.xml::23090601::CIV Developer Group	False	False	False
+0273_add_recency_testing_202309101.sql	liquibase/2.7.x.x/add_recency_testing.xml::202309101::CIV developer Group	False	False	True
+0274_add_recency_testing_202309102.sql	liquibase/2.7.x.x/add_recency_testing.xml::202309102::CIV developer Group	False	False	True
+0275_add_recency_testing_202309103.sql	liquibase/2.7.x.x/add_recency_testing.xml::202309103::CIV developer Group	False	False	True
+0276_add_recency_testing_202309104.sql	liquibase/2.7.x.x/add_recency_testing.xml::202309104::CIV developer Group	False	False	True
+0277_add_recency_testing_202309105.sql	liquibase/2.7.x.x/add_recency_testing.xml::202309105::CIV developer Group	False	False	True
+0278_add_recency_testing_202309106.sql	liquibase/2.7.x.x/add_recency_testing.xml::202309106::CIV developer Group	False	False	True
+0279_add_recency_testing_202309107.sql	liquibase/2.7.x.x/add_recency_testing.xml::202309107::CIV developer Group	False	False	True
+0280_add_recency_testing_202309108.sql	liquibase/2.7.x.x/add_recency_testing.xml::202309108::CIV developer Group	False	False	True
+0281_add_recency_testing_202309109.sql	liquibase/2.7.x.x/add_recency_testing.xml::202309109::CIV developer Group	False	False	True
+0282_add_recency_testing_202309110.sql	liquibase/2.7.x.x/add_recency_testing.xml::202309110::CIV developer Group	False	False	True
+0283_add_tb_samples_202309141.sql	liquibase/2.7.x.x/add_tb_samples.xml::202309141::CIV developer Group	False	False	False
+0284_add_tb_samples_202309142.sql	liquibase/2.7.x.x/add_tb_samples.xml::202309142::CIV developer Group	False	False	True
+0285_add_tb_samples_202309151.sql	liquibase/2.7.x.x/add_tb_samples.xml::202309151::CIV developer Group	False	False	True
+0286_add_tb_samples_202309152.sql	liquibase/2.7.x.x/add_tb_samples.xml::202309152::CIV developer Group	False	False	True
+0287_add_tb_samples_202309153.sql	liquibase/2.7.x.x/add_tb_samples.xml::202309153::CIV developer Group	False	False	True
+0288_add_tb_samples_202309154.sql	liquibase/2.7.x.x/add_tb_samples.xml::202309154::CIV developer Group	False	False	True
+0289_add_tb_samples_202309155.sql	liquibase/2.7.x.x/add_tb_samples.xml::202309155::CIV developer Group	False	False	True
+0290_add_tb_samples_202309156.sql	liquibase/2.7.x.x/add_tb_samples.xml::202309156::CIV developer Group	False	False	True
+0291_add_tb_samples_202309157.sql	liquibase/2.7.x.x/add_tb_samples.xml::202309157::CIV developer Group	False	False	True
+0292_add_tb_samples_202309158.sql	liquibase/2.7.x.x/add_tb_samples.xml::202309158::CIV developer Group	False	False	True
+0293_add_tb_samples_202309159.sql	liquibase/2.7.x.x/add_tb_samples.xml::202309159::CIV developer Group	False	False	True
+0294_add_tb_samples_2023091510.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091510::CIV developer Group	False	False	True
+0295_add_tb_samples_2023091511.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091511::CIV developer Group	False	False	True
+0296_add_tb_samples_2023091512.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091512::CIV developer Group	False	False	True
+0297_add_tb_samples_2023091513.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091513::CIV developer Group	False	False	True
+0298_add_tb_samples_2023091514.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091514::CIV developer Group	False	False	True
+0299_add_tb_samples_2023091515.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091515::CIV developer Group	False	False	True
+0300_add_tb_samples_2023091516.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091516::CIV developer Group	False	False	True
+0301_add_tb_samples_2023091517.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091517::CIV developer Group	False	False	True
+0302_add_tb_samples_2023091518.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091518::CIV developer Group	False	False	True
+0303_add_tb_samples_2023091519.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091519::CIV developer Group	False	False	True
+0304_add_tb_samples_2023091520.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091520::CIV developer Group	False	False	True
+0305_add_tb_samples_2023091521.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091521::CIV developer Group	False	False	True
+0306_add_tb_samples_2023091522.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091522::CIV developer Group	False	False	True
+0307_add_tb_samples_2023091523.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091523::CIV developer Group	False	False	True
+0308_add_tb_samples_2023091524.sql	liquibase/2.7.x.x/add_tb_samples.xml::2023091524::CIV developer Group	False	False	True
+0309_add_tb_dictionary_infos_2023091525.sql	liquibase/2.7.x.x/add_tb_dictionary_infos.xml::2023091525::CIV developer Group	False	False	True
+0310_add_tb_dictionary_infos_2023091526.sql	liquibase/2.7.x.x/add_tb_dictionary_infos.xml::2023091526::CIV developer Group	False	False	True
+0311_add_tb_dictionary_infos_2023091527.sql	liquibase/2.7.x.x/add_tb_dictionary_infos.xml::2023091527::CIV developer Group	False	False	True
+0312_add_tb_dictionary_infos_2023091528.sql	liquibase/2.7.x.x/add_tb_dictionary_infos.xml::2023091528::CIV developer Group	False	False	True
+0313_add_tb_dictionary_infos_2023091529.sql	liquibase/2.7.x.x/add_tb_dictionary_infos.xml::2023091529::CIV developer Group	False	False	True
+0314_add_tb_dictionary_infos_2023091530.sql	liquibase/2.7.x.x/add_tb_dictionary_infos.xml::2023091530::CIV developer Group	False	False	True
+0315_add_tb_dictionary_infos_2023091531.sql	liquibase/2.7.x.x/add_tb_dictionary_infos.xml::2023091531::CIV developer Group	False	False	True
+0316_add_tb_dictionary_infos_2023091532.sql	liquibase/2.7.x.x/add_tb_dictionary_infos.xml::2023091532::CIV developer Group	False	False	True
+0317_add_tb_dictionary_infos_2023091533.sql	liquibase/2.7.x.x/add_tb_dictionary_infos.xml::2023091533::CIV developer Group	False	False	True
+0318_add_tb_dictionary_infos_2023091534.sql	liquibase/2.7.x.x/add_tb_dictionary_infos.xml::2023091534::CIV developer Group	False	False	True
+0319_add_tb_tests_2023091801.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091801::CIV developer Group	False	False	True
+0320_add_tb_tests_2023091802.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091802::CIV developer Group	False	False	True
+0321_add_tb_tests_2023091803.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091803::CIV developer Group	False	False	True
+0322_add_tb_tests_2023091804.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091804::CIV developer Group	False	False	True
+0323_add_tb_tests_2023091805.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091805::CIV developer Group	False	False	True
+0324_add_tb_tests_2023091806.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091806::CIV developer Group	False	False	True
+0325_add_tb_tests_2023091807.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091807::CIV developer Group	False	False	True
+0326_add_tb_tests_2023091808.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091808::CIV developer Group	False	False	True
+0327_add_tb_tests_2023091809.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091809::CIV developer Group	False	False	True
+0328_add_tb_tests_2023091810.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091810::CIV developer Group	False	False	True
+0329_add_tb_tests_2023091811.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091811::CIV developer Group	False	False	True
+0330_add_tb_tests_2023091812.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091812::CIV developer Group	False	False	True
+0331_add_tb_tests_2023091813.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091813::CIV developer Group	False	False	True
+0332_add_tb_tests_2023091814.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091814::CIV developer Group	False	False	True
+0333_add_tb_tests_2023091815.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091815::CIV developer Group	False	False	True
+0334_add_tb_tests_2023091845.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091845::CIV developer Group	False	False	True
+0335_add_tb_tests_2023091816.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091816::CIV developer Group	False	False	True
+0336_add_tb_tests_2023091817.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091817::CIV developer Group	False	False	True
+0337_add_tb_tests_2023091818.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091818::CIV developer Group	False	False	True
+0338_add_tb_tests_2023091819.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091819::CIV developer Group	False	False	True
+0339_add_tb_tests_2023091820.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091820::CIV developer Group	False	False	True
+0340_add_tb_tests_2023091821.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091821::CIV developer Group	False	False	True
+0341_add_tb_tests_2023091822.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091822::CIV developer Group	False	False	True
+0342_add_tb_tests_2023091823.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091823::CIV developer Group	False	False	True
+0343_add_tb_tests_2023091824.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091824::CIV developer Group	False	False	True
+0344_add_tb_tests_2023091825.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091825::CIV developer Group	False	False	True
+0345_add_tb_tests_2023091826.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091826::CIV developer Group	False	False	True
+0346_add_tb_tests_2023091827.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091827::CIV developer Group	False	False	True
+0347_add_tb_tests_2023091828.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091828::CIV developer Group	False	False	True
+0348_add_tb_tests_2023091829.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091829::CIV developer Group	False	False	True
+0349_add_tb_tests_2023091830.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091830::CIV developer Group	False	False	True
+0350_add_tb_tests_2023091831.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091831::CIV developer Group	False	False	True
+0351_add_tb_tests_2023091832.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091832::CIV developer Group	False	False	True
+0352_add_tb_tests_2023091833.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091833::CIV developer Group	False	False	True
+0353_add_tb_tests_2023091834.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091834::CIV developer Group	False	False	True
+0354_add_tb_tests_2023091835.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091835::CIV developer Group	False	False	True
+0355_add_tb_tests_2023091836.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091836::CIV developer Group	False	False	True
+0356_add_tb_tests_2023091837.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091837::CIV developer Group	False	False	True
+0357_add_tb_tests_2023091838.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091838::CIV developer Group	False	False	True
+0358_add_tb_tests_2023091839.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091839::CIV developer Group	False	False	True
+0359_add_tb_tests_2023091840.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091840::CIV developer Group	False	False	True
+0360_add_tb_tests_2023091841.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091841::CIV developer Group	False	False	True
+0361_add_tb_tests_2023091842.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091842::CIV developer Group	False	False	True
+0362_add_tb_tests_2023091843.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091843::CIV developer Group	False	False	True
+0363_add_tb_tests_2023091844.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023091844::CIV developer Group	False	False	True
+0364_add_tb_tests_2023092101.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092101::CIV developer Group	False	True	False
+0365_add_tb_tests_2023092102.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092102::CIV developer Group	False	True	True
+0366_add_tb_tests_2023092103.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092103::CIV developer Group	False	False	True
+0367_add_tb_tests_2023092104.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092104::CIV developer Group	False	False	True
+0368_add_tb_tests_2023092105.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092105::CIV developer Group	False	False	True
+0369_add_tb_tests_2023092106.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092106::CIV developer Group	False	False	True
+0370_add_tb_tests_2023092107.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092107::CIV developer Group	False	False	True
+0371_add_tb_tests_2023092108.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092108::CIV developer Group	False	False	True
+0372_add_tb_tests_2023092109.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092109::CIV developer Group	False	False	True
+0373_add_tb_tests_2023092111.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092111::CIV developer Group	False	False	True
+0374_add_tb_tests_2023092112.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092112::CIV developer Group	False	False	True
+0375_add_tb_tests_2023092113.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092113::CIV developer Group	False	False	True
+0376_add_tb_tests_2023092114.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092114::CIV developer Group	False	False	True
+0377_add_tb_tests_2023092201.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092201::CIV developer Group	False	False	False
+0378_add_tb_tests_2023092202.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092202::CIV developer Group	False	True	False
+0379_add_tb_tests_2023092203.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092203::CIV developer Group	False	True	True
+0380_add_tb_tests_2023092204.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092204::CIV developer Group	False	False	True
+0381_add_tb_tests_2023092205.sql	liquibase/2.7.x.x/add_tb_tests.xml::2023092205::CIV developer Group	False	False	True
+0382_add_tb_observation_type_2023092301.sql	liquibase/2.7.x.x/add_tb_observation_type.xml::2023092301::CIV developer Group	False	False	True
+0383_activate_result_modifer_role_23101801.sql	liquibase/2.7.x.x/activate_result_modifer_role.xml::23101801::CIV Developer Group	False	False	False
+0384_add_loinc_code_23102501.sql	liquibase/2.7.x.x/add_loinc_code.xml::23102501::CIV Developer Group	False	False	False
+0385_add_hpv_testing_23111601.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111601::CIV developer Group	False	False	True
+0386_add_hpv_testing_23111602.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111602::CIV developer Group	False	False	True
+0387_add_hpv_testing_23111612.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111612::CIV developer Group	False	False	True
+0388_add_hpv_testing_23111603.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111603::CIV developer Group	False	False	True
+0389_add_hpv_testing_23111604.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111604::CIV developer Group	False	False	True
+0390_add_hpv_testing_23111605.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111605::CIV developer Group	False	False	True
+0391_add_hpv_testing_23111606.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111606::CIV developer Group	False	False	True
+0392_add_hpv_testing_23111607.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111607::CIV developer Group	False	False	True
+0393_add_hpv_testing_23111614.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111614::CIV developer Group	False	False	True
+0394_add_hpv_testing_23111615.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111615::CIV developer Group	False	False	True
+0395_add_hpv_testing_23111616.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111616::CIV developer Group	False	False	True
+0396_add_hpv_testing_23111611.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111611::CIV developer Group	False	False	True
+0397_add_hpv_testing_23111608.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111608::CIV developer Group	False	False	True
+0398_add_hpv_testing_23111609.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111609::CIV developer Group	False	False	True
+0399_add_hpv_testing_23111610.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111610::CIV developer Group	False	False	True
+0400_add_hpv_testing_23111617.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111617::CIV developer Group	False	False	True
+0401_add_hpv_testing_23111618.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111618::CIV developer Group	False	False	True
+0402_add_hpv_testing_23111619.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111619::CIV developer Group	False	False	True
+0403_add_hpv_testing_23111620.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111620::CIV developer Group	False	False	True
+0404_add_hpv_testing_23111621.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111621::CIV developer Group	False	False	True
+0405_add_hpv_testing_23111622.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111622::CIV developer Group	False	False	True
+0406_add_hpv_testing_23111623.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111623::CIV developer Group	False	False	True
+0407_add_hpv_testing_23111624.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111624::CIV developer Group	False	False	True
+0408_add_hpv_testing_23111625.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111625::CIV developer Group	False	False	True
+0409_add_hpv_testing_23111626.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111626::CIV developer Group	False	False	True
+0410_add_hpv_testing_23111627.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111627::CIV developer Group	False	False	True
+0411_add_hpv_testing_23111701.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111701::CIV developer Group	False	False	True
+0412_add_hpv_testing_23111702.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111702::CIV developer Group	False	False	True
+0413_add_hpv_testing_23111703.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111703::CIV developer Group	False	False	True
+0414_add_hpv_testing_23111704.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23111704::CIV developer Group	False	False	True
+0415_add_hpv_testing_23112101.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23112101::CIV developer Group	False	False	True
+0416_add_hpv_testing_23112102.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23112102::CIV developer Group	False	False	True
+0417_add_hpv_testing_23112103.sql	liquibase/2.7.x.x/add_hpv_testing.xml::23112103::CIV developer Group	False	False	True
+0418_rename_test_for_csv_export_1.sql	liquibase/2.7.x.x/rename_test_for_csv_export.xml::1::csteele	False	False	False
+0419_add_electronic_rejection_2403011.sql	liquibase/2.7.x.x/add_electronic_rejection.xml::2403011::CIV developer Group	False	False	True
+0420_reflex_rule_1.sql	liquibase/2.8.x.x/reflex_rule.xml::1::moses_mutesa	False	False	True
+0421_reflex_rule_2.sql	liquibase/2.8.x.x/reflex_rule.xml::2::moses_mutesa	False	False	True
+0422_reflex_rule_3.sql	liquibase/2.8.x.x/reflex_rule.xml::3::moses_mutesa	False	False	True
+0423_reflex_rule_4.sql	liquibase/2.8.x.x/reflex_rule.xml::4::moses_mutesa	False	False	True
+0424_reflex_rule_5.sql	liquibase/2.8.x.x/reflex_rule.xml::5::moses_mutesa	False	False	True
+0425_desynchronous_objects_1.sql	liquibase/2.8.x.x/desynchronous_objects.xml::1::csteele	False	True	True
+0426_pathology_1.sql	liquibase/2.8.x.x/pathology.xml::1::csteele	False	False	True
+0427_pathology_2.sql	liquibase/2.8.x.x/pathology.xml::2::csteele	False	True	True
+0428_pathology_2_1.sql	liquibase/2.8.x.x/pathology.xml::2.1::csteele	False	True	True
+0429_pathology_3.sql	liquibase/2.8.x.x/pathology.xml::3::csteele	False	False	True
+0430_pathology_4.sql	liquibase/2.8.x.x/pathology.xml::4::csteele	False	False	True
+0431_pathology_5.sql	liquibase/2.8.x.x/pathology.xml::5::csteele	False	False	True
+0432_pathology_6.sql	liquibase/2.8.x.x/pathology.xml::6::csteele	False	False	True
+0433_pathology_6_1.sql	liquibase/2.8.x.x/pathology.xml::6.1::csteele	False	False	True
+0434_pathology_7.sql	liquibase/2.8.x.x/pathology.xml::7::csteele	False	False	True
+0435_pathology_8.sql	liquibase/2.8.x.x/pathology.xml::8::csteele	False	False	True
+0436_pathology_9.sql	liquibase/2.8.x.x/pathology.xml::9::csteele	False	False	True
+0437_pathology_10.sql	liquibase/2.8.x.x/pathology.xml::10::csteele	False	True	True
+0438_pathology_11.sql	liquibase/2.8.x.x/pathology.xml::11::csteele	False	False	True
+0439_pathology_12.sql	liquibase/2.8.x.x/pathology.xml::12::csteele	False	False	True
+0440_pathology_13.sql	liquibase/2.8.x.x/pathology.xml::13::csteele	False	False	True
+0441_pathology_14.sql	liquibase/2.8.x.x/pathology.xml::14::mozzymutesa	False	False	True
+0442_pathology_15.sql	liquibase/2.8.x.x/pathology.xml::15::mozzymutesa	False	False	True
+0443_pathology_16.sql	liquibase/2.8.x.x/pathology.xml::16::csteele	False	False	True
+0444_pathology_16_1.sql	liquibase/2.8.x.x/pathology.xml::16.1::csteele	False	False	True
+0445_calculated_value_1.sql	liquibase/2.8.x.x/calculated_value.xml::1::moses_mutesa	False	False	True
+0446_calculated_value_2.sql	liquibase/2.8.x.x/calculated_value.xml::2::moses_mutesa	False	False	True
+0447_calculated_value_3.sql	liquibase/2.8.x.x/calculated_value.xml::3::moses_mutesa	False	False	True
+0448_calculated_value_4.sql	liquibase/2.8.x.x/calculated_value.xml::4::moses_mutesa	False	False	True
+0449_calculated_value_5.sql	liquibase/2.8.x.x/calculated_value.xml::5::moses_mutesa	False	False	True
+0450_calculated_value_6.sql	liquibase/2.8.x.x/calculated_value.xml::6::moses_mutesa	False	True	True
+0451_calculated_value_7.sql	liquibase/2.8.x.x/calculated_value.xml::7::mozzymutesa	False	True	False
+0452_calculated_value_8.sql	liquibase/2.8.x.x/calculated_value.xml::8::moses_mutesa	False	True	True
+0453_immunohistochemistry_1.sql	liquibase/2.8.x.x/immunohistochemistry.xml::1::csteele	False	False	True
+0454_immunohistochemistry_2.sql	liquibase/2.8.x.x/immunohistochemistry.xml::2::mozzymutesa	False	False	True
+0455_immunohistochemistry_3.sql	liquibase/2.8.x.x/immunohistochemistry.xml::3::mozzymutesa	False	False	True
+0456_immunohistochemistry_4.sql	liquibase/2.8.x.x/immunohistochemistry.xml::4::mozzymutesa	False	False	True
+0457_immunohistochemistry_5.sql	liquibase/2.8.x.x/immunohistochemistry.xml::5::csteele	False	False	True
+0458_immunohistochemistry_6.sql	liquibase/2.8.x.x/immunohistochemistry.xml::6::csteele	False	False	True
+0459_immunohistochemistry_7.sql	liquibase/2.8.x.x/immunohistochemistry.xml::7::mozzymutesa	False	False	True
+0460_immunohistochemistry_8.sql	liquibase/2.8.x.x/immunohistochemistry.xml::8::mozzymutesa	False	False	True
+0461_cytology_1.sql	liquibase/2.8.x.x/cytology.xml::1::mozzymutesa	False	False	True
+0462_cytology_2.sql	liquibase/2.8.x.x/cytology.xml::2::mozzymutesa	False	False	True
+0463_cytology_3.sql	liquibase/2.8.x.x/cytology.xml::3::mozzymutesa	False	False	True
+0464_cytology_4.sql	liquibase/2.8.x.x/cytology.xml::4::mozzymutesa	False	False	True
+0465_cytology_5.sql	liquibase/2.8.x.x/cytology.xml::5::mozzymutesa	False	False	True
+0466_cytology_6.sql	liquibase/2.8.x.x/cytology.xml::6::mozzymutesa	False	False	True
+0467_cytology_7.sql	liquibase/2.8.x.x/cytology.xml::7::mozzymutesa	False	False	True
+0468_cytology_8.sql	liquibase/2.8.x.x/cytology.xml::8::mozzymutesa	False	False	True
+0469_cytology_9.sql	liquibase/2.8.x.x/cytology.xml::9::mozzymutesa	False	False	True
+0470_cytology_10.sql	liquibase/2.8.x.x/cytology.xml::10::mozzymutesa	False	False	True
+0471_cytology_11.sql	liquibase/2.8.x.x/cytology.xml::11::mozzymutesa	False	False	True
+0472_cytology_12.sql	liquibase/2.8.x.x/cytology.xml::12::mozzymutesa	False	False	True
+0473_sample_types_1.sql	liquibase/2.8.x.x/sample_types.xml::1::csteele	False	False	True
+0474_sample_types_1_1.sql	liquibase/2.8.x.x/sample_types.xml::1.1::csteele	False	False	False
+0475_sample_types_2.sql	liquibase/2.8.x.x/sample_types.xml::2::csteele	False	False	True
+0476_sample_types_4.sql	liquibase/2.8.x.x/sample_types.xml::4::csteele	False	False	True
+0477_add_antimicrobial_resistance_test_column_1.sql	liquibase/2.8.x.x/add_antimicrobial_resistance_test_column.xml::1::rossumg	False	True	True
+0478_add_antimicrobial_resistance_test_column_2.sql	liquibase/2.8.x.x/add_antimicrobial_resistance_test_column.xml::2::rossumg	False	False	True
+0479_lab_number_alphanum_update_1.sql	liquibase/2.8.x.x/lab_number_alphanum_update.xml::1::csteele	False	False	True
+0480_lab_number_alphanum_update_2.sql	liquibase/2.8.x.x/lab_number_alphanum_update.xml::2::csteele	False	False	False
+0481_menu_1.sql	liquibase/2.8.x.x/menu.xml::1::csteele	False	False	True
+0482_menu_2.sql	liquibase/2.8.x.x/menu.xml::2::csteele	False	False	False
+0483_menu_3.sql	liquibase/2.8.x.x/menu.xml::3::csteele	False	False	True
+0484_menu_4.sql	liquibase/2.8.x.x/menu.xml::4::csteele	False	False	False
+0485_menu_5.sql	liquibase/2.8.x.x/menu.xml::5::csteele	False	False	False
+0486_menu_6.sql	liquibase/2.8.x.x/menu.xml::6::csteele	False	False	True
+0487_menu_7.sql	liquibase/2.8.x.x/menu.xml::7::csteele	False	False	True
+0488_menu_8.sql	liquibase/2.8.x.x/menu.xml::8::csteele	False	False	True
+0489_menu_9.sql	liquibase/2.8.x.x/menu.xml::9::csteele	False	False	True
+0490_menu_10.sql	liquibase/2.8.x.x/menu.xml::10::csteele	False	False	False
+0491_menu_11.sql	liquibase/2.8.x.x/menu.xml::11::csteele	False	False	False
+0492_menu_12.sql	liquibase/2.8.x.x/menu.xml::12::moses_mutesa	False	False	False
+0493_menu_13.sql	liquibase/2.8.x.x/menu.xml::13::csteele	False	False	True
+0494_menu_14.sql	liquibase/2.8.x.x/menu.xml::14::vishal	False	False	False
+0495_menu_15.sql	liquibase/2.8.x.x/menu.xml::15::vishal	False	False	False
+0496_menu_16.sql	liquibase/2.8.x.x/menu.xml::16::vishal	False	False	False
+0497_panel_item_fix_1.sql	liquibase/2.8.x.x/panel_item_fix.xml::1::csteele	False	False	False
+0498_update_default_setting_1.sql	liquibase/2.8.x.x/update_default_setting.xml::1::moses_mutesa	False	False	True
+0499_update_default_setting_2.sql	liquibase/2.8.x.x/update_default_setting.xml::2::moses_mutesa	False	False	False
+0500_update_default_setting_3.sql	liquibase/2.8.x.x/update_default_setting.xml::3::mozzymutesa	False	False	True
+0501_update_default_setting_4.sql	liquibase/2.8.x.x/update_default_setting.xml::4::mozzymutesa	False	False	False
+0502_rename_test_for_csv_export_1.sql	liquibase/2.8.x.x/rename_test_for_csv_export.xml::1::csteele	False	False	False
+0503_loinc_1.sql	liquibase/2.8.x.x/loinc.xml::1::csteele	False	False	False
+0504_notifications_create_notifications_table.sql	liquibase/2.8.x.x/notifications.xml::create_notifications_table::clinlims	False	False	True
+0505_sample_program_audit_trail_1.sql	liquibase/2.8.x.x/sample_program_audit_trail.xml::1::csteele	False	False	True
+0506_notification_subscriptions_create_notification_subscriptions.sql	liquibase/2.8.x.x/notification_subscriptions.xml::create_notification_subscriptions_table::clinlims	False	False	True
+0507_method_1.sql	liquibase/2.8.x.x/method.xml::1::csteele	False	True	True
+0508_landing_page_config_1.sql	liquibase/2.8.x.x/landing_page_config.xml::1::mozzymutesa	False	False	True
+0509_enable_client_registry_search_1.sql	liquibase/2.8.x.x/enable_client_registry_search.xml::1::mherman22	False	False	True
+0510_panel_loinc_1.sql	liquibase/3.1.x.x/panel_loinc.xml::1::csteele	False	True	True
+0511_bar_code_config_1.sql	liquibase/3.1.x.x/bar_code_config.xml::1::moses_mutesa	False	False	True
+0512_dictionary_loinc_add_dictionary_loinc_code.sql	liquibase/3.1.x.x/dictionary-loinc.xml::add-dictionary-loinc-code::agaba-derrick	False	True	True
+0513_dictionary_loinc_modify_dictionary_loinc_code.sql	liquibase/3.1.x.x/dictionary-loinc.xml::modify-dictionary-loinc-code::motesamozzy	False	False	False
+0514_enable_openelis_to_odoo_connection_1.sql	liquibase/3.1.x.x/enable_openelis_to_odoo_connection.xml::1::mherman22	False	False	True
+0515_provisional_clinical_diagnosis_1.sql	liquibase/3.1.x.x/provisional_clinical_diagnosis.xml::1::herbert	False	False	True
+0516_notebook_create_notebook_table.sql	liquibase/3.2.x.x/notebook.xml::create-notebook-table::mozzymutesa	False	False	True
+0517_notebook_create_notebook_page_table.sql	liquibase/3.2.x.x/notebook.xml::create-notebook-page-table::mozzymutesa	False	False	True
+0518_notebook_create_notebook_file_table.sql	liquibase/3.2.x.x/notebook.xml::create-notebook-file-table::mozzymutesa	False	False	True
+0519_notebook_create_notebook_comment_table.sql	liquibase/3.2.x.x/notebook.xml::create-notebook-comment-table::mozzymutesa	False	False	True
+0520_notebook_create_notebook_tags_table.sql	liquibase/3.2.x.x/notebook.xml::create-notebook-tags-table::mozzymutesa	False	True	True
+0521_notebook_create_notebook_samples_list_table.sql	liquibase/3.2.x.x/notebook.xml::create-notebook-samples-list-table::mozzymutesa	False	True	True
+0522_notebook_create_notebook_analysers_table.sql	liquibase/3.2.x.x/notebook.xml::create-notebook-analysers-table::mozzymutesa	False	True	True
+0523_notebook_create_notebook_entries_table.sql	liquibase/3.2.x.x/notebook.xml::create-notebook-entries-table::mozzymutesa	False	True	True
+0524_notebook_create_notebook_page_panels_table.sql	liquibase/3.2.x.x/notebook.xml::create-notebook-page-panels-table::mozzymutesa	False	True	True
+0525_notebook_create_notebook_page_tests_table.sql	liquibase/3.2.x.x/notebook.xml::create-notebook-page-tests-table::mozzymutesa	False	True	True
+0526_notebook_create_notebook_menu_option.sql	liquibase/3.2.x.x/notebook.xml::create-notebook-menu-option::mozzymutesa	False	False	True
+0527_notebook_add_notebook_expt_type_category.sql	liquibase/3.2.x.x/notebook.xml::add-notebook-expt-type-category::mozzymutesa	False	False	True
+0528_notebook_create_notebook_reference_table_entry.sql	liquibase/3.2.x.x/notebook.xml::create-notebook-reference-table-entry::mozzymutesa	False	False	True
+0529_notebook_create_notebook_samples_table_full.sql	liquibase/3.2.x.x/notebook.xml::create-notebook-samples-table-full::mozzymutesa	False	False	True
+0530_patient_photo_create_patient_photo.sql	liquibase/3.2.x.x/patient_photo.xml::create-patient-photo::aziz_diakite	False	False	True
+0531_result_file_20250825_01_create_result_file_table.sql	liquibase/3.2.x.x/result_file.xml::20250825-01-create-result-file-table::elia	False	False	True
+0532_result_file_20250825_02_add_resultfile_to_analysis.sql	liquibase/3.2.x.x/result_file.xml::20250825-02-add-resultfile-to-analysis::elia	False	False	True
+0533_sample_item_23_10_2025.sql	liquibase/3.2.x.x/sample_item.xml::23-10-2025::reagan-meant	False	False	False
+0534_sample_item_add_voided_22_10_2025.sql	liquibase/3.2.x.x/sample_item.xml::add-voided-22-10-2025::reagan-meant	False	False	True
+0535_sample_item_add_void_reason_23_10_2025.sql	liquibase/3.2.x.x/sample_item.xml::add-void-reason-23-10-2025::reagan-meant	False	True	True
+0536_sample_item_25_10_2025.sql	liquibase/3.2.x.x/sample_item.xml::25-10-2025::reagan-meant	False	False	True
+0537_generic_sample_menu_2025110701.sql	liquibase/3.2.x.x/generic_sample_menu.xml::2025110701::Generic Sample Developer	False	False	True
+0538_generic_sample_menu_2025110702.sql	liquibase/3.2.x.x/generic_sample_menu.xml::2025110702::Generic Sample Developer	False	False	True
+0539_generic_sample_menu_2025110703.sql	liquibase/3.2.x.x/generic_sample_menu.xml::2025110703::Generic Sample Developer	False	False	True
+0540_generic_sample_menu_2025110704.sql	liquibase/3.2.x.x/generic_sample_menu.xml::2025110704::Generic Sample Developer	False	False	True
+0541_generic_sample_menu_2025120101.sql	liquibase/3.2.x.x/generic_sample_menu.xml::2025120101::Generic Sample Developer	False	False	True
+0542_generic_sample_menu_2025110705.sql	liquibase/3.2.x.x/generic_sample_menu.xml::2025110705::Generic Sample Developer	False	False	True
+0543_generic_sample_menu_2025110706.sql	liquibase/3.2.x.x/generic_sample_menu.xml::2025110706::Generic Sample Developer	False	False	True
+0544_generic_sample_menu_2025110707.sql	liquibase/3.2.x.x/generic_sample_menu.xml::2025110707::Generic Sample Developer	False	False	True
+0545_generic_sample_menu_2025110708.sql	liquibase/3.2.x.x/generic_sample_menu.xml::2025110708::Generic Sample Developer	False	False	True
+0546_sample_management_sample_mgmt_001_add_aliquot_columns.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-001-add-aliquot-columns::dev-team	False	False	True
+0547_sample_management_sample_mgmt_002_add_parent_fk.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-002-add-parent-fk::dev-team	False	True	False
+0548_sample_management_sample_mgmt_003_add_parent_index.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-003-add-parent-index::dev-team	False	True	True
+0549_sample_management_sample_mgmt_004_create_aliquot_relationshi.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-004-create-aliquot-relationship::dev-team	False	True	True
+0550_sample_management_sample_mgmt_005_add_relationship_fks.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-005-add-relationship-fks::dev-team	False	False	False
+0551_sample_management_sample_mgmt_006_add_sequence_unique.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-006-add-sequence-unique::dev-team	False	True	False
+0552_sample_management_sample_mgmt_007_add_relationship_indexes.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-007-add-relationship-indexes::dev-team	False	False	True
+0553_sample_management_sample_mgmt_008_migrate_legacy_quantity.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-008-migrate-legacy-quantity::dev-team	False	False	False
+0554_sample_management_sample_mgmt_009_add_menu_entry.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-009-add-menu-entry::dev-team	False	False	True
+0555_sample_management_sample_mgmt_010_add_result_entry_menu.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-010-add-result-entry-menu::dev-team	False	False	True
+0556_001_create_storage_hierarchy_tables_storage_001_create_stora.sql	liquibase/3.3.x.x/001-create-storage-hierarchy-tables.xml::storage-001-create-storage-room-table::sample-storage-feature	False	False	True
+0557_001_create_storage_hierarchy_tables_storage_002_create_stora.sql	liquibase/3.3.x.x/001-create-storage-hierarchy-tables.xml::storage-002-create-storage-device-table::sample-storage-feature	False	False	True
+0558_001_create_storage_hierarchy_tables_storage_003_create_stora.sql	liquibase/3.3.x.x/001-create-storage-hierarchy-tables.xml::storage-003-create-storage-shelf-table::sample-storage-feature	False	False	True
+0559_001_create_storage_hierarchy_tables_storage_004_create_stora.sql	liquibase/3.3.x.x/001-create-storage-hierarchy-tables.xml::storage-004-create-storage-rack-table::sample-storage-feature	False	False	True
+0560_001_create_storage_hierarchy_tables_storage_005_create_stora.sql	liquibase/3.3.x.x/001-create-storage-hierarchy-tables.xml::storage-005-create-storage-box-table::sample-storage-feature	False	False	True
+0561_002_create_assignment_tables_storage_006_create_sample_stora.sql	liquibase/3.3.x.x/002-create-assignment-tables.xml::storage-006-create-sample-storage-assignment-table::sample-storage-feature	False	False	True
+0562_002_create_assignment_tables_storage_007_create_sample_stora.sql	liquibase/3.3.x.x/002-create-assignment-tables.xml::storage-007-create-sample-storage-movement-table::sample-storage-feature	False	False	True
+0563_003_create_indexes_storage_008_create_hierarchy_indexes.sql	liquibase/3.3.x.x/003-create-indexes.xml::storage-008-create-hierarchy-indexes::sample-storage-feature	False	False	True
+0564_003_create_indexes_storage_009_create_fhir_uuid_indexes.sql	liquibase/3.3.x.x/003-create-indexes.xml::storage-009-create-fhir-uuid-indexes::sample-storage-feature	False	False	True
+0565_003_create_indexes_storage_010_create_active_status_indexes.sql	liquibase/3.3.x.x/003-create-indexes.xml::storage-010-create-active-status-indexes::sample-storage-feature	False	False	True
+0566_003_create_indexes_storage_011_create_assignment_indexes.sql	liquibase/3.3.x.x/003-create-indexes.xml::storage-011-create-assignment-indexes::sample-storage-feature	False	False	True
+0567_003_create_indexes_storage_012_create_movement_indexes.sql	liquibase/3.3.x.x/003-create-indexes.xml::storage-012-create-movement-indexes::sample-storage-feature	False	False	True
+0568_005_add_storage_menu_item_storage_menu_item_1.sql	liquibase/3.3.x.x/005-add-storage-menu-item.xml::storage-menu-item-1::pmanko	False	False	True
+0569_006_add_storage_menu_localization_storage_menu_localization.sql	liquibase/3.3.x.x/006-add-storage-menu-localization.xml::storage-menu-localization-1::pmanko	False	False	True
+0570_008_add_short_code_columns_storage_008_add_short_code_to_dev.sql	liquibase/3.3.x.x/008-add-short-code-columns.xml::storage-008-add-short-code-to-device::sample-storage-feature	False	True	True
+0571_008_add_short_code_columns_storage_008a_make_device_short_co.sql	liquibase/3.3.x.x/008-add-short-code-columns.xml::storage-008a-make-device-short-code-required::sample-storage-feature	False	False	False
+0572_008_add_short_code_columns_storage_009_add_short_code_to_she.sql	liquibase/3.3.x.x/008-add-short-code-columns.xml::storage-009-add-short-code-to-shelf::sample-storage-feature	False	True	True
+0573_008_add_short_code_columns_storage_009a_make_shelf_short_cod.sql	liquibase/3.3.x.x/008-add-short-code-columns.xml::storage-009a-make-shelf-short-code-required::sample-storage-feature	False	False	False
+0574_008_add_short_code_columns_storage_010_add_short_code_to_rac.sql	liquibase/3.3.x.x/008-add-short-code-columns.xml::storage-010-add-short-code-to-rack::sample-storage-feature	False	True	True
+0575_008_add_short_code_columns_storage_010a_make_rack_short_code.sql	liquibase/3.3.x.x/008-add-short-code-columns.xml::storage-010a-make-rack-short-code-required::sample-storage-feature	False	False	False
+0576_009_create_print_history_table_storage_011_create_print_hist.sql	liquibase/3.3.x.x/009-create-print-history-table.xml::storage-011-create-print-history-table::sample-storage-feature	False	False	True
+0577_010_remove_odoo_site_information_1.sql	liquibase/3.3.x.x/010-remove-odoo-site-information.xml::1::mherman22	False	False	False
+0578_011_optimize_test_normalized_description_test_011_enable_una.sql	liquibase/3.3.x.x/011-optimize-test-normalized-description.xml::test-011-enable-unaccent-extension::performance-optimization	False	False	False
+0579_011_optimize_test_normalized_description_test_011_add_normal.sql	liquibase/3.3.x.x/011-optimize-test-normalized-description.xml::test-011-add-normalized-description-column::performance-optimization	False	True	True
+0580_011_optimize_test_normalized_description_test_011_populate_n.sql	liquibase/3.3.x.x/011-optimize-test-normalized-description.xml::test-011-populate-normalized-description::performance-optimization	False	False	False
+0581_011_optimize_test_normalized_description_test_011_create_nor.sql	liquibase/3.3.x.x/011-optimize-test-normalized-description.xml::test-011-create-normalized-description-index::performance-optimization	False	True	True
+0582_011_optimize_test_normalized_description_test_011_create_nor.sql	liquibase/3.3.x.x/011-optimize-test-normalized-description.xml::test-011-create-normalized-description-trigger::performance-optimization	False	False	False
+0583_011_make_short_code_optional_storage_010b_make_device_short.sql	liquibase/3.3.x.x/011-make-short-code-optional.xml::storage-010b-make-device-short-code-optional::sample-storage-feature	False	False	False
+0584_011_make_short_code_optional_storage_010b_make_shelf_short_c.sql	liquibase/3.3.x.x/011-make-short-code-optional.xml::storage-010b-make-shelf-short-code-optional::sample-storage-feature	False	False	False
+0585_011_make_short_code_optional_storage_010b_make_rack_short_co.sql	liquibase/3.3.x.x/011-make-short-code-optional.xml::storage-010b-make-rack-short-code-optional::sample-storage-feature	False	False	False
+0586_012_update_code_column_length_storage_011_update_room_code_l.sql	liquibase/3.3.x.x/012-update-code-column-length.xml::storage-011-update-room-code-length::sample-storage-feature	False	False	False
+0587_012_update_code_column_length_storage_011_update_device_code.sql	liquibase/3.3.x.x/012-update-code-column-length.xml::storage-011-update-device-code-length::sample-storage-feature	False	False	False
+0588_012_update_code_column_length_storage_011_add_shelf_code_col.sql	liquibase/3.3.x.x/012-update-code-column-length.xml::storage-011-add-shelf-code-column::sample-storage-feature	False	False	True
+0589_012_update_code_column_length_storage_011_add_rack_code_colu.sql	liquibase/3.3.x.x/012-update-code-column-length.xml::storage-011-add-rack-code-column::sample-storage-feature	False	False	True
+0590_013_remove_short_code_columns_storage_012_remove_device_shor.sql	liquibase/3.3.x.x/013-remove-short-code-columns.xml::storage-012-remove-device-short-code::sample-storage-feature	False	False	True
+0591_013_remove_short_code_columns_storage_012_remove_shelf_short.sql	liquibase/3.3.x.x/013-remove-short-code-columns.xml::storage-012-remove-shelf-short-code::sample-storage-feature	False	False	True
+0592_013_remove_short_code_columns_storage_012_remove_rack_short.sql	liquibase/3.3.x.x/013-remove-short-code-columns.xml::storage-012-remove-rack-short-code::sample-storage-feature	False	False	True
+0593_014_rename_print_history_short_code_to_location_code_storage.sql	liquibase/3.3.x.x/014-rename-print-history-short-code-to-location-code.xml::storage-013-rename-print-history-short-code-to-location-code::sample-storage-feature	False	False	False
+0594_015_add_sample_disposed_status_add_sample_disposed_status.sql	liquibase/3.3.x.x/015-add-sample-disposed-status.xml::add-sample-disposed-status::ogc-73	False	False	True
+0595_016_inventory_management_system_inventory_001_backup_old_dat.sql	liquibase/3.3.x.x/016-inventory-management-system.xml::inventory-001-backup-old-data::mherman22	False	False	False
+0596_016_inventory_management_system_inventory_002_drop_old_table.sql	liquibase/3.3.x.x/016-inventory-management-system.xml::inventory-002-drop-old-tables::mherman22	False	False	False
+0597_016_inventory_management_system_inventory_003_create_invento.sql	liquibase/3.3.x.x/016-inventory-management-system.xml::inventory-003-create-inventory-item-table::mherman22	False	False	True
+0598_016_inventory_management_system_inventory_004_create_storage.sql	liquibase/3.3.x.x/016-inventory-management-system.xml::inventory-004-create-storage-location-table::mherman22	False	False	True
+0599_016_inventory_management_system_inventory_005_create_lot_tab.sql	liquibase/3.3.x.x/016-inventory-management-system.xml::inventory-005-create-lot-table::mherman22	False	False	True
+0600_016_inventory_management_system_inventory_006_create_transac.sql	liquibase/3.3.x.x/016-inventory-management-system.xml::inventory-006-create-transaction-table::mherman22	False	False	True
+0601_016_inventory_management_system_inventory_007_create_usage_t.sql	liquibase/3.3.x.x/016-inventory-management-system.xml::inventory-007-create-usage-table::mherman22	False	False	True
+0602_016_inventory_management_system_inventory_008_migrate_old_hi.sql	liquibase/3.3.x.x/016-inventory-management-system.xml::inventory-008-migrate-old-hiv-kit-data::mherman22	False	False	True
+0603_016_inventory_management_system_inventory_009_add_inventory.sql	liquibase/3.3.x.x/016-inventory-management-system.xml::inventory-009-add-inventory-menu-item::mherman22	False	False	True
+0604_016_inventory_management_system_inventory_010_add_inventory.sql	liquibase/3.3.x.x/016-inventory-management-system.xml::inventory-010-add-inventory-management-submenu::mherman22	False	False	True
+0605_017_inventory_add_last_updated_inventory_add_last_updated_00.sql	liquibase/3.3.x.x/017-inventory-add-last-updated.xml::inventory-add-last-updated-001::mherman22	False	True	True
+0606_017_inventory_add_last_updated_inventory_add_last_updated_00.sql	liquibase/3.3.x.x/017-inventory-add-last-updated.xml::inventory-add-last-updated-002::mherman22	False	True	True
+0607_017_inventory_add_last_updated_inventory_add_last_updated_00.sql	liquibase/3.3.x.x/017-inventory-add-last-updated.xml::inventory-add-last-updated-003::mherman22	False	True	True
+0608_017_inventory_add_last_updated_inventory_add_last_updated_00.sql	liquibase/3.3.x.x/017-inventory-add-last-updated.xml::inventory-add-last-updated-004::mherman22	False	True	True
+0609_017_inventory_add_last_updated_inventory_add_last_updated_00.sql	liquibase/3.3.x.x/017-inventory-add-last-updated.xml::inventory-add-last-updated-005::mherman22	False	True	True
+0610_018_allow_null_location_for_disposed_storage_016_allow_null.sql	liquibase/3.3.x.x/018-allow-null-location-for-disposed.xml::storage-016-allow-null-location-for-disposed::ogc-144	False	False	False
+0611_019_fix_assignment_location_type_check_storage_019_fix_assig.sql	liquibase/3.3.x.x/019-fix-assignment-location-type-check.xml::storage-019-fix-assignment-location-type-check::openelisglobal-ai-agent	False	False	False
+0612_020_storage_box_use_code_not_short_code_storage_020_storage.sql	liquibase/3.3.x.x/020-storage-box-use-code-not-short-code.xml::storage-020-storage-box-use-code-not-short-code::openelisglobal-ai-agent	False	False	True
+0613_021_add_patient_merge_menu_item_patient_merge_menu_item_1.sql	liquibase/3.3.x.x/021-add-patient-merge-menu-item.xml::patient-merge-menu-item-1::claude	False	False	True
+0614_022_add_patient_merge_menu_localization_patient_merge_menu_l.sql	liquibase/3.3.x.x/022-add-patient-merge-menu-localization.xml::patient-merge-menu-localization-1::claude	False	False	True
+0615_028_create_report_definition_table_reporting_001_create_repo.sql	liquibase/3.3.x.x/028-create-report-definition-table.xml::reporting-001-create-report-definition-table::Agaba-derrick	False	False	True
+0616_028_create_report_definition_table_reporting_002_add_report.sql	liquibase/3.3.x.x/028-create-report-definition-table.xml::reporting-002-add-report-type::Agaba_derrick	False	False	True
+0617_028_create_report_definition_table_reporting_002_add_is_publ.sql	liquibase/3.3.x.x/028-create-report-definition-table.xml::reporting-002-add-is-public::Agaba_derrick	False	True	True
+0618_028_create_report_definition_table_reporting_003_seed_defaul.sql	liquibase/3.3.x.x/028-create-report-definition-table.xml::reporting-003-seed-default-patient-report::Agaba_derrick	False	False	True
+0619_023_storage_device_connectivity_storage_ogc68_001_add_device.sql	liquibase/3.3.x.x/023-storage-device-connectivity.xml::storage-ogc68-001-add-device-connectivity-columns::dev-team	False	False	True
+0620_023_storage_device_connectivity_storage_ogc68_002_add_port_c.sql	liquibase/3.3.x.x/023-storage-device-connectivity.xml::storage-ogc68-002-add-port-check-constraint::dev-team	False	True	False
+0621_024_freezer_monitoring_schema_create_freezer_table.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::create-freezer-table::mherman22	False	False	True
+0622_024_freezer_monitoring_schema_create_threshold_profile_table.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::create-threshold-profile-table::mherman22	False	False	True
+0623_024_freezer_monitoring_schema_create_freezer_threshold_profi.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::create-freezer-threshold-profile-table::mherman22	False	False	True
+0624_024_freezer_monitoring_schema_create_freezer_reading_table.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::create-freezer-reading-table::mherman22	False	False	True
+0625_024_freezer_monitoring_schema_add_freezer_storage_device_fk.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::add-freezer-storage-device-fk::mherman22	False	False	True
+0626_024_freezer_monitoring_schema_add_unique_constraint_freezer.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::add-unique-constraint-freezer-storage-device::mherman22	False	True	False
+0627_024_freezer_monitoring_schema_add_freezer_system_config_site.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::add-freezer-system-config-site-information::mherman22	False	False	True
+0628_024_freezer_monitoring_schema_remove_system_config_table.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::remove-system-config-table::mherman22	False	False	True
+0629_024_freezer_monitoring_schema_add_freezer_monitoring_menu_it.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::add-freezer-monitoring-menu-item::mherman22	False	False	True
+0630_024_freezer_monitoring_schema_reorganize_storage_menu_1.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::reorganize-storage-menu-1::mherman22	False	False	False
+0631_024_freezer_monitoring_schema_reorganize_storage_menu_2.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::reorganize-storage-menu-2::mherman22	False	False	True
+0632_024_freezer_monitoring_schema_reorganize_storage_menu_3.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::reorganize-storage-menu-3::mherman22	False	False	False
+0633_024_freezer_monitoring_schema_create_corrective_action_syste.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::create-corrective-action-system::mherman22	False	False	True
+0634_024_freezer_monitoring_schema_create_alert_table.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::create-alert-table::mherman22	False	False	True
+0635_029_add_storage_subnav_items_update_storage_management_no_ac.sql	liquibase/3.3.x.x/029-add-storage-subnav-items.xml::update-storage-management-no-action::navbar-extraction	False	False	False
+0636_029_add_storage_subnav_items_add_storage_samples_menu.sql	liquibase/3.3.x.x/029-add-storage-subnav-items.xml::add-storage-samples-menu::navbar-extraction	False	False	True
+0637_029_add_storage_subnav_items_add_storage_rooms_menu.sql	liquibase/3.3.x.x/029-add-storage-subnav-items.xml::add-storage-rooms-menu::navbar-extraction	False	False	True
+0638_029_add_storage_subnav_items_add_storage_devices_menu.sql	liquibase/3.3.x.x/029-add-storage-subnav-items.xml::add-storage-devices-menu::navbar-extraction	False	False	True
+0639_029_add_storage_subnav_items_add_storage_shelves_menu.sql	liquibase/3.3.x.x/029-add-storage-subnav-items.xml::add-storage-shelves-menu::navbar-extraction	False	False	True
+0640_029_add_storage_subnav_items_add_storage_racks_menu.sql	liquibase/3.3.x.x/029-add-storage-subnav-items.xml::add-storage-racks-menu::navbar-extraction	False	False	True
+0641_029_add_storage_subnav_items_add_storage_boxes_menu.sql	liquibase/3.3.x.x/029-add-storage-subnav-items.xml::add-storage-boxes-menu::navbar-extraction	False	False	True
+0642_029_add_storage_subnav_items_update_freezer_monitoring_no_ac.sql	liquibase/3.3.x.x/029-add-storage-subnav-items.xml::update-freezer-monitoring-no-action::navbar-extraction	False	False	False
+0643_029_add_storage_subnav_items_add_freezer_dashboard_menu.sql	liquibase/3.3.x.x/029-add-storage-subnav-items.xml::add-freezer-dashboard-menu::navbar-extraction	False	False	True
+0644_029_add_storage_subnav_items_add_freezer_corrective_menu.sql	liquibase/3.3.x.x/029-add-storage-subnav-items.xml::add-freezer-corrective-menu::navbar-extraction	False	False	True
+0645_029_add_storage_subnav_items_add_freezer_trends_menu.sql	liquibase/3.3.x.x/029-add-storage-subnav-items.xml::add-freezer-trends-menu::navbar-extraction	False	False	True
+0646_029_add_storage_subnav_items_add_freezer_reports_menu.sql	liquibase/3.3.x.x/029-add-storage-subnav-items.xml::add-freezer-reports-menu::navbar-extraction	False	False	True
+0647_029_add_storage_subnav_items_add_freezer_settings_menu.sql	liquibase/3.3.x.x/029-add-storage-subnav-items.xml::add-freezer-settings-menu::navbar-extraction	False	False	True
+0648_generic_program_menu_create_generic_program_menu_option.sql	liquibase/3.3.x.x/generic-program-menu.xml::create-generic-program-menu-option::elia	False	False	True
+0649_025_register_freezer_audit_trail_register_freezer_audit_trai.sql	liquibase/3.3.x.x/025-register-freezer-audit-trail.xml::register-freezer-audit-trail::mherman22	False	False	True
+0650_026_patient_merge_create_audit_table_patient_merge_001_creat.sql	liquibase/3.3.x.x/026-patient-merge-create-audit-table.xml::patient-merge-001-create-audit-table::patient-merge-backend	False	False	True
+0651_027_patient_merge_alter_patient_table_patient_merge_002_alte.sql	liquibase/3.3.x.x/027-patient-merge-alter-patient-table.xml::patient-merge-002-alter-patient-table::patient-merge-backend	False	False	True
+0652_028_create_site_branding_table_028_create_site_branding_tabl.sql	liquibase/3.3.x.x/028-create-site-branding-table.xml::028-create-site-branding-table::openelis	False	False	True
+0653_eqa_001_create_eqa_program_tables_eqa_001_create_eqa_program.sql	liquibase/3.3.x.x/eqa-001-create-eqa-program-tables.xml::eqa-001-create-eqa-program-table::eqa-module-feature	False	False	True
+0654_eqa_001_create_eqa_program_tables_eqa_002_create_eqa_program.sql	liquibase/3.3.x.x/eqa-001-create-eqa-program-tables.xml::eqa-002-create-eqa-program-test-table::eqa-module-feature	False	False	True
+0655_eqa_002_create_eqa_distribution_tables_eqa_003_create_eqa_di.sql	liquibase/3.3.x.x/eqa-002-create-eqa-distribution-tables.xml::eqa-003-create-eqa-distribution-table::eqa-module-feature	False	False	True
+0656_eqa_003_create_sample_eqa_table_eqa_004_create_sample_eqa_ta.sql	liquibase/3.3.x.x/eqa-003-create-sample-eqa-table.xml::eqa-004-create-sample-eqa-table::eqa-module-feature	False	False	True
+0657_eqa_004_create_eqa_result_table_eqa_005_create_eqa_result_ta.sql	liquibase/3.3.x.x/eqa-004-create-eqa-result-table.xml::eqa-005-create-eqa-result-table::eqa-module-feature	False	False	True
+0658_eqa_006_add_result_audit_columns_eqa_006_add_result_audit_co.sql	liquibase/3.3.x.x/eqa-006-add-result-audit-columns.xml::eqa-006-add-result-audit-columns::eqa-module-feature	False	False	True
+0659_eqa_007_add_eqa_menu_items_eqa_007_01.sql	liquibase/3.3.x.x/eqa-007-add-eqa-menu-items.xml::eqa-007-01::eqa-module	False	False	True
+0660_eqa_007_add_eqa_menu_items_eqa_007_02.sql	liquibase/3.3.x.x/eqa-007-add-eqa-menu-items.xml::eqa-007-02::eqa-module	False	False	True
+0661_eqa_007_add_eqa_menu_items_eqa_007_03.sql	liquibase/3.3.x.x/eqa-007-add-eqa-menu-items.xml::eqa-007-03::eqa-module	False	False	True
+0662_eqa_007_add_eqa_menu_items_eqa_007_04.sql	liquibase/3.3.x.x/eqa-007-add-eqa-menu-items.xml::eqa-007-04::eqa-module	False	False	True
+0663_eqa_007_add_eqa_menu_items_eqa_007_05.sql	liquibase/3.3.x.x/eqa-007-add-eqa-menu-items.xml::eqa-007-05::eqa-module	False	False	True
+0664_eqa_007_add_eqa_menu_items_eqa_007_06.sql	liquibase/3.3.x.x/eqa-007-add-eqa-menu-items.xml::eqa-007-06::eqa-module	False	False	True
+0665_eqa_007_add_eqa_menu_items_eqa_007_07.sql	liquibase/3.3.x.x/eqa-007-add-eqa-menu-items.xml::eqa-007-07::eqa-module	False	False	True
+0666_eqa_007_add_eqa_menu_items_eqa_007_08.sql	liquibase/3.3.x.x/eqa-007-add-eqa-menu-items.xml::eqa-007-08::eqa-module	False	False	True
+0667_eqa_007_add_eqa_menu_items_eqa_007_09.sql	liquibase/3.3.x.x/eqa-007-add-eqa-menu-items.xml::eqa-007-09::eqa-module	False	False	True
+0668_eqa_007_add_eqa_menu_items_eqa_007_10.sql	liquibase/3.3.x.x/eqa-007-add-eqa-menu-items.xml::eqa-007-10::eqa-module	False	False	True
+0669_eqa_007_add_eqa_menu_items_eqa_007_11.sql	liquibase/3.3.x.x/eqa-007-add-eqa-menu-items.xml::eqa-007-11::eqa-module	False	False	False
+0670_eqa_008_add_program_admin_columns_eqa_008_add_program_admin.sql	liquibase/3.3.x.x/eqa-008-add-program-admin-columns.xml::eqa-008-add-program-admin-columns::eqa-module-feature	False	False	True
+0671_eqa_009_create_enrollment_tables_eqa_009_01_sequences.sql	liquibase/3.3.x.x/eqa-009-create-enrollment-tables.xml::eqa-009-01-sequences::eqa-module	False	False	False
+0672_eqa_009_create_enrollment_tables_eqa_009_02_program_enrollme.sql	liquibase/3.3.x.x/eqa-009-create-enrollment-tables.xml::eqa-009-02-program-enrollment::eqa-module	False	True	True
+0673_eqa_009_create_enrollment_tables_eqa_009_03_enrollment_uniqu.sql	liquibase/3.3.x.x/eqa-009-create-enrollment-tables.xml::eqa-009-03-enrollment-unique-idx::eqa-module	False	True	False
+0674_eqa_009_create_enrollment_tables_eqa_009_04_lab_program_enro.sql	liquibase/3.3.x.x/eqa-009-create-enrollment-tables.xml::eqa-009-04-lab-program-enrollment::eqa-module	False	True	True
+0675_eqa_009_create_enrollment_tables_eqa_009_05_lab_enrollment_l.sql	liquibase/3.3.x.x/eqa-009-create-enrollment-tables.xml::eqa-009-05-lab-enrollment-lab-unit::eqa-module	False	False	True
+0676_eqa_009_create_enrollment_tables_eqa_009_06_lab_enrollment_t.sql	liquibase/3.3.x.x/eqa-009-create-enrollment-tables.xml::eqa-009-06-lab-enrollment-test-map::eqa-module	False	False	True
+0677_eqa_010_restructure_menu_eqa_010_01.sql	liquibase/3.3.x.x/eqa-010-restructure-menu.xml::eqa-010-01::eqa-module	False	False	False
+0678_eqa_010_restructure_menu_eqa_010_02.sql	liquibase/3.3.x.x/eqa-010-restructure-menu.xml::eqa-010-02::eqa-module	False	False	False
+0679_eqa_010_restructure_menu_eqa_010_03.sql	liquibase/3.3.x.x/eqa-010-restructure-menu.xml::eqa-010-03::eqa-module	False	False	True
+0680_eqa_010_restructure_menu_eqa_010_04.sql	liquibase/3.3.x.x/eqa-010-restructure-menu.xml::eqa-010-04::eqa-module	False	False	True
+0681_eqa_010_restructure_menu_eqa_010_05.sql	liquibase/3.3.x.x/eqa-010-restructure-menu.xml::eqa-010-05::eqa-module	False	False	True
+0682_eqa_010_restructure_menu_eqa_010_06.sql	liquibase/3.3.x.x/eqa-010-restructure-menu.xml::eqa-010-06::eqa-module	False	False	True
+0683_eqa_010_restructure_menu_eqa_010_07.sql	liquibase/3.3.x.x/eqa-010-restructure-menu.xml::eqa-010-07::eqa-module	False	False	True
+0684_eqa_010_restructure_menu_eqa_010_08.sql	liquibase/3.3.x.x/eqa-010-restructure-menu.xml::eqa-010-08::eqa-module	False	False	True
+0685_eqa_010_restructure_menu_eqa_010_09.sql	liquibase/3.3.x.x/eqa-010-restructure-menu.xml::eqa-010-09::eqa-module	False	False	True
+0686_eqa_010_restructure_menu_eqa_010_10.sql	liquibase/3.3.x.x/eqa-010-restructure-menu.xml::eqa-010-10::eqa-module	False	False	True
+0687_eqa_010_restructure_menu_eqa_010_11.sql	liquibase/3.3.x.x/eqa-010-restructure-menu.xml::eqa-010-11::eqa-module	False	False	True
+0688_eqa_010_restructure_menu_eqa_010_12.sql	liquibase/3.3.x.x/eqa-010-restructure-menu.xml::eqa-010-12::eqa-module	False	False	True
+0689_eqa_010_restructure_menu_eqa_010_13.sql	liquibase/3.3.x.x/eqa-010-restructure-menu.xml::eqa-010-13::eqa-module	False	False	True
+0690_eqa_011_add_enrollment_program_name_eqa_011_01_add_program_n.sql	liquibase/3.3.x.x/eqa-011-add-enrollment-program-name.xml::eqa-011-01-add-program-name-column::mozzy11	False	True	True
+0691_eqa_011_add_enrollment_program_name_eqa_011_02_drop_eqa_prog.sql	liquibase/3.3.x.x/eqa-011-add-enrollment-program-name.xml::eqa-011-02-drop-eqa-program-fk::mozzy11	False	False	False
+0692_eqa_011_add_enrollment_program_name_eqa_011_03_drop_eqa_prog.sql	liquibase/3.3.x.x/eqa-011-add-enrollment-program-name.xml::eqa-011-03-drop-eqa-program-id-column::mozzy11	False	False	True
+0693_eqa_011_add_enrollment_program_name_eqa_011_04_add_enrollmen.sql	liquibase/3.3.x.x/eqa-011-add-enrollment-program-name.xml::eqa-011-04-add-enrollment-id-to-sample-eqa::mozzy11	False	True	True
+0694_eqa_011_add_enrollment_program_name_eqa_011_05_add_provider.sql	liquibase/3.3.x.x/eqa-011-add-enrollment-program-name.xml::eqa-011-05-add-provider-to-eqa-program::mozzy11	False	True	True
+0695_029_add_gps_coordinates_to_sample_ogc_300_2026_02_11_1.sql	liquibase/3.3.x.x/029-add-gps-coordinates-to-sample.xml::OGC-300-2026-02-11-1::mherman22	False	False	True
+0696_029_add_gps_coordinates_to_sample_ogc_300_2026_02_11_2.sql	liquibase/3.3.x.x/029-add-gps-coordinates-to-sample.xml::OGC-300-2026-02-11-2::mherman22	False	False	True
+0697_029_add_gps_coordinates_to_sample_ogc_300_2026_02_11_3.sql	liquibase/3.3.x.x/029-add-gps-coordinates-to-sample.xml::OGC-300-2026-02-11-3::mherman22	False	False	True
+0698_029_add_gps_coordinates_to_sample_ogc_300_2026_02_11_4.sql	liquibase/3.3.x.x/029-add-gps-coordinates-to-sample.xml::OGC-300-2026-02-11-4::mherman22	False	False	True
+0699_030_add_address_hierarchy_config_1.sql	liquibase/3.3.x.x/030-add-address-hierarchy-config.xml::1::openelis	False	False	True
+0700_barcode_expansion_1.sql	liquibase/3.3.x.x/barcode_expansion.xml::1::csteele	False	False	True
+0701_barcode_expansion_2.sql	liquibase/3.3.x.x/barcode_expansion.xml::2::csteele	False	False	False
+0702_barcode_expansion_3.sql	liquibase/3.3.x.x/barcode_expansion.xml::3::csteele	False	False	False
+0703_028_barcode_info_tables_barcode_info_001_sample_barcode_info.sql	liquibase/3.3.x.x/028-barcode-info-tables.xml::barcode-info-001-sample-barcode-info::ogc-284	False	False	True
+0704_028_barcode_info_tables_barcode_info_002_sample_item_barcode.sql	liquibase/3.3.x.x/028-barcode-info-tables.xml::barcode-info-002-sample-item-barcode-info::ogc-284	False	False	True
+0705_028_barcode_info_tables_barcode_info_003_printed_order_count.sql	liquibase/3.3.x.x/028-barcode-info-tables.xml::barcode-info-003-printed-order-count::ogc-284	False	True	True
+0706_028_barcode_info_tables_barcode_info_004_printed_item_counts.sql	liquibase/3.3.x.x/028-barcode-info-tables.xml::barcode-info-004-printed-item-counts::ogc-284	False	False	True
+0707_029_label_preset_tables_label_preset_001_label_preset.sql	liquibase/3.3.x.x/029-label-preset-tables.xml::label-preset-001-label-preset::ogc-285	False	False	True
+0708_029_label_preset_tables_label_preset_002_label_preset_field.sql	liquibase/3.3.x.x/029-label-preset-tables.xml::label-preset-002-label-preset-field::ogc-285	False	False	True
+0709_029_label_preset_tables_label_preset_003_test_label_config.sql	liquibase/3.3.x.x/029-label-preset-tables.xml::label-preset-003-test-label-config::ogc-285	False	False	True
+0710_029_label_preset_tables_label_preset_004_test_label_preset_l.sql	liquibase/3.3.x.x/029-label-preset-tables.xml::label-preset-004-test-label-preset-link::ogc-285	False	False	True
+0711_029_label_preset_tables_label_preset_005_order_label_request.sql	liquibase/3.3.x.x/029-label-preset-tables.xml::label-preset-005-order-label-request::ogc-285	False	False	True
+0712_030_seed_system_presets_label_preset_seed_001_system_presets.sql	liquibase/3.3.x.x/030-seed-system-presets.xml::label-preset-seed-001-system-presets::ogc-285	False	False	False
+0713_031_seed_system_preset_fields_label_preset_seed_002_system_p.sql	liquibase/3.3.x.x/031-seed-system-preset-fields.xml::label-preset-seed-002-system-preset-fields::ogc-285	False	False	True
+0714_032_label_preset_is_universal_label_preset_is_universal_001.sql	liquibase/3.3.x.x/032-label-preset-is-universal.xml::label-preset-is-universal-001::ogc-285	False	False	True
+0715_032_label_preset_is_universal_label_preset_is_universal_002.sql	liquibase/3.3.x.x/032-label-preset-is-universal.xml::label-preset-is-universal-002::ogc-285	False	False	False
+0716_031_add_training_installation_config_031_training_installati.sql	liquibase/3.3.x.x/031-add-training-installation-config.xml::031-training-installation-1::oe	False	False	True
+0717_031_create_sample_qa_checklist_table_create_qa_checklist_dic.sql	liquibase/3.3.x.x/031-create-sample-qa-checklist-table.xml::create-qa-checklist-dictionary-category::reagan-meant	False	False	True
+0718_031_create_sample_qa_checklist_table_create_sample_qa_checkl.sql	liquibase/3.3.x.x/031-create-sample-qa-checklist-table.xml::create-sample-qa-checklist-table::reagan-meant	False	False	True
+0719_033_allow_null_patient_in_observation_history_20260402_001.sql	liquibase/3.3.x.x/033-allow-null-patient-in-observation-history.xml::20260402-001::reagan-meant	False	False	False
+0720_034_create_sample_type_request_table_034_create_sample_type.sql	liquibase/3.3.x.x/034-create-sample-type-request-table.xml::034-create-sample-type-request-table::reagan-meant	False	False	True
+0721_001_create_standalone_tables_011_001_01_create_analyzer_type.sql	liquibase/3.4.x.x/001-create-standalone-tables.xml::011-001-01-create-analyzer-type-table::madagascar-analyzer-integration	False	True	True
+0722_001_create_standalone_tables_011_001_02_create_analyzer_type.sql	liquibase/3.4.x.x/001-create-standalone-tables.xml::011-001-02-create-analyzer-type-sequence::madagascar-analyzer-integration	False	True	False
+0723_001_create_standalone_tables_011_001_03_create_custom_field.sql	liquibase/3.4.x.x/001-create-standalone-tables.xml::011-001-03-create-custom-field-type-table::madagascar-analyzer-integration	False	True	True
+0724_002_modify_analyzer_table_011_002_01_standardize_lastupdated.sql	liquibase/3.4.x.x/002-modify-analyzer-table.xml::011-002-01-standardize-lastupdated-columns::madagascar-analyzer-integration	False	False	False
+0725_002_modify_analyzer_table_011_002_02_widen_name_and_add_stru.sql	liquibase/3.4.x.x/002-modify-analyzer-table.xml::011-002-02-widen-name-and-add-structural-columns::madagascar-analyzer-integration	False	False	True
+0726_002_modify_analyzer_table_011_002_03_add_config_columns_to_a.sql	liquibase/3.4.x.x/002-modify-analyzer-table.xml::011-002-03-add-config-columns-to-analyzer::madagascar-analyzer-integration	False	False	True
+0727_003_create_field_tables_011_003_01_create_analyzer_field_tab.sql	liquibase/3.4.x.x/003-create-field-tables.xml::011-003-01-create-analyzer-field-table::madagascar-analyzer-integration	False	False	True
+0728_003_create_field_tables_011_003_02_create_analyzer_field_map.sql	liquibase/3.4.x.x/003-create-field-tables.xml::011-003-02-create-analyzer-field-mapping-table::madagascar-analyzer-integration	False	False	True
+0729_004_create_result_mapping_tables_011_004_01_create_qualitati.sql	liquibase/3.4.x.x/004-create-result-mapping-tables.xml::011-004-01-create-qualitative-result-mapping-table::madagascar-analyzer-integration	False	False	True
+0730_004_create_result_mapping_tables_011_004_02_create_unit_mapp.sql	liquibase/3.4.x.x/004-create-result-mapping-tables.xml::011-004-02-create-unit-mapping-table::madagascar-analyzer-integration	False	False	True
+0731_005_create_support_tables_011_005_01_create_analyzer_error_t.sql	liquibase/3.4.x.x/005-create-support-tables.xml::011-005-01-create-analyzer-error-table::madagascar-analyzer-integration	False	False	True
+0732_005_create_support_tables_011_005_02_create_validation_rule.sql	liquibase/3.4.x.x/005-create-support-tables.xml::011-005-02-create-validation-rule-configuration-table::madagascar-analyzer-integration	False	False	True
+0733_005_create_support_tables_011_005_03_create_serial_port_conf.sql	liquibase/3.4.x.x/005-create-support-tables.xml::011-005-03-create-serial-port-configuration-table::madagascar-analyzer-integration	False	True	True
+0734_005_create_support_tables_011_005_04_create_file_import_conf.sql	liquibase/3.4.x.x/005-create-support-tables.xml::011-005-04-create-file-import-configuration-table::madagascar-analyzer-integration	False	True	True
+0735_006_create_indexes_011_006_01_create_all_indexes.sql	liquibase/3.4.x.x/006-create-indexes.xml::011-006-01-create-all-indexes::madagascar-analyzer-integration	False	False	True
+0736_007_insert_seed_data_011_007_01_add_menu_items_parent.sql	liquibase/3.4.x.x/007-insert-seed-data.xml::011-007-01-add-menu-items-parent::madagascar-analyzer-integration	False	False	True
+0737_007_insert_seed_data_011_007_02_add_menu_items_list.sql	liquibase/3.4.x.x/007-insert-seed-data.xml::011-007-02-add-menu-items-list::madagascar-analyzer-integration	False	False	True
+0738_007_insert_seed_data_011_007_03_add_menu_items_errors.sql	liquibase/3.4.x.x/007-insert-seed-data.xml::011-007-03-add-menu-items-errors::madagascar-analyzer-integration	False	False	True
+0739_007_insert_seed_data_011_007_05_add_menu_items_types.sql	liquibase/3.4.x.x/007-insert-seed-data.xml::011-007-05-add-menu-items-types::madagascar-analyzer-integration	False	False	True
+0740_007_insert_seed_data_011_007_04_add_query_timeout_config.sql	liquibase/3.4.x.x/007-insert-seed-data.xml::011-007-04-add-query-timeout-config::madagascar-analyzer-integration	False	False	True
+0741_007_insert_seed_data_011_007_05_add_query_rate_limit_config.sql	liquibase/3.4.x.x/007-insert-seed-data.xml::011-007-05-add-query-rate-limit-config::madagascar-analyzer-integration	False	False	True
+0742_007_insert_seed_data_011_007_06_add_max_fields_config.sql	liquibase/3.4.x.x/007-insert-seed-data.xml::011-007-06-add-max-fields-config::madagascar-analyzer-integration	False	False	True
+0743_008_normalize_protocol_version_enum_011_008_01_normalize_pro.sql	liquibase/3.4.x.x/008-normalize-protocol-version-enum.xml::011-008-01-normalize-protocol-version-enum::madagascar-analyzer-integration	False	False	False
+0744_009_decouple_test_mappings_011_009_01_add_analyzer_type_id_c.sql	liquibase/3.4.x.x/009-decouple-test-mappings.xml::011-009-01-add-analyzer-type-id-column::madagascar-analyzer-integration	False	True	True
+0745_009_decouple_test_mappings_011_009_02_populate_analyzer_type.sql	liquibase/3.4.x.x/009-decouple-test-mappings.xml::011-009-02-populate-analyzer-type-id::madagascar-analyzer-integration	False	False	False
+0746_009_decouple_test_mappings_011_009_03_drop_old_pk_and_fk.sql	liquibase/3.4.x.x/009-decouple-test-mappings.xml::011-009-03-drop-old-pk-and-fk::madagascar-analyzer-integration	False	False	False
+0747_009_decouple_test_mappings_011_009_04_deduplicate_mappings.sql	liquibase/3.4.x.x/009-decouple-test-mappings.xml::011-009-04-deduplicate-mappings::madagascar-analyzer-integration	False	False	False
+0748_009_decouple_test_mappings_011_009_05_create_new_pk.sql	liquibase/3.4.x.x/009-decouple-test-mappings.xml::011-009-05-create-new-pk::madagascar-analyzer-integration	False	False	False
+0749_009_decouple_test_mappings_011_009_06_delete_phantom_analyze.sql	liquibase/3.4.x.x/009-decouple-test-mappings.xml::011-009-06-delete-phantom-analyzer-rows::madagascar-analyzer-integration	False	False	False
+0750_010_create_analyzer_plugin_config_012_010_01_create_analyzer.sql	liquibase/3.4.x.x/010-create-analyzer-plugin-config.xml::012-010-01-create-analyzer-plugin-config::generic-astm-plugin-profiles	False	False	True
+0751_011_create_analyzer_pending_code_012_011_01_create_analyzer.sql	liquibase/3.4.x.x/011-create-analyzer-pending-code.xml::012-011-01-create-analyzer-pending-code::generic-astm-plugin-profiles	False	False	True
+0752_012_add_organization_type_hierarchy_level_add_hierarchy_leve.sql	liquibase/3.4.x.x/012-add-organization-type-hierarchy-level.xml::add-hierarchy-level-column::reagan-meant	False	True	True
+0753_014_sample_collection_workflow_menus_nav_001_create_order_wo.sql	liquibase/3.4.x.x/014-sample-collection-workflow-menus.xml::nav-001-create-order-workflow-parent::reagan-meant	False	False	True
+0754_014_sample_collection_workflow_menus_nav_001a_clear_parent_a.sql	liquibase/3.4.x.x/014-sample-collection-workflow-menus.xml::nav-001a-clear-parent-action-url::reagan-meant	False	False	False
+0755_014_sample_collection_workflow_menus_nav_001b_create_order_d.sql	liquibase/3.4.x.x/014-sample-collection-workflow-menus.xml::nav-001b-create-order-dashboard-menu::reagan-meant	False	False	True
+0756_014_sample_collection_workflow_menus_nav_002_create_order_en.sql	liquibase/3.4.x.x/014-sample-collection-workflow-menus.xml::nav-002-create-order-enter-menu::reagan-meant	False	False	True
+0757_014_sample_collection_workflow_menus_nav_003_create_order_co.sql	liquibase/3.4.x.x/014-sample-collection-workflow-menus.xml::nav-003-create-order-collect-menu::reagan-meant	False	False	True
+0758_014_sample_collection_workflow_menus_nav_004_create_order_la.sql	liquibase/3.4.x.x/014-sample-collection-workflow-menus.xml::nav-004-create-order-label-menu::reagan-meant	False	False	True
+0759_014_sample_collection_workflow_menus_nav_005_create_order_qa.sql	liquibase/3.4.x.x/014-sample-collection-workflow-menus.xml::nav-005-create-order-qa-menu::reagan-meant	False	False	True
+0760_015_add_sample_collection_uoms_3_4_0_0_add_uom_type_column.sql	liquibase/3.4.x.x/015-add-sample-collection-uoms.xml::3.4.0.0-add-uom-type-column::reagan-meant	False	True	True
+0761_015_add_sample_collection_uoms_3_4_0_0_set_existing_uoms_to.sql	liquibase/3.4.x.x/015-add-sample-collection-uoms.xml::3.4.0.0-set-existing-uoms-to-result::reagan-meant	False	False	False
+0762_015_add_sample_collection_uoms_3_4_0_0_add_sample_collection.sql	liquibase/3.4.x.x/015-add-sample-collection-uoms.xml::3.4.0.0-add-sample-collection-uoms::reagan-meant	False	False	True
+0763_016_add_collection_conditions_column_3_4_0_0_add_collection.sql	liquibase/3.4.x.x/016-add-collection-conditions-column.xml::3.4.0.0-add-collection-conditions-to-sample-item::reagan-meant	False	True	True
+0764_017_add_received_date_to_sample_item_20260320_001.sql	liquibase/3.4.x.x/017-add-received-date-to-sample-item.xml::20260320-001::reagan-meant	False	True	True
+0765_018_uom_type_mapping_table_3_4_0_0_create_uom_type_map_table.sql	liquibase/3.4.x.x/018-uom-type-mapping-table.xml::3.4.0.0-create-uom-type-map-table::reagan-meant	False	False	True
+0766_018_uom_type_mapping_table_3_4_0_0_add_ml_uom.sql	liquibase/3.4.x.x/018-uom-type-mapping-table.xml::3.4.0.0-add-ml-uom::reagan-meant	False	False	True
+0767_018_uom_type_mapping_table_3_4_0_0_map_ml_to_sample_collecti.sql	liquibase/3.4.x.x/018-uom-type-mapping-table.xml::3.4.0.0-map-ml-to-sample-collection::reagan-meant	False	False	True
+0768_018_uom_type_mapping_table_3_4_0_0_add_ul_uom.sql	liquibase/3.4.x.x/018-uom-type-mapping-table.xml::3.4.0.0-add-ul-uom::reagan-meant	False	False	True
+0769_018_uom_type_mapping_table_3_4_0_0_map_ul_to_sample_collecti.sql	liquibase/3.4.x.x/018-uom-type-mapping-table.xml::3.4.0.0-map-ul-to-sample-collection::reagan-meant	False	False	True
+0770_018_uom_type_mapping_table_3_4_0_0_add_tubes_uom.sql	liquibase/3.4.x.x/018-uom-type-mapping-table.xml::3.4.0.0-add-tubes-uom::reagan-meant	False	False	True
+0771_018_uom_type_mapping_table_3_4_0_0_map_tubes_to_sample_colle.sql	liquibase/3.4.x.x/018-uom-type-mapping-table.xml::3.4.0.0-map-tubes-to-sample-collection::reagan-meant	False	False	True
+0772_018_uom_type_mapping_table_3_4_0_0_add_slides_uom.sql	liquibase/3.4.x.x/018-uom-type-mapping-table.xml::3.4.0.0-add-slides-uom::reagan-meant	False	False	True
+0773_018_uom_type_mapping_table_3_4_0_0_map_slides_to_sample_coll.sql	liquibase/3.4.x.x/018-uom-type-mapping-table.xml::3.4.0.0-map-slides-to-sample-collection::reagan-meant	False	False	True
+0774_001_add_file_format_to_file_import_config_014_001_add_file_f.sql	liquibase/3.4.14.x/001-add-file-format-to-file-import-config.xml::014-001-add-file-format-to-file-import-config::openelis	False	True	True
+0775_002_create_analyzer_file_upload_014_002_create_analyzer_file.sql	liquibase/3.4.14.x/002-create-analyzer-file-upload.xml::014-002-create-analyzer-file-upload::openelis	False	False	True
+0776_003_create_analyzer_run_014_003_create_analyzer_run.sql	liquibase/3.4.14.x/003-create-analyzer-run.xml::014-003-create-analyzer-run::openelis	False	False	True
+0777_004_fix_analyzer_fk_types_and_cascade_014_004_01_fix_file_up.sql	liquibase/3.4.14.x/004-fix-analyzer-fk-types-and-cascade.xml::014-004-01-fix-file-upload-fk-type::openelis	False	False	False
+0778_004_fix_analyzer_fk_types_and_cascade_014_004_02_fix_noteboo.sql	liquibase/3.4.14.x/004-fix-analyzer-fk-types-and-cascade.xml::014-004-02-fix-notebook-fk-type::openelis	False	False	False
+0779_004_fix_analyzer_fk_types_and_cascade_014_004_03_add_cascade.sql	liquibase/3.4.14.x/004-fix-analyzer-fk-types-and-cascade.xml::014-004-03-add-cascade-to-config-fks::openelis	False	False	False
+0780_004_fix_analyzer_fk_types_and_cascade_014_004_04_cascade_ana.sql	liquibase/3.4.14.x/004-fix-analyzer-fk-types-and-cascade.xml::014-004-04-cascade-analyzer-field-children::openelis	False	False	False
+0781_004_fix_analyzer_fk_types_and_cascade_014_004_05_set_null_an.sql	liquibase/3.4.14.x/004-fix-analyzer-fk-types-and-cascade.xml::014-004-05-set-null-analyzer-error::openelis	False	False	False
+0782_004_fix_analyzer_fk_types_and_cascade_014_004_06_restrict_an.sql	liquibase/3.4.14.x/004-fix-analyzer-fk-types-and-cascade.xml::014-004-06-restrict-analyzer-results::openelis	False	False	False
+0783_005_analyzer_communication_mode_013_analyzer_communication_m.sql	liquibase/3.4.14.x/005-analyzer-communication-mode.xml::013-analyzer-communication-mode::pmanko	False	True	True
+0784_006_per_analyzer_test_mappings_013_006_01_resolve_analyzer_i.sql	liquibase/3.4.14.x/006-per-analyzer-test-mappings.xml::013-006-01-resolve-analyzer-id::ogc-492	False	False	True
+0785_006_per_analyzer_test_mappings_013_006_02_deduplicate_on_ana.sql	liquibase/3.4.14.x/006-per-analyzer-test-mappings.xml::013-006-02-deduplicate-on-analyzer-id::ogc-492	False	False	False
+0786_006_per_analyzer_test_mappings_013_006_03_drop_type_pk.sql	liquibase/3.4.14.x/006-per-analyzer-test-mappings.xml::013-006-03-drop-type-pk::ogc-492	False	False	False
+0787_006_per_analyzer_test_mappings_013_006_04_create_analyzer_pk.sql	liquibase/3.4.14.x/006-per-analyzer-test-mappings.xml::013-006-04-create-analyzer-pk::ogc-492	False	False	False
+0788_006_per_analyzer_test_mappings_013_006_05_drop_type_column.sql	liquibase/3.4.14.x/006-per-analyzer-test-mappings.xml::013-006-05-drop-type-column::ogc-492	False	False	True
+0789_007_unify_analyzer_transport_config_013_007_01_add_file_colu.sql	liquibase/3.4.14.x/007-unify-analyzer-transport-config.xml::013-007-01-add-file-columns-to-analyzer::ogc-492	False	False	True
+0790_007_unify_analyzer_transport_config_013_007_02_migrate_file.sql	liquibase/3.4.14.x/007-unify-analyzer-transport-config.xml::013-007-02-migrate-file-config-to-analyzer::ogc-492	False	False	False
+0791_008_analyzer_test_map_cascade_delete_008_1_analyzer_test_map.sql	liquibase/3.4.14.x/008-analyzer-test-map-cascade-delete.xml::008-1-analyzer-test-map-cascade-delete::pmanko	False	False	False
+0792_009_analyzer_discovered_source_id_013_009_01.sql	liquibase/3.4.14.x/009-analyzer-discovered-source-id.xml::013-009-01::OGC-526	False	True	True
+0793_009_analyzer_discovered_source_id_013_009_02.sql	liquibase/3.4.14.x/009-analyzer-discovered-source-id.xml::013-009-02::OGC-526	False	False	False
+0794_009_analyzer_discovered_source_id_013_009_03.sql	liquibase/3.4.14.x/009-analyzer-discovered-source-id.xml::013-009-03::OGC-526	False	True	True
+0795_010_add_skip_rows_to_file_import_config_010_add_skip_rows_to.sql	liquibase/3.4.14.x/010-add-skip-rows-to-file-import-config.xml::010-add-skip-rows-to-file-import-config::pmanko	False	False	True
+0796_011_complete_file_config_unification_011_complete_file_confi.sql	liquibase/3.4.14.x/011-complete-file-config-unification.xml::011-complete-file-config-unification::pmanko	False	False	True
+0797_011_complete_file_config_unification_011_migrate_fic_data_to.sql	liquibase/3.4.14.x/011-complete-file-config-unification.xml::011-migrate-fic-data-to-analyzer::pmanko	False	False	False
+0798_012_drop_analyzer_archive_error_directories_012_drop_analyze.sql	liquibase/3.4.14.x/012-drop-analyzer-archive-error-directories.xml::012-drop-analyzer-archive-error-directories::pmanko	False	False	True
+0799_014_drop_analyzer_default_test_code_014_drop_analyzer_defaul.sql	liquibase/3.4.14.x/014-drop-analyzer-default-test-code.xml::014-drop-analyzer-default-test-code::pmanko	False	False	True
+0800_001_generic_localization_system_3_5_0_001_create_supported_l.sql	liquibase/3.5.x.x/001-generic-localization-system.xml::3.5.0-001-create-supported-locale-seq::reagan-meant	False	True	False
+0801_001_generic_localization_system_3_5_0_002_create_localizatio.sql	liquibase/3.5.x.x/001-generic-localization-system.xml::3.5.0-002-create-localization-value-seq::reagan-meant	False	True	False
+0802_001_generic_localization_system_3_5_0_003_create_supported_l.sql	liquibase/3.5.x.x/001-generic-localization-system.xml::3.5.0-003-create-supported-locale-table::reagan-meant	False	True	True
+0803_001_generic_localization_system_3_5_0_004_create_localizatio.sql	liquibase/3.5.x.x/001-generic-localization-system.xml::3.5.0-004-create-localization-value-table::reagan-meant	False	False	True
+0804_001_generic_localization_system_3_5_0_005_create_localizatio.sql	liquibase/3.5.x.x/001-generic-localization-system.xml::3.5.0-005-create-localization-value-indexes::reagan-meant	False	False	True
+0805_001_generic_localization_system_3_5_0_006_seed_supported_loc.sql	liquibase/3.5.x.x/001-generic-localization-system.xml::3.5.0-006-seed-supported-locales::reagan-meant	False	False	True
+0806_001_generic_localization_system_3_5_0_007_migrate_english_tr.sql	liquibase/3.5.x.x/001-generic-localization-system.xml::3.5.0-007-migrate-english-translations::reagan-meant	False	False	True
+0807_001_generic_localization_system_3_5_0_008_migrate_french_tra.sql	liquibase/3.5.x.x/001-generic-localization-system.xml::3.5.0-008-migrate-french-translations::reagan-meant	False	False	True
+0808_001_generic_localization_system_3_5_0_009_add_dictionary_loc.sql	liquibase/3.5.x.x/001-generic-localization-system.xml::3.5.0-009-add-dictionary-localization::reagan-meant	False	False	False
+0809_001_generic_localization_system_3_5_0_010_verify_data_migrat.sql	liquibase/3.5.x.x/001-generic-localization-system.xml::3.5.0-010-verify-data-migrated::reagan-meant	False	False	False
+0810_001_generic_localization_system_3_5_0_011_drop_english_colum.sql	liquibase/3.5.x.x/001-generic-localization-system.xml::3.5.0-011-drop-english-column::reagan-meant	False	False	True
+0811_001_generic_localization_system_3_5_0_012_drop_french_column.sql	liquibase/3.5.x.x/001-generic-localization-system.xml::3.5.0-012-drop-french-column::reagan-meant	False	False	True
+0812_002_eqa_enabled_config_eqa_001_2026_03_17_1.sql	liquibase/3.5.x.x/002-eqa-enabled-config.xml::EQA-001-2026-03-17-1::mosesmutesasira	False	False	True
+0813_002_nce_enhancement_nce_001_enhance_nc_event.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-001-enhance-nc-event::reagan-meant	False	False	True
+0814_002_nce_enhancement_nce_002_nc_event_indexes.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-002-nc-event-indexes::reagan-meant	False	False	True
+0815_002_nce_enhancement_nce_003_enhance_nce_action_log.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-003-enhance-nce-action-log::reagan-meant	False	False	True
+0816_002_nce_enhancement_nce_004_create_nce_attachment.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-004-create-nce-attachment::reagan-meant	False	False	True
+0817_002_nce_enhancement_nce_010_reference_tables.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-010-reference-tables::reagan-meant	False	False	True
+0818_002_nce_enhancement_nce_011_add_nce_specimen_last_updated.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-011-add-nce-specimen-last-updated::reagan-meant	False	True	True
+0819_002_nce_enhancement_nce_021_add_nce_specimen_analysis_id.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-021-add-nce-specimen-analysis-id::reagan-meant	False	True	True
+0820_002_nce_enhancement_nce_013_add_nce_action_log_last_updated.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-013-add-nce-action-log-last-updated::reagan-meant	False	True	True
+0821_002_nce_enhancement_nce_014_add_nce_category_localization.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-014-add-nce-category-localization::reagan-meant	False	False	True
+0822_002_nce_enhancement_nce_015_add_nce_type_localization.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-015-add-nce-type-localization::reagan-meant	False	False	True
+0823_002_nce_enhancement_nce_012_add_dashboard_menu.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-012-add-dashboard-menu::reagan-meant	False	False	True
+0824_002_nce_enhancement_nce_016_backfill_category_localization.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-016-backfill-category-localization::reagan-meant	False	False	False
+0825_002_nce_enhancement_nce_017_backfill_type_localization.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-017-backfill-type-localization::reagan-meant	False	False	False
+0826_002_nce_enhancement_nce_018_create_nce_history.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-018-create-nce-history::reagan-meant	False	False	True
+0827_002_nce_enhancement_nce_020_add_assigned_to.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-020-add-assigned-to::reagan-meant	False	True	True
+0828_002_nce_enhancement_nce_019_unique_nce_number.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-019-unique-nce-number::reagan-meant	False	True	False
+0829_order_attachment_order_attachment_001_create_table.sql	liquibase/3.5.x.x/order-attachment.xml::order-attachment-001-create-table::mozzy	False	False	True
+0830_002a_resync_menu_seq_resync_menu_seq_after_nce_012.sql	liquibase/3.5.x.x/002a-resync-menu-seq.xml::resync-menu-seq-after-nce-012::pmanko	False	False	False
+0831_003_calendar_management_tat_003_01.sql	liquibase/3.5.x.x/003-calendar-management.xml::tat-003-01::tat-module	False	False	True
+0832_003_calendar_management_tat_003_02.sql	liquibase/3.5.x.x/003-calendar-management.xml::tat-003-02::tat-module	False	False	True
+0833_003_calendar_management_tat_003_03.sql	liquibase/3.5.x.x/003-calendar-management.xml::tat-003-03::tat-module	False	False	True
+0834_003_calendar_management_tat_003_04.sql	liquibase/3.5.x.x/003-calendar-management.xml::tat-003-04::tat-module	False	False	True
+0835_003_audit_trail_menu_add_audit_trail_menu_entry.sql	liquibase/3.5.x.x/003-audit-trail-menu.xml::add-audit-trail-menu-entry::systemLevelAudit	False	False	True
+0836_003_audit_trail_menu_deactivate_old_audit_trail_menu_entries.sql	liquibase/3.5.x.x/003-audit-trail-menu.xml::deactivate-old-audit-trail-menu-entries::systemLevelAudit	False	False	False
+0837_003_audit_trail_menu_add_audit_trail_sidenav_children.sql	liquibase/3.5.x.x/003-audit-trail-menu.xml::add-audit-trail-sidenav-children::systemLevelAudit	False	False	False
+0838_003_audit_trail_menu_add_history_indexes_for_system_audit.sql	liquibase/3.5.x.x/003-audit-trail-menu.xml::add-history-indexes-for-system-audit::systemLevelAudit	False	False	False
+0839_004_electronic_signature_esig_001_create_electronic_signatur.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-001-create-electronic-signature-table::openelisdev	False	False	True
+0840_004_electronic_signature_esig_002_create_electronic_signatur.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-002-create-electronic-signature-sequence::openelisdev	False	True	False
+0841_004_electronic_signature_esig_003_add_signer_foreign_key.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-003-add-signer-foreign-key::openelisdev	False	True	False
+0842_004_electronic_signature_esig_004_create_electronic_signatur.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-004-create-electronic-signature-indexes::openelisdev	False	False	True
+0843_004_electronic_signature_esig_005_add_electronic_signature_i.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-005-add-electronic-signature-immutability-trigger::openelisdev	False	False	False
+0844_004_electronic_signature_esig_006_create_first_use_certifica.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-006-create-first-use-certification-table::openelisdev	False	False	True
+0845_004_electronic_signature_esig_007_create_first_use_certifica.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-007-create-first-use-certification-sequence::openelisdev	False	True	False
+0846_004_electronic_signature_esig_008_create_first_use_certifica.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-008-create-first-use-certification-index::openelisdev	False	True	True
+0847_004_electronic_signature_esig_009_resync_reference_tables_se.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-009-resync-reference-tables-seq::pmanko	False	False	False
+0848_004_electronic_signature_esig_010_register_electronic_signat.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-010-register-electronic-signature-reference-table::openelisdev	False	False	True
+0849_004_electronic_signature_esig_011_register_first_use_certifi.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-011-register-first-use-certification-reference-table::openelisdev	False	False	True
+0850_004_electronic_signature_esig_012_add_site_information_toggl.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-012-add-site-information-toggle::openelisdev	False	False	True
+0851_004_electronic_signature_esig_013_add_session_timeout_settin.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-013-add-session-timeout-setting::openelisdev	False	False	True
+0852_004_electronic_signature_esig_014_add_table_comments.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-014-add-table-comments::openelisdev	False	False	False
+0853_005_tat_report_menu_add_tat_report_menu_entry.sql	liquibase/3.5.x.x/005-tat-report-menu.xml::add-tat-report-menu-entry::tat-module	False	False	True
+0854_006_storage_sidenav_rename_rename_storage_samples_sidenav.sql	liquibase/3.5.x.x/006-storage-sidenav-rename.xml::rename-storage-samples-sidenav::locationPickerRefactor	False	False	False
+0855_004_analysis_analyzer_id_3_5_0_003_add_analysis_analyzer_id.sql	liquibase/3.5.x.x/004-analysis-analyzer-id.xml::3.5.0-003-add-analysis-analyzer-id-column::pmanko	False	True	True
+0856_004_analysis_analyzer_id_3_5_0_003_add_analysis_analyzer_id.sql	liquibase/3.5.x.x/004-analysis-analyzer-id.xml::3.5.0-003-add-analysis-analyzer-id-fk::pmanko	False	True	False
+0857_004_analysis_analyzer_id_3_5_0_003_add_analyzer_fhir_uuid.sql	liquibase/3.5.x.x/004-analysis-analyzer-id.xml::3.5.0-003-add-analyzer-fhir-uuid::pmanko	False	True	True
+0858_004_analysis_analyzer_id_3_5_0_003_backfill_analyzer_fhir_uu.sql	liquibase/3.5.x.x/004-analysis-analyzer-id.xml::3.5.0-003-backfill-analyzer-fhir-uuid::pmanko	False	False	False
+0859_add_storage_skipped_to_sample_20260407_001.sql	liquibase/3.5.x.x/add_storage_skipped_to_sample.xml::20260407-001::reagan-meant	False	True	True
+0860_003_add_sampling_site_org_type_20260407_002.sql	liquibase/3.5.x.x/003-add-sampling-site-org-type.xml::20260407-002::reagan-meant	False	False	True
+0861_004_create_site_code_sequence_20260408_001.sql	liquibase/3.5.x.x/004-create-site-code-sequence.xml::20260408-001::reagan-meant	False	True	False
+0862_shipment_001_create_shipping_box_table_shipment_001_create_s.sql	liquibase/3.5.x.x/shipment-001-create-shipping-box-table.xml::shipment-001-create-sequence::pkomena	False	True	False
+0863_shipment_001_create_shipping_box_table_shipment_001_create_s.sql	liquibase/3.5.x.x/shipment-001-create-shipping-box-table.xml::shipment-001-create-shipping-box-table::pkomena	False	True	True
+0864_shipment_002_create_shipment_table_shipment_002_create_seque.sql	liquibase/3.5.x.x/shipment-002-create-shipment-table.xml::shipment-002-create-sequence::pkomena	False	True	False
+0865_shipment_002_create_shipment_table_shipment_002_create_shipm.sql	liquibase/3.5.x.x/shipment-002-create-shipment-table.xml::shipment-002-create-shipment-table::pkomena	False	True	True
+0866_shipment_003_create_box_sample_table_shipment_003_create_seq.sql	liquibase/3.5.x.x/shipment-003-create-box-sample-table.xml::shipment-003-create-sequence::pkomena	False	True	False
+0867_shipment_003_create_box_sample_table_shipment_003_create_box.sql	liquibase/3.5.x.x/shipment-003-create-box-sample-table.xml::shipment-003-create-box-sample-table::pkomena	False	True	True
+0868_shipment_005_create_indexes_shipment_005_idx_shipping_box_st.sql	liquibase/3.5.x.x/shipment-005-create-indexes.xml::shipment-005-idx-shipping-box-state::pkomena	False	True	True
+0869_shipment_005_create_indexes_shipment_005_idx_shipping_box_de.sql	liquibase/3.5.x.x/shipment-005-create-indexes.xml::shipment-005-idx-shipping-box-destination::pkomena	False	True	True
+0870_shipment_005_create_indexes_shipment_005_idx_shipping_box_cr.sql	liquibase/3.5.x.x/shipment-005-create-indexes.xml::shipment-005-idx-shipping-box-created-date::pkomena	False	True	True
+0871_shipment_005_create_indexes_shipment_005_idx_shipping_box_fh.sql	liquibase/3.5.x.x/shipment-005-create-indexes.xml::shipment-005-idx-shipping-box-fhir-uuid::pkomena	False	True	True
+0872_shipment_005_create_indexes_shipment_005_idx_shipping_box_ar.sql	liquibase/3.5.x.x/shipment-005-create-indexes.xml::shipment-005-idx-shipping-box-archived::pkomena	False	True	True
+0873_shipment_005_create_indexes_shipment_005_idx_shipment_box_id.sql	liquibase/3.5.x.x/shipment-005-create-indexes.xml::shipment-005-idx-shipment-box-id::pkomena	False	True	True
+0874_shipment_005_create_indexes_shipment_005_idx_shipment_status.sql	liquibase/3.5.x.x/shipment-005-create-indexes.xml::shipment-005-idx-shipment-status::pkomena	False	True	True
+0875_shipment_005_create_indexes_shipment_005_idx_shipment_tracki.sql	liquibase/3.5.x.x/shipment-005-create-indexes.xml::shipment-005-idx-shipment-tracking::pkomena	False	True	True
+0876_shipment_005_create_indexes_shipment_005_idx_box_sample_box.sql	liquibase/3.5.x.x/shipment-005-create-indexes.xml::shipment-005-idx-box-sample-box-id::pkomena	False	True	True
+0877_shipment_005_create_indexes_shipment_005_idx_box_sample_samp.sql	liquibase/3.5.x.x/shipment-005-create-indexes.xml::shipment-005-idx-box-sample-sample-id::pkomena	False	True	True
+0878_shipment_005_create_indexes_shipment_005_idx_box_sample_rece.sql	liquibase/3.5.x.x/shipment-005-create-indexes.xml::shipment-005-idx-box-sample-reception-status::pkomena	False	True	True
+0879_shipment_005_create_indexes_shipment_005_idx_box_sample_comp.sql	liquibase/3.5.x.x/shipment-005-create-indexes.xml::shipment-005-idx-box-sample-composite::pkomena	False	True	True
+0880_shipment_006_create_foreign_keys_shipment_006_create_foreign.sql	liquibase/3.5.x.x/shipment-006-create-foreign-keys.xml::shipment-006-create-foreign-keys::pkomena	False	False	False
+0881_shipment_007_add_menu_and_role_shipment_007_add_menu.sql	liquibase/3.5.x.x/shipment-007-add-menu-and-role.xml::shipment-007-add-menu::pkomena	False	False	True
+0882_shipment_007_add_menu_and_role_shipment_007_add_module.sql	liquibase/3.5.x.x/shipment-007-add-menu-and-role.xml::shipment-007-add-module::pkomena	False	False	True
+0883_shipment_007_add_menu_and_role_shipment_007_add_module_url.sql	liquibase/3.5.x.x/shipment-007-add-menu-and-role.xml::shipment-007-add-module-url::pkomena	False	False	True
+0884_shipment_007_add_menu_and_role_shipment_007_assign_role_rece.sql	liquibase/3.5.x.x/shipment-007-add-menu-and-role.xml::shipment-007-assign-role-reception::pkomena	False	False	True
+0885_shipment_007_add_menu_and_role_shipment_007_assign_role_resu.sql	liquibase/3.5.x.x/shipment-007-add-menu-and-role.xml::shipment-007-assign-role-results::pkomena	False	False	True
+0886_shipment_008_add_capacity_column_1.sql	liquibase/3.5.x.x/shipment-008-add-capacity-column.xml::1::shipment-module	False	True	True
+0887_shipment_009_add_referral_shipment_columns_1.sql	liquibase/3.5.x.x/shipment-009-add-referral-shipment-columns.xml::1::pkomena	False	False	True
+0888_shipment_009_add_referral_shipment_columns_2.sql	liquibase/3.5.x.x/shipment-009-add-referral-shipment-columns.xml::2::pkomena	False	False	True
+0889_shipment_010_add_actual_sample_count_1_add_sample_count_to_s.sql	liquibase/3.5.x.x/shipment-010-add-actual-sample-count.xml::1-add-sample-count-to-shipping-box::pkomena	False	True	True
+0890_shipment_011_add_sample_shipment_referral_type_1_add_sample.sql	liquibase/3.5.x.x/shipment-011-add-sample-shipment-referral-type.xml::1-add-sample-shipment-referral-type::pkomena	False	False	True
+0891_shipment_012_migrate_to_sample_item_1.sql	liquibase/3.5.x.x/shipment-012-migrate-to-sample-item.xml::1::pkomena	False	False	True
+0892_shipment_012_migrate_to_sample_item_2.sql	liquibase/3.5.x.x/shipment-012-migrate-to-sample-item.xml::2::pkomena	False	False	True
+0893_shipment_012_migrate_to_sample_item_3.sql	liquibase/3.5.x.x/shipment-012-migrate-to-sample-item.xml::3::pkomena	False	False	True
+0894_shipment_013_add_box_label_prefix_config_shipment_013_1.sql	liquibase/3.5.x.x/shipment-013-add-box-label-prefix-config.xml::shipment-013-1::oe	False	False	True
+0895_shipment_014_move_menu_to_top_level_shipment_014_move_menu_t.sql	liquibase/3.5.x.x/shipment-014-move-menu-to-top-level.xml::shipment-014-move-menu-to-top-level::pkomena	False	False	False
+0896_shipment_015_add_site_organization_uuid_config_shipment_015.sql	liquibase/3.5.x.x/shipment-015-add-site-organization-uuid-config.xml::shipment-015-1::oe	False	False	True
+0897_shipment_016_add_fhir_mapping_config_shipment_016_1.sql	liquibase/3.5.x.x/shipment-016-add-fhir-mapping-config.xml::shipment-016-1::oe	False	False	True
+0898_shipment_016_add_fhir_mapping_config_shipment_016_2.sql	liquibase/3.5.x.x/shipment-016-add-fhir-mapping-config.xml::shipment-016-2::oe	False	False	True
+0899_shipment_016_add_fhir_mapping_config_shipment_016_3.sql	liquibase/3.5.x.x/shipment-016-add-fhir-mapping-config.xml::shipment-016-3::oe	False	False	True
+0900_005_analyzer_results_import_issue_reason_3_5_0_005_add_analy.sql	liquibase/3.5.x.x/005-analyzer-results-import-issue-reason.xml::3.5.0-005-add-analyzer-results-import-issue-reason::pmanko	False	True	True
+0901_017_add_informed_consent_fields_ogc_557_2026_04_17_1.sql	liquibase/3.5.x.x/017-add-informed-consent-fields.xml::OGC-557-2026-04-17-1::herbertYiga	False	False	True
+0902_019_update_consent_recorded_by_to_varchar_ogc_558_2026_04_30.sql	liquibase/3.5.x.x/019-update-consent-recorded-by-to-varchar.xml::OGC-558-2026-04-30-1::herbertYiga	False	False	False
+0903_019_update_consent_recorded_by_to_varchar_ogc_558_2026_04_30.sql	liquibase/3.5.x.x/019-update-consent-recorded-by-to-varchar.xml::OGC-558-2026-04-30-2::herbertYiga	False	False	False
+0904_019_update_consent_recorded_by_to_varchar_ogc_558_2026_04_30.sql	liquibase/3.5.x.x/019-update-consent-recorded-by-to-varchar.xml::OGC-558-2026-04-30-3::herbertYiga	False	False	False
+0905_patient_id_document_create_patient_id_document.sql	liquibase/3.5.x.x/patient_id_document.xml::create-patient-id-document::mozzy11	False	False	True
+0906_default_nationality_config_add_default_nationality_config.sql	liquibase/3.5.x.x/default-nationality-config.xml::add-default-nationality-config::mozzy11	False	False	True
+0907_018_add_patient_extra_fields_patient_extra_fields_1_custom_n.sql	liquibase/3.5.x.x/018-add-patient-extra-fields.xml::patient-extra-fields-1-custom-notes-identity-type::mozzy	False	False	True
+0908_018_add_patient_extra_fields_patient_extra_fields_2_disease.sql	liquibase/3.5.x.x/018-add-patient-extra-fields.xml::patient-extra-fields-2-disease-programme-identity-type::mozzy	False	False	True
+0909_018_add_patient_extra_fields_patient_extra_fields_3_disease.sql	liquibase/3.5.x.x/018-add-patient-extra-fields.xml::patient-extra-fields-3-disease-programme-dictionary-category::mozzy	False	False	True
+0910_020_add_specimen_detail_columns_3_5_0_020_add_collection_met.sql	liquibase/3.5.x.x/020-add-specimen-detail-columns.xml::3.5.0-020-add-collection-method::claude-uat	False	True	True
+0911_020_add_specimen_detail_columns_3_5_0_020_add_sample_tempera.sql	liquibase/3.5.x.x/020-add-specimen-detail-columns.xml::3.5.0-020-add-sample-temperature::claude-uat	False	True	True
+0912_020_add_specimen_detail_columns_3_5_0_020_add_specimen_origi.sql	liquibase/3.5.x.x/020-add-specimen-detail-columns.xml::3.5.0-020-add-specimen-origin::claude-uat	False	True	True
+0913_021_add_person_gps_columns_3_5_0_021_add_person_gps_latitude.sql	liquibase/3.5.x.x/021-add-person-gps-columns.xml::3.5.0-021-add-person-gps-latitude::claude-uat	False	True	True
+0914_021_add_person_gps_columns_3_5_0_021_add_person_gps_longitud.sql	liquibase/3.5.x.x/021-add-person-gps-columns.xml::3.5.0-021-add-person-gps-longitude::claude-uat	False	True	True
+0915_027_add_patient_gps_capture_config_add_patient_gps_capture_c.sql	liquibase/3.5.x.x/027-add-patient-gps-capture-config.xml::add-patient-gps-capture-config::openelis	False	False	True
+0916_028_backfill_accession_prefix_domain_backfill_accession_pref.sql	liquibase/3.5.x.x/028-backfill-accession-prefix-domain.xml::backfill-accession-prefix-domain::openelis	False	False	False
+0917_023_add_patient_madagascar_address_fields_3_5_0_023_add_pers.sql	liquibase/3.5.x.x/023-add-patient-madagascar-address-fields.xml::3.5.0-023-add-person-province::claude-uat	False	True	True
+0918_023_add_patient_madagascar_address_fields_3_5_0_023_add_pers.sql	liquibase/3.5.x.x/023-add-patient-madagascar-address-fields.xml::3.5.0-023-add-person-fokontany::claude-uat	False	True	True
+0919_023_add_patient_madagascar_address_fields_3_5_0_023_add_pers.sql	liquibase/3.5.x.x/023-add-patient-madagascar-address-fields.xml::3.5.0-023-add-person-hamlet-or-lot::claude-uat	False	True	True
+0920_024_migrate_madagascar_address_fields_to_identities_3_5_0_02.sql	liquibase/3.5.x.x/024-migrate-madagascar-address-fields-to-identities.xml::3.5.0-024-address-hierarchy-identity-types::openelisglobal	False	False	True
+0921_024_migrate_madagascar_address_fields_to_identities_3_5_0_02.sql	liquibase/3.5.x.x/024-migrate-madagascar-address-fields-to-identities.xml::3.5.0-024-migrate-person-province-to-address-hierarchy-0::openelisglobal	False	False	True
+0922_024_migrate_madagascar_address_fields_to_identities_3_5_0_02.sql	liquibase/3.5.x.x/024-migrate-madagascar-address-fields-to-identities.xml::3.5.0-024-migrate-person-fokontany-to-address-hierarchy-3::openelisglobal	False	False	True
+0923_024_migrate_madagascar_address_fields_to_identities_3_5_0_02.sql	liquibase/3.5.x.x/024-migrate-madagascar-address-fields-to-identities.xml::3.5.0-024-migrate-person-hamlet-or-lot-to-address-hierarchy-4::openelisglobal	False	False	True
+0924_024_migrate_madagascar_address_fields_to_identities_3_5_0_02.sql	liquibase/3.5.x.x/024-migrate-madagascar-address-fields-to-identities.xml::3.5.0-024-drop-migrated-madagascar-person-address-columns::openelisglobal	False	False	True
+0925_026_register_audit_ref_tables_for_p0_services_026_register_a.sql	liquibase/3.5.x.x/026-register-audit-ref-tables-for-p0-services.xml::026-register-audit-ref-tables-1::oe	False	False	True
+0926_026_register_audit_ref_tables_for_p0_services_026_register_a.sql	liquibase/3.5.x.x/026-register-audit-ref-tables-for-p0-services.xml::026-register-audit-ref-tables-2::oe	False	False	True
+0927_026_register_audit_ref_tables_for_p0_services_026_register_a.sql	liquibase/3.5.x.x/026-register-audit-ref-tables-for-p0-services.xml::026-register-audit-ref-tables-3::oe	False	False	True
+0928_026_register_audit_ref_tables_for_p0_services_026_register_a.sql	liquibase/3.5.x.x/026-register-audit-ref-tables-for-p0-services.xml::026-register-audit-ref-tables-4::oe	False	False	True
+0929_030_fix_urine_pregnancy_test_typo_fix_urine_pregnancy_test_n.sql	liquibase/3.5.x.x/030-fix-urine-pregnancy-test-typo.xml::fix-urine-pregnancy-test-name::openelis	False	False	False
+0930_030_fix_urine_pregnancy_test_typo_fix_urine_pregnancy_test_d.sql	liquibase/3.5.x.x/030-fix-urine-pregnancy-test-typo.xml::fix-urine-pregnancy-test-description::openelis	False	False	False
+0931_030_fix_urine_pregnancy_test_typo_fix_urine_pregnancy_locali.sql	liquibase/3.5.x.x/030-fix-urine-pregnancy-test-typo.xml::fix-urine-pregnancy-localization-value::openelis	False	False	False
+0932_031_widen_user_and_accession_columns_widen_login_user_login.sql	liquibase/3.5.x.x/031-widen-user-and-accession-columns.xml::widen-login-user-login-name-to-30::openelis	False	False	False
+0933_031_widen_user_and_accession_columns_widen_system_user_login.sql	liquibase/3.5.x.x/031-widen-user-and-accession-columns.xml::widen-system-user-login-name-to-30::openelis	False	False	False
+0934_031_widen_user_and_accession_columns_widen_system_user_first.sql	liquibase/3.5.x.x/031-widen-user-and-accession-columns.xml::widen-system-user-first-name-to-30::openelis	False	False	False
+0935_031_widen_user_and_accession_columns_widen_sample_accession.sql	liquibase/3.5.x.x/031-widen-user-and-accession-columns.xml::widen-sample-accession-number-to-25::openelis	False	False	False
+0936_031_widen_user_and_accession_columns_widen_sample_barcode_to.sql	liquibase/3.5.x.x/031-widen-user-and-accession-columns.xml::widen-sample-barcode-to-25::openelis	False	False	False
+0937_031_widen_user_and_accession_columns_widen_analyzer_results.sql	liquibase/3.5.x.x/031-widen-user-and-accession-columns.xml::widen-analyzer-results-accession-number-to-25::openelis	False	False	False
+0938_031_widen_user_and_accession_columns_widen_barcode_label_inf.sql	liquibase/3.5.x.x/031-widen-user-and-accession-columns.xml::widen-barcode-label-info-code-to-30::openelis	False	False	False
+0939_039_test_method_links_ogc_746_method_code_column.sql	liquibase/3.5.x.x/039-test-method-links.xml::OGC-746-method-code-column::OGC	False	False	True
+0940_039_test_method_links_ogc_746_test_method_seq.sql	liquibase/3.5.x.x/039-test-method-links.xml::OGC-746-test-method-seq::OGC	False	True	False
+0941_039_test_method_links_ogc_746_test_method_table.sql	liquibase/3.5.x.x/039-test-method-links.xml::OGC-746-test-method-table::OGC	False	True	True
+0942_040_test_domain_amr_whonet_ogc_936_test_domain_column.sql	liquibase/3.5.x.x/040-test-domain-amr-whonet.xml::OGC-936-test-domain-column::OGC	False	False	True
+0943_040_test_domain_amr_whonet_ogc_936_whonet_antibiotic_codes_t.sql	liquibase/3.5.x.x/040-test-domain-amr-whonet.xml::OGC-936-whonet-antibiotic-codes-table::OGC	False	True	True
+0944_040_test_domain_amr_whonet_ogc_936_test_amr_config_table.sql	liquibase/3.5.x.x/040-test-domain-amr-whonet.xml::OGC-936-test-amr-config-table::OGC	False	False	True
+0945_041_result_components_ogc_937_test_result_component_table.sql	liquibase/3.5.x.x/041-result-components.xml::OGC-937-test-result-component-table::OGC	False	False	True
+0946_041_result_components_ogc_937_result_limits_component_id.sql	liquibase/3.5.x.x/041-result-components.xml::OGC-937-result-limits-component-id::OGC	False	False	True
+0947_041_result_components_ogc_937_test_result_component_id.sql	liquibase/3.5.x.x/041-result-components.xml::OGC-937-test-result-component-id::OGC	False	False	True
+0948_041_result_components_ogc_937_test_result_interpretation_tab.sql	liquibase/3.5.x.x/041-result-components.xml::OGC-937-test-result-interpretation-table::OGC	False	False	True
+0949_041_result_components_ogc_937_component_backfill.sql	liquibase/3.5.x.x/041-result-components.xml::OGC-937-component-backfill::OGC	False	False	True
+0950_042_handling_uom_displayorder_ogc_938_test_sample_handling_t.sql	liquibase/3.5.x.x/042-handling-uom-displayorder.xml::OGC-938-test-sample-handling-table::OGC	False	False	True
+0951_042_handling_uom_displayorder_ogc_938_test_sample_handling_h.sql	liquibase/3.5.x.x/042-handling-uom-displayorder.xml::OGC-938-test-sample-handling-history-table::OGC	False	False	True
+0952_042_handling_uom_displayorder_ogc_938_unit_of_measure_master.sql	liquibase/3.5.x.x/042-handling-uom-displayorder.xml::OGC-938-unit-of-measure-master::OGC	False	False	True
+0953_042_handling_uom_displayorder_ogc_938_sampletype_test_displa.sql	liquibase/3.5.x.x/042-handling-uom-displayorder.xml::OGC-938-sampletype-test-display-order::OGC	False	False	True
+0954_043_acknowledgment_terminology_ogc_939_test_activation_ackno.sql	liquibase/3.5.x.x/043-acknowledgment-terminology.xml::OGC-939-test-activation-acknowledgment-table::OGC	False	False	True
+0955_043_acknowledgment_terminology_ogc_939_test_terminology_mapp.sql	liquibase/3.5.x.x/043-acknowledgment-terminology.xml::OGC-939-test-terminology-mapping-table::OGC	False	False	True
+0956_043_acknowledgment_terminology_ogc_939_loinc_mapping_backfil.sql	liquibase/3.5.x.x/043-acknowledgment-terminology.xml::OGC-939-loinc-mapping-backfill::OGC	False	False	True
+0957_044_test_method_indexes_ogc_949_test_method_retype_ids.sql	liquibase/3.5.x.x/044-test-method-indexes.xml::OGC-949-test-method-retype-ids::OGC	False	False	False
+0958_044_test_method_indexes_ogc_949_test_method_foreign_keys.sql	liquibase/3.5.x.x/044-test-method-indexes.xml::OGC-949-test-method-foreign-keys::OGC	False	False	False
+0959_044_test_method_indexes_ogc_949_test_method_unique_active.sql	liquibase/3.5.x.x/044-test-method-indexes.xml::OGC-949-test-method-unique-active::OGC	False	True	True
+0960_044_test_method_indexes_ogc_949_test_method_test_id_index.sql	liquibase/3.5.x.x/044-test-method-indexes.xml::OGC-949-test-method-test-id-index::OGC	False	True	True
+0961_044_test_method_indexes_ogc_949_drop_unused_test_method_seq.sql	liquibase/3.5.x.x/044-test-method-indexes.xml::OGC-949-drop-unused-test-method-seq::OGC	False	False	True
+0962_045_widen_observation_history_value_widen_observation_histor.sql	liquibase/3.5.x.x/045-widen-observation-history-value.xml::widen-observation-history-value-to-500::openelis	False	False	False
+0963_046_fix_component_version_ogc_937_fix_test_result_component.sql	liquibase/3.5.x.x/046-fix-component-version.xml::OGC-937-fix-test-result-component-version::openelis	False	False	False
+0964_046_fix_component_version_ogc_937_fix_test_result_interpreta.sql	liquibase/3.5.x.x/046-fix-component-version.xml::OGC-937-fix-test-result-interpretation-version::openelis	False	False	False
+0965_047_fix_loinc_terminology_ogc_957_fix_loinc_mapping_relation.sql	liquibase/3.5.x.x/047-fix-loinc-terminology.xml::OGC-957-fix-loinc-mapping-relationship::openelis	False	False	False
+0966_047_fix_loinc_terminology_ogc_957_fix_terminology_mapping_ve.sql	liquibase/3.5.x.x/047-fix-loinc-terminology.xml::OGC-957-fix-terminology-mapping-version::openelis	False	False	False
+0967_048_test_reagent_link_ogc_986_test_reagent_link_table.sql	liquibase/3.5.x.x/048-test-reagent-link.xml::OGC-986-test-reagent-link-table::OGC	False	False	True
+0968_049_test_alert_rule_ogc_763_test_alert_rule_table.sql	liquibase/3.5.x.x/049-test-alert-rule.xml::OGC-763-test-alert-rule-table::OGC	False	False	True
+0969_050_tsh_history_fk_cascade_ogc_766_tsh_history_fk_cascade.sql	liquibase/3.5.x.x/050-tsh-history-fk-cascade.xml::OGC-766-tsh-history-fk-cascade::OGC	False	False	False
+0970_051_uom_code_ucum_uom_add_code_ucum.sql	liquibase/3.5.x.x/051-uom-code-ucum.xml::uom-add-code-ucum::openelis	False	False	True
+0971_004_012_create_analyzer_qc_rule_analyzer_012_create_analyzer.sql	liquibase/analyzer/004-012-create-analyzer-qc-rule.xml::analyzer-012-create-analyzer-qc-rule::fr-15-qc-rules	False	False	True
+0972_004_013_seed_default_qc_rules_analyzer_013_seed_default_qc_r.sql	liquibase/analyzer/004-013-seed-default-qc-rules.xml::analyzer-013-seed-default-qc-rules::fr-15-qc-rules	False	False	False
+0973_001_create_qc_tables_qc_001_create_control_lot.sql	liquibase/qc/001-create-qc-tables.xml::qc-001-create-control-lot::openelisglobal	False	False	True
+0974_001_create_qc_tables_qc_002_create_qc_result.sql	liquibase/qc/001-create-qc-tables.xml::qc-002-create-qc-result::openelisglobal	False	False	True
+0975_001_create_qc_tables_qc_003_create_qc_statistics.sql	liquibase/qc/001-create-qc-tables.xml::qc-003-create-qc-statistics::openelisglobal	False	False	True
+0976_002_create_westgard_rule_config_qc_004_create_westgard_rule.sql	liquibase/qc/002-create-westgard-rule-config.xml::qc-004-create-westgard-rule-config::openelisglobal	False	False	True
+0977_002_create_westgard_rule_config_qc_005_insert_default_westga.sql	liquibase/qc/002-create-westgard-rule-config.xml::qc-005-insert-default-westgard-rules::openelisglobal	False	False	False
+0978_003_create_qc_violation_tables_qc_006_create_qc_rule_violati.sql	liquibase/qc/003-create-qc-violation-tables.xml::qc-006-create-qc-rule-violation::openelisglobal	False	False	True
+0979_003_create_qc_violation_tables_qc_007_create_qc_violation_re.sql	liquibase/qc/003-create-qc-violation-tables.xml::qc-007-create-qc-violation-results::openelisglobal	False	False	True
+0980_005_create_qc_alert_qc_009_create_qc_alert.sql	liquibase/qc/005-create-qc-alert.xml::qc-009-create-qc-alert::openelisglobal	False	False	True
+0981_006_fix_lastupdated_column_qc_010_fix_lastupdated_qc_control.sql	liquibase/qc/006-fix-lastupdated-column.xml::qc-010-fix-lastupdated-qc-control-lot::openelisglobal	False	False	False
+0982_006_fix_lastupdated_column_qc_011_fix_lastupdated_qc_result.sql	liquibase/qc/006-fix-lastupdated-column.xml::qc-011-fix-lastupdated-qc-result::openelisglobal	False	False	False
+0983_006_fix_lastupdated_column_qc_012_fix_lastupdated_qc_statist.sql	liquibase/qc/006-fix-lastupdated-column.xml::qc-012-fix-lastupdated-qc-statistics::openelisglobal	False	False	False
+0984_006_fix_lastupdated_column_qc_013_fix_lastupdated_westgard_r.sql	liquibase/qc/006-fix-lastupdated-column.xml::qc-013-fix-lastupdated-westgard-rule-config::openelisglobal	False	False	False
+0985_006_fix_lastupdated_column_qc_014_fix_lastupdated_qc_rule_vi.sql	liquibase/qc/006-fix-lastupdated-column.xml::qc-014-fix-lastupdated-qc-rule-violation::openelisglobal	False	False	False
+0986_006_fix_lastupdated_column_qc_016_fix_lastupdated_qc_alert.sql	liquibase/qc/006-fix-lastupdated-column.xml::qc-016-fix-lastupdated-qc-alert::openelisglobal	False	False	False
+0987_007_add_qc_menu_items_qc_017_add_menu_qc_parent.sql	liquibase/qc/007-add-qc-menu-items.xml::qc-017-add-menu-qc-parent::openelisglobal	False	False	True
+0988_007_add_qc_menu_items_qc_018_add_menu_qc_dashboard.sql	liquibase/qc/007-add-qc-menu-items.xml::qc-018-add-menu-qc-dashboard::openelisglobal	False	False	True
+0989_007_add_qc_menu_items_qc_019_add_menu_qc_rule_config.sql	liquibase/qc/007-add-qc-menu-items.xml::qc-019-add-menu-qc-rule-config::openelisglobal	False	False	True
+0990_007_add_qc_menu_items_qc_020_add_menu_qc_control_lots.sql	liquibase/qc/007-add-qc-menu-items.xml::qc-020-add-menu-qc-control-lots::openelisglobal	False	False	True
+0991_008_add_instrument_fk_constraints_008_01_fix_instrument_id_t.sql	liquibase/qc/008-add-instrument-fk-constraints.xml::008-01-fix-instrument-id-types::code-review	False	False	False
+0992_008_add_instrument_fk_constraints_008_02_add_instrument_fk_c.sql	liquibase/qc/008-add-instrument-fk-constraints.xml::008-02-add-instrument-fk-constraints::code-review	False	False	False
+0993_009_nullable_unit_of_measure_qc_009_nullable_unit_of_measure.sql	liquibase/qc/009-nullable-unit-of-measure.xml::qc-009-nullable-unit-of-measure::mvp-flow-fix	False	False	False
