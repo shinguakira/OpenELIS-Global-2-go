@@ -1,86 +1,94 @@
 # OpenELIS Global 2 → Go Migration Plan
 
-Status: **draft / proposal**
-Source system: OpenELIS Global 2 (`develop`) — Java 21, Spring Framework 6.2 (traditional MVC, **not** Spring Boot), Jakarta EE 9 (`jakarta.*`), Hibernate/JPA, HAPI FHIR R4, Liquibase, **PostgreSQL**.
-Target: a Go reimplementation of the OpenELIS backend.
-Companion docs in this folder: `OpenMRS-Go-Migration-Plan` (see `openmrs-core-go/doc/GO_MIGRATION_PLAN.md`), `OpenMRS-Analysis.md`, `e2e.md`.
+Status: **draft / proposal** Source system: OpenELIS Global 2 (`develop`) — Java
+21, Spring Framework 6.2 (traditional MVC, **not** Spring Boot), Jakarta EE 9
+(`jakarta.*`), Hibernate/JPA, HAPI FHIR R4, Liquibase, **PostgreSQL**. Target: a
+Go reimplementation of the OpenELIS backend. Companion docs in this folder:
+`OpenMRS-Go-Migration-Plan` (see `openmrs-core-go/doc/GO_MIGRATION_PLAN.md`),
+`OpenMRS-Analysis.md`, `e2e.md`.
 
-> This is a *strategy* document, not a line-by-line port script. OpenELIS is
+> This is a _strategy_ document, not a line-by-line port script. OpenELIS is
 > ~2,805 Java main files across ~120 self-contained domain packages, each using
-> the same 5-layer pattern. A big-bang rewrite is not realistic. This plan defines
-> the target architecture, the order of work, and how to prove behavioral parity
-> at each step. It deliberately mirrors the OpenMRS Go plan so the two efforts in
-> this workspace stay structurally consistent.
+> the same 5-layer pattern. A big-bang rewrite is not realistic. This plan
+> defines the target architecture, the order of work, and how to prove
+> behavioral parity at each step. It deliberately mirrors the OpenMRS Go plan so
+> the two efforts in this workspace stay structurally consistent.
 
 ---
 
 ## 0. Decisions to make before writing any Go
 
-| # | Decision | Recommendation & why |
-|---|----------|----------------------|
-| D1 | **Keep the existing PostgreSQL schema, or redesign?** | **Keep it.** The schema is the real contract (Liquibase-owned, 277 changesets, versioned `2.0.x`→`3.5.x`). Sharing it lets Go and Java run against the same DB during migration and makes parity testing possible. Redesign = a data-migration project *on top of* a rewrite. |
-| D2 | **Is Java plugin (`.jar`) compatibility a goal?** | OpenELIS loads analyzer/interop plugins from the `openelisglobal-plugins` submodule (GenericASTM, GenericFile, GenericHL7) compiled against the Java API + `test-jar`. Go **cannot** load these. Decide early: "replace core, reimplement plugins natively in Go" vs "permanent hybrid where Java keeps serving plugin-driven interop." This is the single biggest scoping decision. |
-| D3 | **What is the external contract?** | Two surfaces: (a) the **FHIR R4 API** (HAPI FHIR — the interoperability contract for lab orders/results) and (b) the **REST controllers** (`controller/rest`) that the React frontend consumes. The **JSP/legacy MVC UI is *not* the contract** — the React frontend already talks REST. Port to preserve FHIR + REST behavior; drop the legacy MVC/form layer. |
-| D4 | **Strangler-fig or clean cut?** | **Strangler-fig.** Run Go beside the Java WAR behind the existing nginx proxy; route endpoints to Go one bounded context at a time, both hitting the same Postgres. Ship and verify incrementally. |
-| D5 | **FHIR: reimplement or facade?** | HAPI FHIR provides enormous machinery (R4 resource model, serialization, validation, the JPA server on port 8081). **Do not hand-reimplement FHIR from scratch.** Options: keep the HAPI FHIR server as a standalone service Go calls, or adopt a mature Go FHIR library and port only the OpenELIS-specific transformation logic (`fhir/transormation`, `dataexchange/fhir`). |
-| D6 | **Analyzer interop / scheduler** | ASTM (E1381/E1394), HL7v2, and file-import ingestion are hardware/instrument-facing and protocol-level. Plan to *re-implement the transports natively* in Go (goroutines + net) or *keep them on Java* during coexistence — but treat them as a distinct, high-risk subsystem, not "just another context." |
+| #   | Decision                                              | Recommendation & why                                                                                                                                                                                                                                                                                                                                                                 |
+| --- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| D1  | **Keep the existing PostgreSQL schema, or redesign?** | **Keep it.** The schema is the real contract (Liquibase-owned, 993 changesets across 277 files, versioned `2.0.x`→`3.5.x`). Sharing it lets Go and Java run against the same DB during migration and makes parity testing possible. Redesign = a data-migration project _on top of_ a rewrite.                                                                                       |
+| D2  | **Is Java plugin (`.jar`) compatibility a goal?**     | OpenELIS loads analyzer/interop plugins from the `openelisglobal-plugins` submodule (GenericASTM, GenericFile, GenericHL7) compiled against the Java API + `test-jar`. Go **cannot** load these. Decide early: "replace core, reimplement plugins natively in Go" vs "permanent hybrid where Java keeps serving plugin-driven interop." This is the single biggest scoping decision. |
+| D3  | **What is the external contract?**                    | Two surfaces: (a) the **FHIR R4 API** (HAPI FHIR — the interoperability contract for lab orders/results) and (b) the **REST controllers** (`controller/rest`) that the React frontend consumes. The **JSP/legacy MVC UI is _not_ the contract** — the React frontend already talks REST. Port to preserve FHIR + REST behavior; drop the legacy MVC/form layer.                      |
+| D4  | **Strangler-fig or clean cut?**                       | **Strangler-fig.** Run Go beside the Java WAR behind the existing nginx proxy; route endpoints to Go one bounded context at a time, both hitting the same Postgres. Ship and verify incrementally.                                                                                                                                                                                   |
+| D5  | **FHIR: reimplement or facade?**                      | HAPI FHIR provides enormous machinery (R4 resource model, serialization, validation, the JPA server on port 8081). **Do not hand-reimplement FHIR from scratch.** Options: keep the HAPI FHIR server as a standalone service Go calls, or adopt a mature Go FHIR library and port only the OpenELIS-specific transformation logic (`fhir/transormation`, `dataexchange/fhir`).       |
+| D6  | **Analyzer interop / scheduler**                      | ASTM (E1381/E1394), HL7v2, and file-import ingestion are hardware/instrument-facing and protocol-level. Plan to _re-implement the transports natively_ in Go (goroutines + net) or _keep them on Java_ during coexistence — but treat them as a distinct, high-risk subsystem, not "just another context."                                                                           |
 
-**Assumed answers for the rest of this plan:** keep the schema (D1), replace core over time via strangler-fig (D4), preserve FHIR R4 + REST contracts and drop legacy MVC/JSP (D3), plugins reimplemented natively / out of scope for v1 (D2), FHIR via facade-or-library not hand-rolled (D5).
+**Assumed answers for the rest of this plan:** keep the schema (D1), replace
+core over time via strangler-fig (D4), preserve FHIR R4 + REST contracts and
+drop legacy MVC/JSP (D3), plugins reimplemented natively / out of scope for v1
+(D2), FHIR via facade-or-library not hand-rolled (D5).
 
 ---
 
 ## 1. Architecture mapping (Java → Go)
 
-OpenELIS uses a strict, repeated **5-layer pattern per domain** (`Valueholder → DAO → Service → Controller → Form`). This regularity is a gift for migration — one template, ~120 applications of it.
+OpenELIS uses a strict, repeated **5-layer pattern per domain**
+(`Valueholder → DAO → Service → Controller → Form`). This regularity is a gift
+for migration — one template, ~120 applications of it.
 
 Go paths **mirror the Java paths during migration** (see layout decision below):
 `internal/<domain>/<layer>/`. The "Go path" column is that mirror; the reorg to
 idiomatic Go happens at the end.
 
-| OpenELIS Java layer | Java location (under `org.openelisglobal.*`) | Go path (mirrored) | Go equivalent |
-|---------------------|----------------------------------------------|--------------------|---------------|
-| **Valueholder** (Hibernate entity/POJO, ~120 `valueholder/` dirs) | `<domain>/valueholder/` | `internal/<domain>/valueholder/` | Plain structs. Flatten the `BaseObject`/audit base classes into embedded structs. |
-| **DAO / DAOImpl** (~118 interfaces / ~87 impls) | `<domain>/dao/`, `<domain>/daoimpl/` | `internal/<domain>/dao/` (+ `daoimpl/`) | Repository interfaces with **explicit SQL** via `sqlc`/`pgx`. **No ORM** — write the queries. Biggest translation risk (see §4). |
-| **Service** (~133 `service/` dirs, `@Transactional`) | `<domain>/service/` (+ `impl/`) | `internal/<domain>/service/` | Go interfaces + implementations. Transaction boundary = the service method. |
-| **Controller** (~78, many with `controller/rest`) | `<domain>/controller/`, `<domain>/controller/rest/` | `internal/<domain>/controller/rest/` | **stdlib `net/http`** handlers (`ServeMux` method routing) mirroring the **REST** subcontrollers; a `Routes(mux)` per domain. **Skip the non-REST MVC controllers** (legacy UI). |
-| **Form** (~51 form-backing beans) | `<domain>/form/` | `internal/<domain>/form/` | Request/response DTOs on the REST handlers. The Spring `Form` beans are an MVC artifact — do not port wholesale. |
-| **Spring Security + role/rolemodule** | `login/`, `role/`, `rolemodule/`, `security/` | Auth middleware + a `context.Context`-carried principal; port the module/permission model as an authorization layer. |
-| **Hibernate interceptors / audit** (`audittrail/`, `history/`, `interceptor/`) | `audittrail/`, `interceptor/` | Centralized audit + `sysUserId`/timestamp stamping in the tx/repository layer. Miss this and every write is subtly wrong. |
-| **Liquibase changelogs** (277) | `src/main/resources/liquibase/` | **Keep Liquibase as-is** during coexistence so both apps agree on schema; convert to `goose`/`golang-migrate` only after Java is retired. |
-| **HAPI FHIR R4** | `fhir/`, `dataexchange/fhir`, `referral/fhir`, `shipment/fhir`, `storage/fhir` | Facade to a FHIR service or a Go FHIR library (D5). Port only OpenELIS-specific transform logic. |
-| **Analyzer import** (ASTM/HL7/file) | `analyzer/`, `analyzerimport/`, `analyzerresults/` + plugins submodule | Native Go transports (goroutines/net) **or** keep on Java (D2/D6). Distinct subsystem. |
-| **i18n / React Intl keys** | `frontend` `en.json`, Transifex | Unchanged — the Go backend serves data, the React frontend keeps owning i18n. New keys still land in `en.json` only. |
+| OpenELIS Java layer                                                            | Java location (under `org.openelisglobal.*`)                                   | Go path (mirrored)                                                                                                                                                                                                         | Go equivalent                                                                                                                                                                    |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Valueholder** (Hibernate entity/POJO, ~120 `valueholder/` dirs)              | `<domain>/valueholder/`                                                        | `internal/<domain>/valueholder/`                                                                                                                                                                                           | Plain structs. Flatten the `BaseObject`/audit base classes into embedded structs.                                                                                                |
+| **DAO / DAOImpl** (~118 interfaces / ~87 impls)                                | `<domain>/dao/`, `<domain>/daoimpl/`                                           | `internal/<domain>/dao/` (+ `daoimpl/`)                                                                                                                                                                                    | Repository interfaces with **explicit SQL** via `sqlc`/`pgx`. **No ORM** — write the queries. Biggest translation risk (see §4).                                                 |
+| **Service** (~133 `service/` dirs, `@Transactional`)                           | `<domain>/service/` (+ `impl/`)                                                | `internal/<domain>/service/`                                                                                                                                                                                               | Go interfaces + implementations. Transaction boundary = the service method.                                                                                                      |
+| **Controller** (~78, many with `controller/rest`)                              | `<domain>/controller/`, `<domain>/controller/rest/`                            | `internal/<domain>/controller/rest/`                                                                                                                                                                                       | **stdlib `net/http`** handlers (`ServeMux` method routing) mirroring the **REST** subcontrollers; a `Routes(mux)` per domain. **Skip the non-REST MVC controllers** (legacy UI). |
+| **Form** (~51 form-backing beans)                                              | `<domain>/form/`                                                               | `internal/<domain>/form/`                                                                                                                                                                                                  | Request/response DTOs on the REST handlers. The Spring `Form` beans are an MVC artifact — do not port wholesale.                                                                 |
+| **Spring Security + role/rolemodule**                                          | `login/`, `role/`, `rolemodule/`, `security/`                                  | Auth middleware + a `context.Context`-carried principal; port the module/permission model as an authorization layer.                                                                                                       |
+| **Hibernate interceptors / audit** (`audittrail/`, `history/`, `interceptor/`) | `audittrail/`, `interceptor/`                                                  | Centralized audit + `sysUserId`/timestamp stamping in the tx/repository layer. Miss this and every write is subtly wrong.                                                                                                  |
+| **Liquibase changelogs** (277 files / 993 changesets)                          | `src/main/resources/liquibase/`                                                | **Keep Liquibase as-is** during coexistence so both apps agree on schema; convert to `goose` only after Java is retired — extraction + tooling already done, see [liquibase-to-goose-plan.md](liquibase-to-goose-plan.md). |
+| **HAPI FHIR R4**                                                               | `fhir/`, `dataexchange/fhir`, `referral/fhir`, `shipment/fhir`, `storage/fhir` | Facade to a FHIR service or a Go FHIR library (D5). Port only OpenELIS-specific transform logic.                                                                                                                           |
+| **Analyzer import** (ASTM/HL7/file)                                            | `analyzer/`, `analyzerimport/`, `analyzerresults/` + plugins submodule         | Native Go transports (goroutines/net) **or** keep on Java (D2/D6). Distinct subsystem.                                                                                                                                     |
+| **i18n / React Intl keys**                                                     | `frontend` `en.json`, Transifex                                                | Unchanged — the Go backend serves data, the React frontend keeps owning i18n. New keys still land in `en.json` only.                                                                                                       |
 
 ### Go project layout — mirror Java during migration, reorganize at the end
 
 **Decision:** during the migration the Go folders **mirror the Java source
 layout** (`org.openelisglobal.<domain>.<layer>` → `internal/<domain>/<layer>/`),
 even though that carries Java's redundant per-layer nesting. Rationale: the team
-is Java-native and must be able to find "where did `SampleRestController` go?" by
-the same path. Accept the non-idiomatic structure now; **reorganize into
+is Java-native and must be able to find "where did `SampleRestController` go?"
+by the same path. Accept the non-idiomatic structure now; **reorganize into
 idiomatic Go once the port is complete** (that reorg is itself a final migration
 step, verified by the parity suite).
 
 ### Layer rules — what goes in each Go file (MANDATORY)
 
-Before writing any Go code for a domain, check `src/main/java/org/openelisglobal/<domain>/`
-and create a corresponding Go file for each Java layer present.
+Before writing any Go code for a domain, check
+`src/main/java/org/openelisglobal/<domain>/` and create a corresponding Go file
+for each Java layer present.
 
-| Java layer | Go file | Contains | Must NOT contain |
-|---|---|---|---|
-| `valueholder/X.java` | `internal/<domain>/valueholder/x.go` | Plain structs; no JSON tags | SQL, HTTP, business logic |
-| `daoimpl/XDAOImpl.java` | `internal/<domain>/daoimpl/x_dao_impl.go` | **All** database/ORM access — SQL, row scanning, projection→entity aggregation | Business logic, HTTP |
-| `service/XServiceImpl.java` | `internal/<domain>/service/x_service_impl.go` | Calls DAO(s); business logic | SQL, HTTP, any DB/ORM import (`database/sql`, `gorm.io/gorm`) |
-| `controller/rest/XRestController.java` | `internal/<domain>/controller/rest/x.go` | Parse request → call service → convert to DTO → write JSON | **SQL, DB/ORM imports, business logic** |
+| Java layer                             | Go file                                       | Contains                                                                       | Must NOT contain                                              |
+| -------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| `valueholder/X.java`                   | `internal/<domain>/valueholder/x.go`          | Plain structs; no JSON tags                                                    | SQL, HTTP, business logic                                     |
+| `daoimpl/XDAOImpl.java`                | `internal/<domain>/daoimpl/x_dao_impl.go`     | **All** database/ORM access — SQL, row scanning, projection→entity aggregation | Business logic, HTTP                                          |
+| `service/XServiceImpl.java`            | `internal/<domain>/service/x_service_impl.go` | Calls DAO(s); business logic                                                   | SQL, HTTP, any DB/ORM import (`database/sql`, `gorm.io/gorm`) |
+| `controller/rest/XRestController.java` | `internal/<domain>/controller/rest/x.go`      | Parse request → call service → convert to DTO → write JSON                     | **SQL, DB/ORM imports, business logic**                       |
 
-**`daoimpl/` is the only layer allowed to import a database or ORM package.**
-A `*gorm.DB` (or `*sql.DB`) field belongs in a DAO struct and nowhere else.
+**`daoimpl/` is the only layer allowed to import a database or ORM package.** A
+`*gorm.DB` (or `*sql.DB`) field belongs in a DAO struct and nowhere else.
 Services hold a `*daoimpl.XDAOImpl`, never a DB handle — that is what makes them
 testable without a database.
 
-**The controller/rest layer is a thin HTTP adapter — nothing more.**
-If you find yourself writing a `DB.Raw()`, a `DB.Query()`, or a `for rows.Next()`
-loop in a controller or service file, stop and move it to `daoimpl/`.
+**The controller/rest layer is a thin HTTP adapter — nothing more.** If you find
+yourself writing a `DB.Raw()`, a `DB.Query()`, or a `for rows.Next()` loop in a
+controller or service file, stop and move it to `daoimpl/`.
 
 JSON tags live on DTO structs **in the controller package**, not on valueholder
 structs. Valueholders are plain Go structs with no serialization concerns.
@@ -110,7 +118,9 @@ test/parity/                                   # golden tests comparing Go vs Ja
 
 ## 2. Recommended migration order (dependency-driven)
 
-Port bounded contexts in dependency order — reference data and identity first, then the lab result spine, then interop. The OpenELIS domain graph roughly layers:
+Port bounded contexts in dependency order — reference data and identity first,
+then the lab result spine, then interop. The OpenELIS domain graph roughly
+layers:
 
 ```
 Dictionary / TestCatalog (test, panel, typeoftestresult) ─ referenced by almost everything
@@ -122,107 +132,174 @@ FHIR / DataExchange / Referral (external contract, depends on Sample+Result)
 ```
 
 **Suggested phase order:**
-1. **Foundations** — `domain` structs, db/tx layer, audit/timestamp plumbing, site & system configuration (`config`, `configuration`, `siteinformation`), auth skeleton (`login`, `role`, `rolemodule`). *(No feature yet — the frame.)*
-2. **Reference data** — `dictionary`/`dictionarycategory`, **test catalog** (`test`, `panel`, `typeoftestresult`, `testresult`, `unitofmeasure`), `organization`, `provider`, `address`/`citystatezip`.
+
+1. **Foundations** — `domain` structs, db/tx layer, audit/timestamp plumbing,
+   site & system configuration (`config`, `configuration`, `siteinformation`),
+   auth skeleton (`login`, `role`, `rolemodule`). _(No feature yet — the
+   frame.)_
+2. **Reference data** — `dictionary`/`dictionarycategory`, **test catalog**
+   (`test`, `panel`, `typeoftestresult`, `testresult`, `unitofmeasure`),
+   `organization`, `provider`, `address`/`citystatezip`.
 3. **Identity** — `person` → `patient`, plus `samplehuman`.
-4. **Sample/order core** — `sample`, `genericsample`, accession numbering, order entry.
-5. **Result spine** — `analysis`, `result`, `resultvalidation`, `resultlimits` (the clinical-safety core: validation rules, reference ranges).
-6. **Analyzer interop** — `analyzer`, `analyzerimport`, `analyzerresults` (ASTM/HL7/file). High-risk; may stay on Java per D2/D6.
-7. **Interoperability / reporting** — `fhir`, `dataexchange`, `referral`, `report`/`reports`, `dataexport`.
-8. **Cross-cutting features** — `barcode`, `coldstorage`/`shipment`/`storage`, `qc`/`qaevent`, `eqa`, `notification`.
+4. **Sample/order core** — `sample`, `genericsample`, accession numbering, order
+   entry.
+5. **Result spine** — `analysis`, `result`, `resultvalidation`, `resultlimits`
+   (the clinical-safety core: validation rules, reference ranges).
+6. **Analyzer interop** — `analyzer`, `analyzerimport`, `analyzerresults`
+   (ASTM/HL7/file). High-risk; may stay on Java per D2/D6.
+7. **Interoperability / reporting** — `fhir`, `dataexchange`, `referral`,
+   `report`/`reports`, `dataexport`.
+8. **Cross-cutting features** — `barcode`, `coldstorage`/`shipment`/`storage`,
+   `qc`/`qaevent`, `eqa`, `notification`.
 
 ---
 
 ## 3. The first vertical slice (prove the pattern end-to-end)
 
-Before scaling out, build **one** context all the way through to lock the template. Recommended: **Test-catalog read path** (self-contained, referenced everywhere, low clinical risk) — or **Sample read path** if you want the identity spine first.
+Before scaling out, build **one** context all the way through to lock the
+template. Recommended: **Test-catalog read path** (self-contained, referenced
+everywhere, low clinical risk) — or **Sample read path** if you want the
+identity spine first.
 
-1. `domain.Test`, `domain.TypeOfTestResult`, `domain.Panel`, `domain.TestResult` structs.
-2. `test.Repository` with a real query: `GET test by id` (joins panel, result type, units, reference ranges).
-3. `test.Service` with the read method + authorization check (role/module privilege).
-4. `rest` handler mirroring the existing `controller/rest` response shape the React frontend consumes.
-5. **Parity test**: same seeded Postgres, hit both Java and Go, diff the JSON. This becomes the acceptance bar for every subsequent context.
+1. `domain.Test`, `domain.TypeOfTestResult`, `domain.Panel`, `domain.TestResult`
+   structs.
+2. `test.Repository` with a real query: `GET test by id` (joins panel, result
+   type, units, reference ranges).
+3. `test.Service` with the read method + authorization check (role/module
+   privilege).
+4. `rest` handler mirroring the existing `controller/rest` response shape the
+   React frontend consumes.
+5. **Parity test**: same seeded Postgres, hit both Java and Go, diff the JSON.
+   This becomes the acceptance bar for every subsequent context.
 
-Then add create/update (write path exercises validators, transactions, audit fields, accession/uniqueness) before moving on.
+Then add create/update (write path exercises validators, transactions, audit
+fields, accession/uniqueness) before moving on.
 
 ---
 
 ## 4. Hardest parts — where behavior silently diverges
 
-- **Hibernate lazy loading & cascade.** Java freely walks `sample.getSampleItems().getAnalyses()...`; Hibernate fetches on access. In Go you decide up front what each query loads. Map the actual object graph each service method touches.
-- **Save/update cascade semantics.** Saving a `Sample` cascades to sample items/analyses/results per the mappings. Replicate cascade order explicitly, in one transaction.
-- **Audit fields & interceptors.** `sysUserId`, `lastupdated`, timestamps, and audit-trail rows are set by interceptors (`audittrail/`, `interceptor/`), not by callers. Centralize in the tx/repository layer.
-- **Result validation & reference ranges** (`resultvalidation`, `resultlimits`) = **clinical safety rules**. Port faithfully with their tests as the spec; do not "clean up."
-- **Spring Security + role/rolemodule privileges.** Enumerate every access check and reproduce as explicit middleware — a missing check is a security hole in a regulated LIS.
-- **FHIR R4 fidelity.** HAPI does resource modelling, serialization, and validation. Hand-rolling this diverges silently — use a facade or a real Go FHIR library (D5).
-- **Analyzer protocols.** ASTM E1381/E1394 framing and HL7v2 parsing are exacting and instrument-specific; the plugin architecture makes them pluggable. Treat as its own subsystem (D6).
-- **Transaction boundaries.** `@Transactional` is invisible in the source. A service method calling several DAOs is *one* transaction — get boundaries wrong and you get partial writes to patient/result records.
-- **Accession numbering & sequences.** Order/accession generation has concurrency and format rules driven by site configuration — build the config plumbing early (Foundations).
+- **Hibernate lazy loading & cascade.** Java freely walks
+  `sample.getSampleItems().getAnalyses()...`; Hibernate fetches on access. In Go
+  you decide up front what each query loads. Map the actual object graph each
+  service method touches.
+- **Save/update cascade semantics.** Saving a `Sample` cascades to sample
+  items/analyses/results per the mappings. Replicate cascade order explicitly,
+  in one transaction.
+- **Audit fields & interceptors.** `sysUserId`, `lastupdated`, timestamps, and
+  audit-trail rows are set by interceptors (`audittrail/`, `interceptor/`), not
+  by callers. Centralize in the tx/repository layer.
+- **Result validation & reference ranges** (`resultvalidation`, `resultlimits`)
+  = **clinical safety rules**. Port faithfully with their tests as the spec; do
+  not "clean up."
+- **Spring Security + role/rolemodule privileges.** Enumerate every access check
+  and reproduce as explicit middleware — a missing check is a security hole in a
+  regulated LIS.
+- **FHIR R4 fidelity.** HAPI does resource modelling, serialization, and
+  validation. Hand-rolling this diverges silently — use a facade or a real Go
+  FHIR library (D5).
+- **Analyzer protocols.** ASTM E1381/E1394 framing and HL7v2 parsing are
+  exacting and instrument-specific; the plugin architecture makes them
+  pluggable. Treat as its own subsystem (D6).
+- **Transaction boundaries.** `@Transactional` is invisible in the source. A
+  service method calling several DAOs is _one_ transaction — get boundaries
+  wrong and you get partial writes to patient/result records.
+- **Accession numbering & sequences.** Order/accession generation has
+  concurrency and format rules driven by site configuration — build the config
+  plumbing early (Foundations).
 
 ---
 
 ## 5. Parity & testing strategy — reuse this workspace's e2e harness
 
-The `e2e/` folder in this workspace is a **language-neutral, black-box Playwright (API-mode) parity oracle**, currently scaffolded for the OpenMRS REST contract (`e2e.md`). **Extend the same pattern to OpenELIS:**
+The `e2e/` folder in this workspace is a **language-neutral, black-box
+Playwright (API-mode) parity oracle**, currently scaffolded for the OpenMRS REST
+contract (`e2e.md`). **Extend the same pattern to OpenELIS:**
 
-- **Golden-master / parity harness.** Seed a Postgres DB (the OpenELIS DB image / test fixtures under `src/test/resources/testdata/`); run the same request against Java and Go; assert identical JSON (REST + FHIR) or identical DB state (writes). Primary gate.
-- **Author the OpenELIS parity suite** (the `e2e/tests/` dir is empty today — see §E2E status). Target both the **FHIR R4 API** (port 8081) and the React-facing **REST controllers** (`/api/OpenELIS-Global`).
-- **Port high-value unit tests.** Result validation, reference-range limits, accession formatting, identifier rules translate to Go table tests — cheap and they encode the rules.
-- **Keep the existing Playwright suite** (42 specs in `frontend/playwright`) running against the strangler proxy as a full-stack regression net during coexistence.
-- Wire CI (`e2e-playwright.yml`) to run parity + Go unit tests per context as it lands.
+- **Golden-master / parity harness.** Seed a Postgres DB (the OpenELIS DB image
+  / test fixtures under `src/test/resources/testdata/`); run the same request
+  against Java and Go; assert identical JSON (REST + FHIR) or identical DB state
+  (writes). Primary gate.
+- **Author the OpenELIS parity suite** (the `e2e/tests/` dir is empty today —
+  see §E2E status). Target both the **FHIR R4 API** (port 8081) and the
+  React-facing **REST controllers** (`/api/OpenELIS-Global`).
+- **Port high-value unit tests.** Result validation, reference-range limits,
+  accession formatting, identifier rules translate to Go table tests — cheap and
+  they encode the rules.
+- **Keep the existing Playwright suite** (42 specs in `frontend/playwright`)
+  running against the strangler proxy as a full-stack regression net during
+  coexistence.
+- Wire CI (`e2e-playwright.yml`) to run parity + Go unit tests per context as it
+  lands.
 
 ---
 
 ## 6. Coexistence / rollout (strangler-fig)
 
-1. Deploy Go beside the Java WAR; both connect to the **same PostgreSQL** (`openelisglobal-database`, `15432:5432`).
-2. Use the existing **nginx proxy** (`openelisglobal-proxy`, 80/443) as the router. Default: everything → Java (`oe.openelis.org:8080/8443`).
-3. As each context passes parity, flip its REST/FHIR routes → Go (per-endpoint / feature-flag).
-4. Liquibase stays the single owner of schema during this window (both apps read the same tables).
+1. Deploy Go beside the Java WAR; both connect to the **same PostgreSQL**
+   (`openelisglobal-database`, `15432:5432`).
+2. Use the existing **nginx proxy** (`openelisglobal-proxy`, 80/443) as the
+   router. Default: everything → Java (`oe.openelis.org:8080/8443`).
+3. As each context passes parity, flip its REST/FHIR routes → Go (per-endpoint /
+   feature-flag).
+4. Liquibase stays the single owner of schema during this window (both apps read
+   the same tables).
 5. Monitor error rates/latency for divergence.
-6. Retire Java routes only after Go serves them and is stable. **Analyzer plugins and FHIR** are the likely long-lived hybrid tail (D2/D5/D6).
+6. Retire Java routes only after Go serves them and is stable. **Analyzer
+   plugins and FHIR** are the likely long-lived hybrid tail (D2/D5/D6).
 
 ---
 
 ## 7. Rough sequencing summary
 
-| Phase | Contexts | Exit criterion |
-|-------|----------|----------------|
-| P0 Foundations | domain, db, tx, audit, site/system config, auth skeleton | Test-catalog (or Sample) read slice (§3) passes parity |
-| P1 Reference data | dictionary, test catalog, organization, provider, address | Parity on reads + writes |
-| P2 Identity | person, patient, samplehuman | Parity incl. patient identifier rules |
-| P3 Sample/order | sample, genericsample, accession numbering | Parity incl. accession format/uniqueness |
-| P4 Result spine | analysis, result, resultvalidation, resultlimits | Validation + reference-range rules match Java specs |
-| P5 Interop-in | analyzer, analyzerimport, analyzerresults | ASTM/HL7/file ingestion parity (or documented Java-hybrid) |
-| P6 Interop-out | fhir, dataexchange, referral, report, dataexport | FHIR R4 + report parity |
-| P7 Cross-cutting | barcode, storage/coldstorage/shipment, qc/qaevent, eqa, notification | Parity |
-| P8 Cutover | routing, monitoring, retire Java routes | All ported REST/FHIR routes on Go, stable |
+| Phase             | Contexts                                                             | Exit criterion                                             |
+| ----------------- | -------------------------------------------------------------------- | ---------------------------------------------------------- |
+| P0 Foundations    | domain, db, tx, audit, site/system config, auth skeleton             | Test-catalog (or Sample) read slice (§3) passes parity     |
+| P1 Reference data | dictionary, test catalog, organization, provider, address            | Parity on reads + writes                                   |
+| P2 Identity       | person, patient, samplehuman                                         | Parity incl. patient identifier rules                      |
+| P3 Sample/order   | sample, genericsample, accession numbering                           | Parity incl. accession format/uniqueness                   |
+| P4 Result spine   | analysis, result, resultvalidation, resultlimits                     | Validation + reference-range rules match Java specs        |
+| P5 Interop-in     | analyzer, analyzerimport, analyzerresults                            | ASTM/HL7/file ingestion parity (or documented Java-hybrid) |
+| P6 Interop-out    | fhir, dataexchange, referral, report, dataexport                     | FHIR R4 + report parity                                    |
+| P7 Cross-cutting  | barcode, storage/coldstorage/shipment, qc/qaevent, eqa, notification | Parity                                                     |
+| P8 Cutover        | routing, monitoring, retire Java routes                              | All ported REST/FHIR routes on Go, stable                  |
 
 ---
 
 ## 8. Open questions to resolve with stakeholders
 
-- **D1–D6 above** (schema, plugins, contract, rollout, FHIR strategy, analyzer/scheduler).
-- **Plugins (D2) is decisive**: OpenELIS's analyzer/interop ecosystem lives in `openelisglobal-plugins` (Java). If plugins must keep working, the Java core cannot be fully retired — the realistic target becomes "Go serves core lab REST/FHIR; Java keeps plugin-driven analyzer interop" (permanent hybrid). Resolve before committing a timeline.
-- **FHIR (D5)**: keep HAPI FHIR JPA server as-is (it already runs standalone on 8081) and have Go call it, vs. a Go-native FHIR layer? The former dramatically de-risks v1.
-- **Legacy MVC/JSP UI**: confirm it is fully superseded by the React frontend (it appears to be) so the Form/non-REST controller layers can be dropped rather than ported.
-- **Postgres stays** — no reason to change engine; keeps coexistence simple (unlike OpenMRS which is MySQL).
-- **Team size / timeline** — scopes how many contexts run in parallel once the P0 template is locked.
+- **D1–D6 above** (schema, plugins, contract, rollout, FHIR strategy,
+  analyzer/scheduler).
+- **Plugins (D2) is decisive**: OpenELIS's analyzer/interop ecosystem lives in
+  `openelisglobal-plugins` (Java). If plugins must keep working, the Java core
+  cannot be fully retired — the realistic target becomes "Go serves core lab
+  REST/FHIR; Java keeps plugin-driven analyzer interop" (permanent hybrid).
+  Resolve before committing a timeline.
+- **FHIR (D5)**: keep HAPI FHIR JPA server as-is (it already runs standalone
+  on 8081) and have Go call it, vs. a Go-native FHIR layer? The former
+  dramatically de-risks v1.
+- **Legacy MVC/JSP UI**: confirm it is fully superseded by the React frontend
+  (it appears to be) so the Form/non-REST controller layers can be dropped
+  rather than ported.
+- **Postgres stays** — no reason to change engine; keeps coexistence simple
+  (unlike OpenMRS which is MySQL).
+- **Team size / timeline** — scopes how many contexts run in parallel once the
+  P0 template is locked.
 
 ---
 
 ## Appendix — measured baseline (source, `develop`)
 
-| Metric | Value |
-|--------|------:|
-| Backend Java main files | ~2,805 |
-| Domain packages (`org.openelisglobal.*`) | ~120 |
-| Valueholder / DAO / DAOImpl dirs | ~120 / ~118 / ~87 |
-| Service / Controller / Form dirs | ~133 / ~78 / ~51 |
-| Liquibase changelog files / changesets | ~260 files / 277 changesets |
-| `createTable` operations | ~318 across ~70 files |
-| DB engine | PostgreSQL |
-| Frontend | React 17 + Carbon (Vite/Vitest), talks REST + FHIR |
-| E2E | Playwright (42 specs) + Cypress (34 specs, deprecated) |
-| Git submodules | `dataexport`, `plugins` (+ FHIR server, tools) |
-| External contracts | FHIR R4 (HAPI, :8081) + REST controllers (`controller/rest`) |
+| Metric                                   |                                                        Value |
+| ---------------------------------------- | -----------------------------------------------------------: |
+| Backend Java main files                  |                                                       ~2,805 |
+| Domain packages (`org.openelisglobal.*`) |                                                         ~120 |
+| Valueholder / DAO / DAOImpl dirs         |                                            ~120 / ~118 / ~87 |
+| Service / Controller / Form dirs         |                                             ~133 / ~78 / ~51 |
+| Liquibase changelog files / changesets   |                                   277 files / 993 changesets |
+| `createTable` operations                 |                                        ~318 across ~70 files |
+| DB engine                                |                                                   PostgreSQL |
+| Frontend                                 |           React 17 + Carbon (Vite/Vitest), talks REST + FHIR |
+| E2E                                      |       Playwright (42 specs) + Cypress (34 specs, deprecated) |
+| Git submodules                           |               `dataexport`, `plugins` (+ FHIR server, tools) |
+| External contracts                       | FHIR R4 (HAPI, :8081) + REST controllers (`controller/rest`) |
