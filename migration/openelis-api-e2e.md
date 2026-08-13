@@ -10,9 +10,20 @@ OpenELIS analog of `e2e.md` (the OpenMRS plan).
 - **Target under test:** OpenELIS Global 2 (`develop`) on Tomcat, PostgreSQL
   (`clinlims`, 375 tables), co-resident HAPI FHIR. Base URL:
   `https://localhost/api/OpenELIS-Global`.
-- **REST prefix:** `…/rest/…` (every controller is class-mapped under `/rest`);
-  `~420` method endpoints across `112` controllers. Provider endpoints under
-  `/Provider/**`.
+- **REST prefix:** `…/rest/…` (every controller is class-mapped under `/rest`
+  via a class-level `@RequestMapping("/rest")`, including `ProviderRestController`
+  — there is no separate un-prefixed namespace); `~420` method endpoints across
+  `112` controllers. **Confirmed root cause of a real bug**: §7 below used to list
+  Provider paths without the `/rest` prefix (e.g. `/Provider/raw/{id}`), which
+  is wrong — the real path is `/rest/Provider/raw/{id}`. The b2 Go port copied
+  that wrong path verbatim and 404'd on every real call until live-tested
+  against Java directly; see `b2-org-provider-migration.md` §3.1. Fixed here —
+  §7 now lists the correct `/rest/...` paths. **Lesson for every future
+  wave**: before registering ANY Go route, grep the target Java controller
+  file for its class-level `@RequestMapping` — never trust a method-level
+  `@GetMapping`'s path alone, and never trust this doc's own path listings
+  without cross-checking the controller source, since this doc has already
+  been wrong once.
 - **FHIR prefix:** `…/fhir/*` (CapabilityStatement at `…/fhir/metadata`).
 - **Auth:** **session cookie** via Spring Security form login —
   `POST /ValidateLogin?apiCall=true` (form `loginName`/`password`) → `{success:true}`;
@@ -22,9 +33,30 @@ OpenELIS analog of `e2e.md` (the OpenMRS plan).
   persistent cookie jar per worker; golden JSON snapshots for response shapes.
 - **DB oracle:** `docker exec openelisglobal-database psql -U clinlims -d clinlims`
   to assert row state after writes (the write path is the strictest parity check).
-- **Principle:** assert on *contract + behavior*, not volatile fields
-  (`lastupdated`, generated ids/uuids, accession numbers). Normalize/strip those
-  before snapshotting.
+- **Principle — what "parity-verified" actually means, non-negotiable:**
+  - **No mocking, ever.** Every assertion in this suite runs against the real,
+    live Java webapp (authenticated the same way a real client is) and the
+    real, live Postgres it's connected to — never a stub, never a fixture
+    substituted for the real HTTP round-trip. A Go endpoint that only ever
+    got curled in isolation, or checked against assumed/remembered behavior,
+    is **not verified** — it's a guess that happens to compile.
+  - **Assert real field-by-field data, not just HTTP status.** `200 OK` proves
+    reachability, nothing else — it would not have caught any of the b2
+    findings (a wrong-path 404 is easy to notice, but a subtly wrong field, a
+    wrong divergence, a silently dropped key would sail through a
+    status-only check). Compare actual response bodies, field by field,
+    against Java's actual response for the actual same input.
+  - Still: assert on *contract + behavior*, not volatile fields
+    (`lastupdated`, generated ids/uuids, accession numbers). Normalize/strip
+    those before snapshotting — but don't drop them from the *shape* check,
+    only from *exact-value* pinning (b2 found real bugs — a missing
+    `lastupdated` field entirely — that a shape-blind snapshot would miss).
+  - **Mine the target controller's own JUnit test first (§16), every time,
+    not as an optional nice-to-have.** It's the fastest way to see Java's
+    real URL, real request shape, and real edge cases before writing a
+    single line of Go — the b2 routing bug (this doc's own §7 had the wrong
+    path) would very likely have been caught immediately by reading
+    `ProviderRestControllerTest.java` first, which was skipped.
 
 ---
 
@@ -131,12 +163,20 @@ OpenELIS analog of `e2e.md` (the OpenMRS plan).
 - [ ] Reject path → **DB** status = rejected; refer path creates referral rows.
 
 ## 7. Organization / Provider
-- [ ] `GET /rest/organization-list`, `/rest/organization/{id}`, `/rest/organization/search`,
-      `/rest/organization/types`, `/rest/organization/generate-site-code`.
+- [x] `GET /rest/organization-list`, `/rest/organization/{id}`,
+      `/rest/organization/types`, `/rest/organization/generate-site-code`,
+      `/rest/departments-for-site` — b2, live-verified both sides, see
+      `b2-org-provider-migration.md`.
+- [ ] `/rest/organization/search` (paginated Type-C search, own group).
 - [ ] **Org CRUD:** `POST /rest/Organization` create → `GET` back → `GET /rest/CancelOrganization`;
       **DB:** `organization` row; retire hides by default.
-- [ ] `GET /Provider/raw/{id}`, `/Provider/Person/{id}`, `/provider/search`,
-      `POST /Provider/FhirUuid` → **DB** `provider`.
+- [x] `GET /rest/Provider/raw/{id}`, `/rest/Provider/Person/{id}`,
+      `/rest/provider/search`, `/rest/practitioner` — b2, live-verified both
+      sides. **Paths corrected**: previously listed here without the `/rest`
+      prefix (wrong — see the REST-prefix note above); the b2 Go
+      implementation copied that wrong path and 404'd on every real call
+      until caught by live testing against Java.
+- [ ] `POST /rest/Provider/FhirUuid` → **DB** `provider`.
 
 ## 8. Reports & audit
 - [ ] `POST /rest/ReportPrint` (routine report) → returns report artifact (PDF/data), 200.
