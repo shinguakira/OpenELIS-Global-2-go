@@ -10,21 +10,68 @@ OpenELIS analog of `e2e.md` (the OpenMRS plan).
 - **Target under test:** OpenELIS Global 2 (`develop`) on Tomcat, PostgreSQL
   (`clinlims`, 375 tables), co-resident HAPI FHIR. Base URL:
   `https://localhost/api/OpenELIS-Global`.
-- **REST prefix:** `…/rest/…` (every controller is class-mapped under `/rest`
-  via a class-level `@RequestMapping("/rest")`, including `ProviderRestController`
-  — there is no separate un-prefixed namespace); `~420` method endpoints across
-  `112` controllers. **Confirmed root cause of a real bug**: §7 below used to list
-  Provider paths without the `/rest` prefix (e.g. `/Provider/raw/{id}`), which
-  is wrong — the real path is `/rest/Provider/raw/{id}`. The b2 Go port copied
-  that wrong path verbatim and 404'd on every real call until live-tested
-  against Java directly; see `b2-org-provider-migration.md` §3.1. Fixed here —
-  §7 now lists the correct `/rest/...` paths. **Lesson for every future
-  wave**: before registering ANY Go route, grep the target Java controller
-  file for its class-level `@RequestMapping` — never trust a method-level
-  `@GetMapping`'s path alone, and never trust this doc's own path listings
-  without cross-checking the controller source, since this doc has already
-  been wrong once.
-- **FHIR prefix:** `…/fhir/*` (CapabilityStatement at `…/fhir/metadata`).
+- **REST prefix — real, non-uniform, verify per controller, every time.**
+  `/rest` is the *intended* convention for the JSON API layer
+  (`AGENTS.md:354`: `@RestController` + `@RequestMapping("/rest/{module}")`),
+  and most of it (160 of 292 Spring controllers, counted directly by grep, not
+  estimated) does follow that exact pattern — `ProviderRestController` among
+  them (`@RequestMapping("/rest")` at class level). **But it is not
+  universal, and an earlier version of this exact line claimed it was
+  ("there is no separate un-prefixed namespace") — that claim was wrong,
+  caught and corrected the same day it was written.** The real picture, four
+  distinct categories, live-grepped:
+  1. **160/292** — `@RestController`/`@Controller` with a class-level
+     `@RequestMapping("/rest/...")`. The common case, the one to expect by
+     default.
+  2. **125/292** — **no class-level mapping at all.** Mostly old
+     server-rendered-JSP page controllers, 1:1 mechanically ported from this
+     app's pre-2019 Struts 1.x action classes (confirmed via git history —
+     commits `1c4007e10`/`6e960f800` remove Struts; the ported controllers
+     kept the exact same flat, un-prefixed, PascalCase paths their Struts
+     `<action path="...">` entries used, e.g. `LoginPageController.java`'s
+     `/LoginPage`, `HomePageController.java`'s `/HomePage`,
+     `WorkPlanByTestController.java`'s `/WorkPlanByTest`) — never retrofitted
+     with `/rest` because they render JSP pages, not JSON. A handful of these
+     are `@RestController`s that DO end up under `/rest` in practice, just
+     via a different mechanism than a class mapping: `/rest` retyped on every
+     individual method instead (`MenuController.java`:
+     `@GetMapping("/rest/menu")`; note its sibling `WorkPlanByTestController`
+     above has the *same feature name* with *no* `/rest` at all — a clean
+     paired example of two conventions for the same kind of thing). Others
+     land somewhere else entirely with no `/rest` in sight
+     (`LoggingController.java` → `/logging`; `HealthCheckController.java` →
+     `/health/odoo`).
+  3. **7/292** — class-level mapping to a genuinely different prefix:
+     `/import`, `/health`, `/dataexport/fhir`, `/api/labelPresets`,
+     `/api/orderEntry`, `/api/siteSettings/barcode`, `/logoUpload`.
+  4. **`/ValidateLogin` isn't a controller method at all.** Spring Security's
+     login filter intercepts it directly (`SecurityConfig.java`:
+     `.formLogin(...).loginProcessingUrl("/ValidateLogin")`), before
+     Spring MVC's `DispatcherServlet` would ever see it. `/session`, on the
+     same `LoginPageController` that also owns `/LoginPage`, *is* a real
+     `@GetMapping("/session")` — one class casually mixing an un-prefixed
+     page route, an un-prefixed REST-shaped route, and (elsewhere in the same
+     file) a `/rest`-prefixed one, with no class annotation tying any of it
+     together.
+  **Practical rule, unchanged from before, now correctly justified**: before
+  registering any Go route, grep the *specific* target controller's
+  class-level `@RequestMapping`, and if it has none, check every individual
+  method annotation instead — do not infer from what similar-sounding
+  controllers do, and do not trust this doc's path listings (§7's Provider
+  paths were wrong once already; see `b2-org-provider-migration.md` §3.1) or
+  general claims like this one without a fresh grep.
+- **FHIR prefix `…/fhir/*` is not Spring MVC at all.** It's HAPI FHIR's own
+  servlet (`FhirRestfulServer`, registered directly in
+  `AnnotationWebAppInitializer.java` via `addMapping("/fhir/*")`, using HAPI's
+  own `@Read`/`@Create`/`@Search` annotations, not Spring's `@RequestMapping`
+  family) — a second, independent routing system living beside Spring's
+  `DispatcherServlet` (which only owns whatever `/fhir/*` doesn't claim
+  first). A few *Spring* controllers also have "Fhir" in their class name
+  (`FhirActionController`, `FhirTransformationController`,
+  `FhirQueryRestController`, ...) but they're ordinary REST-layer additions
+  scattered across unrelated prefixes (`/fhir/optimizeStorage`,
+  `/PatientToFhir`, `/rest/fhir/{resourceType}`) — sharing a name with the
+  real FHIR API, not a routing relationship to it.
 - **Auth:** **session cookie** via Spring Security form login —
   `POST /ValidateLogin?apiCall=true` (form `loginName`/`password`) → `{success:true}`;
   `GET /session` reports `{authenticated, userId, loginName, roles[]}`. Not HTTP
