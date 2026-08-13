@@ -5,7 +5,8 @@
   "scripts": {
     "test": "playwright test",
     "test:readonly": "playwright test --project=api-readonly",
-    "test:mutating": "playwright test --project=api-mutating"
+    "test:mutating": "playwright test --project=api-mutating",
+    "test:go-parity": "playwright test --project=go-parity"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1"

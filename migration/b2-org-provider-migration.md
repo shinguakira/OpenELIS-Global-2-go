@@ -1,15 +1,19 @@
 # b2 — Organization + Provider Migration
 
-Status: **implemented, statically verified (go build/vet/gofmt clean), and now
-live-verified by direct side-by-side capture** — every endpoint below was
-curled against the real Java webapp (authenticated) and this Go port (same
-live Postgres instance) for matching and edge-case inputs, and every JSON
-field compared. **Not yet done:** turning that manual capture into committed
-Playwright spec files wired into the `go-parity` project — see § Verification
-for exactly what "live-verified" covers today vs. what's still open, and § 6
-for the branch-policy question that gates writing those spec files. Branch:
-`migration/b2-org-provider` (forked from `migration-base`, per
-[branch-naming.md](branch-naming.md)). Taxonomy Type B, Wave 2 per
+Status: **implemented, statically verified (go build/vet/gofmt clean), and
+live-verified twice over** — first by direct curl side-by-side capture against
+the real Java webapp and this Go port (same live Postgres instance), then by
+turning that into committed Playwright spec files that assert the same
+contract and actually executing them against both servers
+(`test:readonly` / `test:go-parity`; see § 5). All 9 endpoints now have a
+spec file wired into the `go-parity` project — **13/13 passing** (1 test,
+`user-programs`, is correctly skipped under `go-parity`: it's deferred, not
+implemented in Go — see § 2). Branch: `migration/b2-org-provider` (forked
+from `migration-base`, per [branch-naming.md](branch-naming.md); the
+Playwright spec files also live on this same branch — not a separate
+`e2e/`-prefixed branch off `develop` as `branch-naming.md`'s stated policy
+would otherwise call for, overridden by explicit user instruction this
+session). Taxonomy Type B, Wave 2 per
 [endpoint-migration-order.md](endpoint-migration-order.md).
 
 **This live pass caught four things the original source-only implementation
@@ -29,25 +33,25 @@ a clean 404/500 binary).
 three `Provider`/`provider` routes were missing their `rest/` prefix until
 live testing 404'd on them; see § 3.1.
 
-| Endpoint                                   | Domain       | e2e spec file exists? | Runs against Go today? |
-| ------------------------------------------- | ------------ | ---------------------- | ------------------------ |
-| `GET rest/organization/types`              | organization | yes — `tests/readonly/b2-organization.spec.ts` | **no** |
-| `GET rest/organization-list`               | organization | yes — same file | **no** |
-| `GET rest/organization/{id}`               | organization | no | no |
-| `GET rest/organization/generate-site-code` | organization | no | no |
-| `GET rest/departments-for-site`            | organization | no | no |
-| `GET rest/Provider/raw/{id}`               | provider     | no | no |
-| `GET rest/Provider/Person/{id}`            | provider     | no | no |
-| `GET rest/practitioner`                    | provider     | no | no |
-| `GET rest/provider/search`                 | provider     | no | no |
+| Endpoint                                   | Domain       | e2e spec file | Runs against Go? |
+| ------------------------------------------- | ------------ | -------------- | ------------------ |
+| `GET rest/organization/types`              | organization | `tests/readonly/b2-organization.spec.ts` | yes |
+| `GET rest/organization-list`               | organization | same file | yes |
+| `GET rest/organization/{id}`               | organization | same file | yes |
+| `GET rest/organization/generate-site-code` | organization | same file | yes |
+| `GET rest/departments-for-site`            | organization | same file | yes |
+| `GET rest/Provider/raw/{id}`               | provider     | `tests/readonly/b2-provider.spec.ts` | yes |
+| `GET rest/Provider/Person/{id}`            | provider     | same file | yes |
+| `GET rest/practitioner`                    | provider     | same file | yes |
+| `GET rest/provider/search`                 | provider     | same file | yes |
 
-"Runs against Go today" means matched by `playwright.config.ts`'s `go-parity`
-project `testMatch` regex. The existing `b2-organization.spec.ts` file
-predates this pass and is **not** matched by that regex — it has a real spec
-file but has never actually executed against the Go server (confirmed by
-reading the regex directly, not assumed). All 9 endpoints are now curl-level
-live-verified (§ 5) but none has a committed, `go-parity`-wired Playwright
-spec yet — writing those is gated on an e2e-branch-policy question, § 6.
+"Runs against Go" means matched by `playwright.config.ts`'s `go-parity`
+project `testMatch` regex and actually passing there — confirmed by running
+`npm run test:go-parity` for real against the live Go server, not assumed:
+13/13 b2 tests pass (`user-programs` correctly `test.skip()`s itself under
+`go-parity`, see § 2). The same 13 assertions (plus `user-programs`, 14/14)
+also pass under `npm run test:readonly` against live Java. Full run logs are
+in this session's transcript if anyone wants the raw `list` reporter output.
 
 Code: `migration/openelis-go/internal/organization/` and
 `migration/openelis-go/internal/provider/`, each following the established
@@ -330,26 +334,46 @@ Methodology, precisely:
    confirmed every one of the 9 endpoints now matches on every field except
    the deliberately-documented divergences (§ 3.2 items 1, 3, 8, 9).
 
-**What this *is***: real proof, against real live data, that this port
-behaves identically to Java for these 9 endpoints modulo the divergences
-documented in § 3 — each of which was made with real response data in hand,
-not guessed from source alone.
+**Runtime — committed Playwright specs, actually executed (done this pass).**
+The curl-level findings above were turned into real spec files and run for
+real, not just written and assumed correct:
 
-**What this is *not* yet**: a committed, repeatable, CI-enforced test. It was
-done by hand with `curl` and a throwaway shell script in this session's
-scratchpad, not as Playwright spec files wired into `go-parity`. That's the
-next concrete step — see § 6's branch-policy question, which gates it.
+- `tests/readonly/b2-organization.spec.ts` extended with 3 new tests
+  (`organization/{id}`, `generate-site-code`, `departments-for-site`); its 2
+  existing tests (`organization/types`, `organization-list`) untouched in
+  substance. `user-programs` now `test.skip()`s itself under `go-parity` with
+  an inline reason, instead of either failing there or being silently
+  excluded.
+- `tests/readonly/b2-provider.spec.ts` written from scratch: 7 tests across
+  all 4 provider endpoints, ids discovered live via `provider/search` and
+  direct DB queries rather than hardcoded, so the suite isn't tied to this
+  session's specific dataset.
+- `playwright.config.ts`'s `go-parity` project `testMatch` extended to
+  include both files; `package.json` gained a `test:go-parity` script
+  matching the existing `test:readonly`/`test:mutating` convention.
+- Every divergence in § 3.2 (items 1, 3, 9) that's actually exercised by live
+  data is asserted **on both sides explicitly** — branched on
+  `testInfo.project.name === "go-parity"` — not silently pinned to whichever
+  server's value happened to be captured first. Item 8
+  (`organizationTypes`) didn't need a branch: the existing assertion
+  (`null` or array) already tolerated both.
+- Executed for real: `npm run test:readonly` (Java) — 479/479 passing,
+  including all pre-existing specs (no regressions from the `playwright.config.ts`/
+  `package.json` changes). `npm run test:go-parity` (Go) — 21/22 passing, 1
+  skipped (`user-programs`, by design); the one failure is `a1-server-time`'s
+  IANA-timezone check, pre-existing and unrelated to b2 (Go's `rest/server-time`
+  emits a host-timezone abbreviation instead of an IANA id when run from a
+  non-UTC host — same bug *class* as § 3.1 #7 but different code, flagged
+  separately, not fixed here to keep this change scoped to b2). All 13 b2
+  tests across both files pass under `go-parity`.
+
+**What this *is* now**: a committed, repeatable, two-project Playwright
+contract — not just a one-time manual capture — proving this port behaves
+identically to Java for all 9 endpoints modulo the divergences documented in
+§ 3, each backed by an assertion that actually runs on both sides.
 
 ## 6. Open questions / not yet decided
 
-- **Branch policy for the e2e spec files.** Per `CLAUDE.md`'s branch policy,
-  e2e-track changes must fork from `develop` (never `migration-base`) with an
-  `e2e/` prefix, and the maintainer must be asked before adding/updating any
-  e2e spec — not assumed from a general "make the e2e coverage" request. This
-  is asked separately, in-chat, before any spec file is written. This doc's
-  code fixes (§ 3.1) are migration-track and committed to
-  `migration/b2-org-provider` regardless of that answer; only the new
-  Playwright spec files are gated on it.
 - Whether `user-programs`' session/RBAC dependency should be unblocked by
   building minimal session infrastructure now, or left deferred until a later
   wave.
