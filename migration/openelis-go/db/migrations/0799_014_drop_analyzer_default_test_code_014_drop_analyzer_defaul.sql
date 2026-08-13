@@ -1,0 +1,39 @@
+-- source: liquibase liquibase/3.4.14.x/014-drop-analyzer-default-test-code.xml::014-drop-analyzer-default-test-code::pmanko
+-- +goose Up
+-- +goose StatementBegin
+-- Drop the default_test_code column from the analyzer table. This column
+--         was added in 013-analyzer-default-test-code.xml (commit 567f0c4d) to persist a
+--         file-wide test code fallback on an analyzer instance for file-based analyzers
+--         whose result files have no per-row target column (e.g. Bruker Fluorocycler XT).
+-- 
+--         Reverted in v4 of plan mellow-honking-cascade because the scalar field is
+--         a persistent assertion about test identity based only on filename and lab
+--         workflow convention — silently miscodes any row when the lab deviates. The
+--         correctness bar: test identity must come from the incoming file's own
+--         content or the admin's explicit upload-time declaration, never from
+--         persistent config.
+-- 
+--         The replacement mechanism is (a) FileNameSelfDeclarationScanner in the
+--         bridge that reads the file's Result column content and requires exactly
+--         one mapped test code mentioned with zero contradictions, and (b) a Test
+--         dropdown on the bridge's /admin/upload UI populated from the analyzer's
+--         AnalyzerTestMapping set. Both paths supply the test code event-scoped,
+--         not persisted. See bridge PR #34 and plan §2.PARSER / §2.5.
+-- 
+--         The revert of 567f0c4d already removed 013 from the filesystem and from
+--         the base.xml include list, so on fresh DBs the 013 changeset will never
+--         run. This 014 changeset is the forward-only migration for already-deployed
+--         DBs (dev, CI, any environment where 013 ran once) — it drops the column
+--         cleanly on Liquibase upgrade.
+-- 
+--         The preConditions block above skips the drop if the column doesn't
+--         exist on this DB (fresh-baseline DBs that never ran 013) so the
+--         changeset is idempotent and safe to ship in a base.xml include list.
+ALTER TABLE analyzer DROP COLUMN IF EXISTS default_test_code;
+-- +goose StatementEnd
+
+-- +goose Down
+-- TODO: no safe auto-generated rollback for this changeset.
+-- Liquibase source: liquibase/3.4.14.x/014-drop-analyzer-default-test-code.xml::014-drop-analyzer-default-test-code::pmanko
+-- Hand-write if this migration must be reversible; see
+-- migration/liquibase-to-goose-plan.md sec 7 (Risk items).
