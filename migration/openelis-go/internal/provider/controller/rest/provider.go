@@ -43,10 +43,15 @@ type personDTO struct {
 	Email         *string  `json:"email,omitempty"`
 	GpsLatitude   *float64 `json:"gpsLatitude,omitempty"`
 	GpsLongitude  *float64 `json:"gpsLongitude,omitempty"`
+	// Lastupdated: confirmed missing via live Java-vs-Go comparison — Java
+	// serializes this on Person (and on Provider, below) as epoch millis;
+	// the valueholder already scans the column, this DTO just wasn't
+	// surfacing it. Same encoding as organizationDTO.Lastupdated.
+	Lastupdated *int64 `json:"lastupdated,omitempty"`
 }
 
 func personToDTO(p valueholder.Person) personDTO {
-	return personDTO{
+	dto := personDTO{
 		ID:            strconv.FormatInt(p.ID, 10),
 		LastName:      p.LastName,
 		FirstName:     p.FirstName,
@@ -66,6 +71,11 @@ func personToDTO(p valueholder.Person) personDTO {
 		GpsLatitude:   p.GpsLatitude,
 		GpsLongitude:  p.GpsLongitude,
 	}
+	if p.Lastupdated != nil {
+		ms := p.Lastupdated.UnixMilli()
+		dto.Lastupdated = &ms
+	}
+	return dto
 }
 
 // providerDTO mirrors Provider's JSON shape (GET Provider/raw/{id}, GET
@@ -84,6 +94,9 @@ type providerDTO struct {
 	FhirUUIDAsString string    `json:"fhirUuidAsString"`
 	Active           bool      `json:"active"`
 	Desynchronized   bool      `json:"desynchronized"`
+	// Lastupdated: same confirmed-missing gap as personDTO.Lastupdated —
+	// see that field's doc comment.
+	Lastupdated *int64 `json:"lastupdated,omitempty"`
 }
 
 func providerToDTO(p valueholder.Provider, person valueholder.Person) providerDTO {
@@ -96,7 +109,7 @@ func providerToDTO(p valueholder.Provider, person valueholder.Person) providerDT
 	if p.FhirUUID != nil {
 		fhirStr = *p.FhirUUID
 	}
-	return providerDTO{
+	dto := providerDTO{
 		ID:               strconv.FormatInt(p.ID, 10),
 		ExternalID:       p.ExternalID,
 		NPI:              p.NPI,
@@ -107,6 +120,11 @@ func providerToDTO(p valueholder.Provider, person valueholder.Person) providerDT
 		Active:           active,
 		Desynchronized:   p.Desynchronized,
 	}
+	if p.Lastupdated != nil {
+		ms := p.Lastupdated.UnixMilli()
+		dto.Lastupdated = &ms
+	}
+	return dto
 }
 
 // providerSearchResultDTO mirrors the hand-built Map<String,Object> row
@@ -178,10 +196,14 @@ type ProviderRestController struct {
 
 // Routes registers the in-scope provider endpoints.
 func Routes(mux *http.ServeMux, ctrl *ProviderRestController) {
-	// GET Provider/raw/{id} — mirrors getProvider(id). Real 404 on
-	// not-found; see ProviderDAOImpl.GetProviderByID's doc comment for why
-	// this diverges from Java's confirmed 500-on-not-found bug.
-	web.Register(mux, "GET", "Provider/raw/{id}", func(w http.ResponseWriter, r *http.Request) {
+	// GET rest/Provider/raw/{id} — mirrors getProvider(id). ProviderRestController
+	// carries a class-level @RequestMapping("/rest") in Java (confirmed by
+	// reading the source directly after a live-Java comparison 404'd on the
+	// un-prefixed path) — every route in this file needs the same rest/
+	// prefix. Real 404 on not-found; see ProviderDAOImpl.GetProviderByID's
+	// doc comment for why this diverges from Java's confirmed
+	// 500-on-not-found bug.
+	web.Register(mux, "GET", "rest/Provider/raw/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 		if err != nil {
 			http.Error(w, "invalid id", http.StatusBadRequest)
@@ -203,9 +225,9 @@ func Routes(mux *http.ServeMux, ctrl *ProviderRestController) {
 		web.WriteJSON(w, http.StatusOK, providerToDTO(*provider, p))
 	})
 
-	// GET Provider/Person/{id} — mirrors getPerson(id). Real 404 on
+	// GET rest/Provider/Person/{id} — mirrors getPerson(id). Real 404 on
 	// not-found (same divergence as above).
-	web.Register(mux, "GET", "Provider/Person/{id}", func(w http.ResponseWriter, r *http.Request) {
+	web.Register(mux, "GET", "rest/Provider/Person/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 		if err != nil {
 			http.Error(w, "invalid id", http.StatusBadRequest)
@@ -248,9 +270,9 @@ func Routes(mux *http.ServeMux, ctrl *ProviderRestController) {
 		web.WriteJSON(w, http.StatusOK, providerToDTO(*provider, *person))
 	})
 
-	// GET provider/search?search=&phone=&page=&pageSize= — mirrors
+	// GET rest/provider/search?search=&phone=&page=&pageSize= — mirrors
 	// ProviderRestController.searchProviders.
-	web.Register(mux, "GET", "provider/search", func(w http.ResponseWriter, r *http.Request) {
+	web.Register(mux, "GET", "rest/provider/search", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		page := 1
 		if v := q.Get("page"); v != "" {

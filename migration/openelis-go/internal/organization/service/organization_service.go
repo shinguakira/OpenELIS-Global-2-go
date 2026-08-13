@@ -85,14 +85,25 @@ func (s *OrganizationService) GetActiveChildrenByParentID(parentID int64) ([]val
 }
 
 // GenerateSiteCode mirrors OrganizationServiceImpl.generateSiteCode():
-// "S" + local-server-date (yyMMdd) + "-" + 5-digit zero-padded sequence
-// value, e.g. "S260813-00042". Uses clinlims.site_code_seq, not the
-// organization table's own organization_seq.
+// "S" + server-date (yyMMdd) + "-" + 5-digit zero-padded sequence value,
+// e.g. "S260813-00042". Uses clinlims.site_code_seq, not the organization
+// table's own organization_seq.
+//
+// Explicitly UTC, not host-local time. Java's LocalDate.now() resolves via
+// ZoneId.systemDefault() — the JVM's system timezone — and docker-compose.yml
+// pins that container to TZ=${TZ:-UTC} (confirmed live: `docker exec
+// openelisglobal-webapp date` reports UTC). Using Go's local time.Now()
+// instead of UTC was caught as a real divergence during live Java-vs-Go
+// comparison: run on a non-UTC host (this dev machine is JST), the two
+// servers produced different site-code dates for requests made in the same
+// instant (JST 00:00-09:00 is still "yesterday" in UTC). Pinning to UTC here
+// makes Go's output match Java's actual configured behavior regardless of
+// what host/container the Go binary itself happens to run on.
 func (s *OrganizationService) GenerateSiteCode() (string, error) {
 	seq, err := s.DAO.NextSiteCodeSeq()
 	if err != nil {
 		return "", err
 	}
-	date := time.Now().Format("060102") // yyMMdd
+	date := time.Now().UTC().Format("060102") // yyMMdd, UTC — see doc comment above
 	return fmt.Sprintf("S%s-%05d", date, seq), nil
 }
