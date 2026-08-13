@@ -6,6 +6,7 @@ ALTER TABLE clinlims.freezer ADD CONSTRAINT uk_freezer_storage_device UNIQUE (st
 -- +goose StatementEnd
 
 -- +goose Down
--- +goose StatementBegin
-ALTER TABLE clinlims.freezer DROP COLUMN IF EXISTS CONSTRAINT;
--- +goose StatementEnd
+-- TODO: no safe auto-generated rollback for this changeset.
+-- Liquibase source: liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::add-unique-constraint-freezer-storage-device::mherman22
+-- Hand-write if this migration must be reversible; see
+-- migration/liquibase-to-goose-plan.md sec 7 (Risk items).

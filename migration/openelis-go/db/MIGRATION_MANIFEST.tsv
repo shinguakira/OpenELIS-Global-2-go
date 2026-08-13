@@ -13,7 +13,7 @@ file	liquibase_source	no_transaction	has_down	idempotency_guarded
 0012_external_connections_2.sql	liquibase/2.1.x.x/external_connections.xml::2::csteele	False	False	True
 0013_external_connections_3.sql	liquibase/2.1.x.x/external_connections.xml::3::csteele	False	False	True
 0014_external_connections_4.sql	liquibase/2.1.x.x/external_connections.xml::4::csteele	False	True	True
-0015_external_connections_5.sql	liquibase/2.1.x.x/external_connections.xml::5::csteele	False	True	False
+0015_external_connections_5.sql	liquibase/2.1.x.x/external_connections.xml::5::csteele	False	False	False
 0016_lab_director_signature_1.sql	liquibase/2.1.x.x/lab_director_signature.xml::1::csteele	False	False	True
 0017_sample_nature_1.sql	liquibase/2.1.x.x/sample_nature.xml::1::csteele	False	False	True
 0018_sample_nature_2.sql	liquibase/2.1.x.x/sample_nature.xml::2::csteele	False	False	True
@@ -449,7 +449,7 @@ file	liquibase_source	no_transaction	has_down	idempotency_guarded
 0448_calculated_value_4.sql	liquibase/2.8.x.x/calculated_value.xml::4::moses_mutesa	False	False	True
 0449_calculated_value_5.sql	liquibase/2.8.x.x/calculated_value.xml::5::moses_mutesa	False	False	True
 0450_calculated_value_6.sql	liquibase/2.8.x.x/calculated_value.xml::6::moses_mutesa	False	True	True
-0451_calculated_value_7.sql	liquibase/2.8.x.x/calculated_value.xml::7::mozzymutesa	False	True	False
+0451_calculated_value_7.sql	liquibase/2.8.x.x/calculated_value.xml::7::mozzymutesa	False	False	False
 0452_calculated_value_8.sql	liquibase/2.8.x.x/calculated_value.xml::8::moses_mutesa	False	True	True
 0453_immunohistochemistry_1.sql	liquibase/2.8.x.x/immunohistochemistry.xml::1::csteele	False	False	True
 0454_immunohistochemistry_2.sql	liquibase/2.8.x.x/immunohistochemistry.xml::2::mozzymutesa	False	False	True
@@ -545,11 +545,11 @@ file	liquibase_source	no_transaction	has_down	idempotency_guarded
 0544_generic_sample_menu_2025110707.sql	liquibase/3.2.x.x/generic_sample_menu.xml::2025110707::Generic Sample Developer	False	False	True
 0545_generic_sample_menu_2025110708.sql	liquibase/3.2.x.x/generic_sample_menu.xml::2025110708::Generic Sample Developer	False	False	True
 0546_sample_management_sample_mgmt_001_add_aliquot_columns.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-001-add-aliquot-columns::dev-team	False	False	True
-0547_sample_management_sample_mgmt_002_add_parent_fk.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-002-add-parent-fk::dev-team	False	True	False
+0547_sample_management_sample_mgmt_002_add_parent_fk.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-002-add-parent-fk::dev-team	False	False	False
 0548_sample_management_sample_mgmt_003_add_parent_index.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-003-add-parent-index::dev-team	False	True	True
 0549_sample_management_sample_mgmt_004_create_aliquot_relationshi.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-004-create-aliquot-relationship::dev-team	False	True	True
 0550_sample_management_sample_mgmt_005_add_relationship_fks.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-005-add-relationship-fks::dev-team	False	False	False
-0551_sample_management_sample_mgmt_006_add_sequence_unique.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-006-add-sequence-unique::dev-team	False	True	False
+0551_sample_management_sample_mgmt_006_add_sequence_unique.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-006-add-sequence-unique::dev-team	False	False	False
 0552_sample_management_sample_mgmt_007_add_relationship_indexes.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-007-add-relationship-indexes::dev-team	False	False	True
 0553_sample_management_sample_mgmt_008_migrate_legacy_quantity.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-008-migrate-legacy-quantity::dev-team	False	False	False
 0554_sample_management_sample_mgmt_009_add_menu_entry.sql	liquibase/3.2.x.x/sample-management.xml::sample-mgmt-009-add-menu-entry::dev-team	False	False	True
@@ -618,13 +618,13 @@ file	liquibase_source	no_transaction	has_down	idempotency_guarded
 0617_028_create_report_definition_table_reporting_002_add_is_publ.sql	liquibase/3.3.x.x/028-create-report-definition-table.xml::reporting-002-add-is-public::Agaba_derrick	False	True	True
 0618_028_create_report_definition_table_reporting_003_seed_defaul.sql	liquibase/3.3.x.x/028-create-report-definition-table.xml::reporting-003-seed-default-patient-report::Agaba_derrick	False	False	True
 0619_023_storage_device_connectivity_storage_ogc68_001_add_device.sql	liquibase/3.3.x.x/023-storage-device-connectivity.xml::storage-ogc68-001-add-device-connectivity-columns::dev-team	False	False	True
-0620_023_storage_device_connectivity_storage_ogc68_002_add_port_c.sql	liquibase/3.3.x.x/023-storage-device-connectivity.xml::storage-ogc68-002-add-port-check-constraint::dev-team	False	True	False
+0620_023_storage_device_connectivity_storage_ogc68_002_add_port_c.sql	liquibase/3.3.x.x/023-storage-device-connectivity.xml::storage-ogc68-002-add-port-check-constraint::dev-team	False	False	False
 0621_024_freezer_monitoring_schema_create_freezer_table.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::create-freezer-table::mherman22	False	False	True
 0622_024_freezer_monitoring_schema_create_threshold_profile_table.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::create-threshold-profile-table::mherman22	False	False	True
 0623_024_freezer_monitoring_schema_create_freezer_threshold_profi.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::create-freezer-threshold-profile-table::mherman22	False	False	True
 0624_024_freezer_monitoring_schema_create_freezer_reading_table.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::create-freezer-reading-table::mherman22	False	False	True
 0625_024_freezer_monitoring_schema_add_freezer_storage_device_fk.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::add-freezer-storage-device-fk::mherman22	False	False	True
-0626_024_freezer_monitoring_schema_add_unique_constraint_freezer.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::add-unique-constraint-freezer-storage-device::mherman22	False	True	False
+0626_024_freezer_monitoring_schema_add_unique_constraint_freezer.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::add-unique-constraint-freezer-storage-device::mherman22	False	False	False
 0627_024_freezer_monitoring_schema_add_freezer_system_config_site.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::add-freezer-system-config-site-information::mherman22	False	False	True
 0628_024_freezer_monitoring_schema_remove_system_config_table.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::remove-system-config-table::mherman22	False	False	True
 0629_024_freezer_monitoring_schema_add_freezer_monitoring_menu_it.sql	liquibase/3.3.x.x/024-freezer-monitoring-schema.xml::add-freezer-monitoring-menu-item::mherman22	False	False	True
@@ -826,7 +826,7 @@ file	liquibase_source	no_transaction	has_down	idempotency_guarded
 0825_002_nce_enhancement_nce_017_backfill_type_localization.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-017-backfill-type-localization::reagan-meant	False	False	False
 0826_002_nce_enhancement_nce_018_create_nce_history.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-018-create-nce-history::reagan-meant	False	False	True
 0827_002_nce_enhancement_nce_020_add_assigned_to.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-020-add-assigned-to::reagan-meant	False	True	True
-0828_002_nce_enhancement_nce_019_unique_nce_number.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-019-unique-nce-number::reagan-meant	False	True	False
+0828_002_nce_enhancement_nce_019_unique_nce_number.sql	liquibase/3.5.x.x/002-nce-enhancement.xml::nce-019-unique-nce-number::reagan-meant	False	False	False
 0829_order_attachment_order_attachment_001_create_table.sql	liquibase/3.5.x.x/order-attachment.xml::order-attachment-001-create-table::mozzy	False	False	True
 0830_002a_resync_menu_seq_resync_menu_seq_after_nce_012.sql	liquibase/3.5.x.x/002a-resync-menu-seq.xml::resync-menu-seq-after-nce-012::pmanko	False	False	False
 0831_003_calendar_management_tat_003_01.sql	liquibase/3.5.x.x/003-calendar-management.xml::tat-003-01::tat-module	False	False	True
@@ -839,7 +839,7 @@ file	liquibase_source	no_transaction	has_down	idempotency_guarded
 0838_003_audit_trail_menu_add_history_indexes_for_system_audit.sql	liquibase/3.5.x.x/003-audit-trail-menu.xml::add-history-indexes-for-system-audit::systemLevelAudit	False	False	False
 0839_004_electronic_signature_esig_001_create_electronic_signatur.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-001-create-electronic-signature-table::openelisdev	False	False	True
 0840_004_electronic_signature_esig_002_create_electronic_signatur.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-002-create-electronic-signature-sequence::openelisdev	False	True	False
-0841_004_electronic_signature_esig_003_add_signer_foreign_key.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-003-add-signer-foreign-key::openelisdev	False	True	False
+0841_004_electronic_signature_esig_003_add_signer_foreign_key.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-003-add-signer-foreign-key::openelisdev	False	False	False
 0842_004_electronic_signature_esig_004_create_electronic_signatur.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-004-create-electronic-signature-indexes::openelisdev	False	False	True
 0843_004_electronic_signature_esig_005_add_electronic_signature_i.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-005-add-electronic-signature-immutability-trigger::openelisdev	False	False	False
 0844_004_electronic_signature_esig_006_create_first_use_certifica.sql	liquibase/3.5.x.x/004-electronic-signature.xml::esig-006-create-first-use-certification-table::openelisdev	False	False	True
@@ -854,7 +854,7 @@ file	liquibase_source	no_transaction	has_down	idempotency_guarded
 0853_005_tat_report_menu_add_tat_report_menu_entry.sql	liquibase/3.5.x.x/005-tat-report-menu.xml::add-tat-report-menu-entry::tat-module	False	False	True
 0854_006_storage_sidenav_rename_rename_storage_samples_sidenav.sql	liquibase/3.5.x.x/006-storage-sidenav-rename.xml::rename-storage-samples-sidenav::locationPickerRefactor	False	False	False
 0855_004_analysis_analyzer_id_3_5_0_003_add_analysis_analyzer_id.sql	liquibase/3.5.x.x/004-analysis-analyzer-id.xml::3.5.0-003-add-analysis-analyzer-id-column::pmanko	False	True	True
-0856_004_analysis_analyzer_id_3_5_0_003_add_analysis_analyzer_id.sql	liquibase/3.5.x.x/004-analysis-analyzer-id.xml::3.5.0-003-add-analysis-analyzer-id-fk::pmanko	False	True	False
+0856_004_analysis_analyzer_id_3_5_0_003_add_analysis_analyzer_id.sql	liquibase/3.5.x.x/004-analysis-analyzer-id.xml::3.5.0-003-add-analysis-analyzer-id-fk::pmanko	False	False	False
 0857_004_analysis_analyzer_id_3_5_0_003_add_analyzer_fhir_uuid.sql	liquibase/3.5.x.x/004-analysis-analyzer-id.xml::3.5.0-003-add-analyzer-fhir-uuid::pmanko	False	True	True
 0858_004_analysis_analyzer_id_3_5_0_003_backfill_analyzer_fhir_uu.sql	liquibase/3.5.x.x/004-analysis-analyzer-id.xml::3.5.0-003-backfill-analyzer-fhir-uuid::pmanko	False	False	False
 0859_add_storage_skipped_to_sample_20260407_001.sql	liquibase/3.5.x.x/add_storage_skipped_to_sample.xml::20260407-001::reagan-meant	False	True	True

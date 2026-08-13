@@ -5,6 +5,7 @@ ALTER TABLE sample_item ADD CONSTRAINT fk_sample_item_parent FOREIGN KEY (parent
 -- +goose StatementEnd
 
 -- +goose Down
--- +goose StatementBegin
-ALTER TABLE sample_item DROP COLUMN IF EXISTS CONSTRAINT;
--- +goose StatementEnd
+-- TODO: no safe auto-generated rollback for this changeset.
+-- Liquibase source: liquibase/3.2.x.x/sample-management.xml::sample-mgmt-002-add-parent-fk::dev-team
+-- Hand-write if this migration must be reversible; see
+-- migration/liquibase-to-goose-plan.md sec 7 (Risk items).

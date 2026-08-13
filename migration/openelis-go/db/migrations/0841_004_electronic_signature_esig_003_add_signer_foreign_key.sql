@@ -6,6 +6,7 @@ ALTER TABLE clinlims.electronic_signature ADD CONSTRAINT fk_esig_signer_system_u
 -- +goose StatementEnd
 
 -- +goose Down
--- +goose StatementBegin
-ALTER TABLE clinlims.electronic_signature DROP COLUMN IF EXISTS CONSTRAINT;
--- +goose StatementEnd
+-- TODO: no safe auto-generated rollback for this changeset.
+-- Liquibase source: liquibase/3.5.x.x/004-electronic-signature.xml::esig-003-add-signer-foreign-key::openelisdev
+-- Hand-write if this migration must be reversible; see
+-- migration/liquibase-to-goose-plan.md sec 7 (Risk items).

@@ -8,6 +8,7 @@ ALTER TABLE storage_device
 -- +goose StatementEnd
 
 -- +goose Down
--- +goose StatementBegin
-ALTER TABLE storage_device DROP COLUMN IF EXISTS CONSTRAINT;
--- +goose StatementEnd
+-- TODO: no safe auto-generated rollback for this changeset.
+-- Liquibase source: liquibase/3.3.x.x/023-storage-device-connectivity.xml::storage-ogc68-002-add-port-check-constraint::dev-team
+-- Hand-write if this migration must be reversible; see
+-- migration/liquibase-to-goose-plan.md sec 7 (Risk items).

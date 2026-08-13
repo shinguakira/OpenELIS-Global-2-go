@@ -123,10 +123,10 @@ can be extracted directly — it is standard PostgreSQL DDL.
 
 **The extraction, split, and goose-file generation described below are no longer
 just a plan — they're done and verified (967/993 apply cleanly against a
-from-scratch database).** Full detail, the actual tooling
-(`migration/scripts/split_liquibase_sql.py` +
-`migration/openelis-go/cmd/migrate`), and the itemized list of what's still open
-live in [liquibase-to-goose-plan.md](liquibase-to-goose-plan.md) — that is the
+from-scratch database).** Full detail, the actual tooling (all Go —
+`migration/openelis-go/cmd/splitliquibase`, `cmd/loadbaseline`, `cmd/migrate`),
+and the itemized list of what's still open live in
+[liquibase-to-goose-plan.md](liquibase-to-goose-plan.md) — that is the
 authoritative doc for this conversion now; treat the summary below as a pointer,
 not a second source of truth to keep in sync by hand.
 
@@ -136,7 +136,7 @@ commands):
 1. Extract via the standalone Liquibase CLI's `offline:postgresql` mode — no
    Maven, no live database needed at all (better than the originally planned
    `mvn liquibase:updateSQL` against a throwaway DB).
-2. Split by changeset into numbered goose files (`split_liquibase_sql.py`).
+2. Split by changeset into numbered goose files (`cmd/splitliquibase`).
 3. Idempotency guards + best-effort `-- +goose Down` generated automatically
    where safe; honest `-- TODO` where not (liquibase-to-goose-plan.md §3, §7).
 4. Run goose against a clean, baselined DB and verify — 967/993 apply cleanly;

@@ -4,17 +4,19 @@ Status: **tooling done and verified; cutover still deferred until Java is fully
 retired.** During coexistence, Java/Liquibase remains the single schema owner —
 Go does NOT touch schema in production. What changed this round: the extraction
 → split → goose-file → embed pipeline described below is no longer a plan, it's
-real, committed code (`migration/scripts/`, `migration/openelis-go/db/`,
-`migration/openelis-go/cmd/migrate`), run end-to-end and verified against a
-from-scratch database. See § 9 for exact results. Branch:
+real, committed code — all of it Go, living inside `migration/openelis-go/`
+(`cmd/splitliquibase`, `cmd/loadbaseline`, `cmd/migrate`, `db/`), run end-to-end
+and verified against a from-scratch database. See § 9 for exact results. Branch:
 `migration/db-liquibase-to-goose` (forked from `migration-base`, per
 [branch-naming.md](branch-naming.md)).
 
 **Everything below was rewritten against what actually happened, not the
 original plan** — the first draft of this doc got several load-bearing facts
 wrong (see § 9.1). If you're re-running this extraction later (schema changed,
-need to regenerate), trust this version and the two scripts, not your memory of
-the old one.
+need to regenerate), trust this version and the two tools, not your memory of
+the old one. (The extraction/split/load tooling was first written in Python,
+then fully rewritten to Go — this project doesn't use Python anywhere else; see
+§ 9.3 item 9.)
 
 ---
 
@@ -80,8 +82,15 @@ assumed). 993 of these markers appear in the output.
 
 One unresolved changelog property: `validation_site_information.xml::1` contains
 a literal `'${now}'` that offline mode never substitutes (Liquibase normally
-resolves `${now}` via a live DB connection) — `split_liquibase_sql.py` rewrites
-it to `now()`.
+resolves `${now}` via a live DB connection) — `cmd/splitliquibase` rewrites it
+to `now()`.
+
+The extraction output itself has CRLF line endings (confirmed via `file`: "with
+CRLF, LF line terminators") — the Liquibase CLI writes `System.lineSeparator()`
+on Windows. `cmd/splitliquibase` normalizes this explicitly before splitting;
+Go's `os.ReadFile` does no text-mode translation (unlike, say, Python's
+universal-newlines file reading), so skipping this leaves a stray `\r` on the
+end of every parsed line, corrupting changeset refs and slugs.
 
 ### 2.2 The baseline that Liquibase's own changelog assumes — the big gap in the original plan
 
@@ -105,20 +114,23 @@ precondition: **apply only to a database that already has
 `db/dbInit/OpenELIS-Global.sql` loaded.**
 
 Loading that baseline for verification needed its own tooling
-(`migration/scripts/load_baseline_dump.py`) because the dump uses `pg_dump`'s
+(`migration/openelis-go/cmd/loadbaseline`) because the dump uses `pg_dump`'s
 `COPY ... FROM stdin; <tab-data> \.` bulk-load format for seed rows — a libpq
 streaming-protocol construct, not something a plain string `Exec()` can run. The
-script splits the dump into plain-SQL chunks and COPY chunks and drives each
-through the right `psycopg2` API (`execute()` vs. `copy_expert()`). One
+tool splits the dump into plain-SQL chunks and COPY chunks; SQL chunks run via a
+normal `Exec()`, COPY chunks are driven through `lib/pq`'s real COPY protocol
+support (`pq.CopyInSchema`), which takes already-parsed field values rather than
+raw COPY-format text — so each data row is unescaped per Postgres's COPY TEXT
+format (`\N` → NULL, `\\`/`\t`/`\n`/`\r` escapes) before being handed to it. One
 additional wrinkle it handles: some tables in this dump have their `COPY` block
 deliberately commented out with `/* ... */` (data stripped for size) — a naive
 "is this chunk non-empty" check has to strip block comments too, or it tries to
-execute pure-comment chunks and `psycopg2` raises
-`can't execute an empty query`.
+execute pure-comment chunks and Postgres raises a syntax error on an empty
+query.
 
 ### 2.3 Splitting into goose files
 
-`migration/scripts/split_liquibase_sql.py` splits on the `-- Changeset` marker
+`migration/openelis-go/cmd/splitliquibase` splits on the `-- Changeset` marker
 and writes one file per changeset to
 `migration/openelis-go/db/migrations/<seq>_<slug>.sql`, zero-padded 4-digit
 sequence + `<source-file-stem>_<changeset-id>` slug. Both the source file stem
@@ -128,7 +140,8 @@ file (e.g. `new_tests.xml` alone contributes over 100).
 Run it:
 
 ```bash
-python3 migration/scripts/split_liquibase_sql.py <liquibase-full.sql> migration/openelis-go/db/migrations
+cd migration/openelis-go
+go run ./cmd/splitliquibase <liquibase-full.sql> db/migrations
 ```
 
 It also writes `migration/openelis-go/db/MIGRATION_MANIFEST.tsv` — one row per
@@ -166,7 +179,7 @@ DROP TABLE IF EXISTS clinlims.basic_authentication_data;
 
 ### 3.1 NO TRANSACTION
 
-`split_liquibase_sql.py` scans for `CREATE INDEX CONCURRENTLY`,
+`cmd/splitliquibase` scans for `CREATE INDEX CONCURRENTLY`,
 `DROP INDEX CONCURRENTLY`, and `ALTER TYPE ... ADD VALUE` and prepends
 `-- +goose NO TRANSACTION` when found. Confirmed count for this changelog:
 **zero** — none of these patterns appear anywhere in it. The original plan
@@ -176,15 +189,24 @@ could use one).
 
 ### 3.2 Down blocks — best-effort, not complete
 
-`infer_down()` generates a `Down` block only for changesets that are a
-**single** statement matching one of five unambiguous shapes
-(`CREATE TABLE`/`SEQUENCE`/`INDEX`/`VIEW`, single-column `ADD COLUMN`) — 130
-of 993. Everything else (863) gets an honest `-- TODO` comment, not a guess.
+`inferDown()` generates a `Down` block only for changesets that are a **single**
+statement matching one of five unambiguous shapes
+(`CREATE TABLE`/`SEQUENCE`/`INDEX`/`VIEW`, single-column `ADD COLUMN`) — 121
+of 993. Everything else (872) gets an honest `-- TODO` comment, not a guess.
 Liquibase's own `future-rollback-sql` was tried first as a way to get real
 rollback SQL — it produced an empty file (no `<rollback>` elements are defined
 anywhere in this changelog, and offline mode can't auto-infer rollbacks that
 need live DB state) — so there was no shortcut available here; the `-- TODO`
 approach is the honest one.
+
+The `ADD COLUMN` shape explicitly excludes `ADD CONSTRAINT` / `PRIMARY KEY` /
+`UNIQUE` / `FOREIGN KEY` / `CHECK` / `EXCLUDE` — a Codex review caught a real
+bug here (migration 0856) where an earlier version of this exclusion was missing
+and `ALTER TABLE clinlims.analysis ADD CONSTRAINT fk_... FOREIGN KEY ...` got
+mis-inferred as `DROP COLUMN IF EXISTS CONSTRAINT`, a silent no-op that would
+leave the real FK constraint in place while goose's bookkeeping recorded the
+migration as reverted. This exclusion is why the auto-generated count is 121,
+not the ~130 a naive "any ALTER TABLE ADD" match would produce.
 
 ---
 
@@ -201,6 +223,8 @@ migration/openelis-go/
             ...
             0993_009_nullable_unit_of_measure_qc_009_nullable_unit_of_measure.sql
     cmd/
+        splitliquibase/main.go     -- Liquibase SQL -> goose files (§ 2.3, § 3)
+        loadbaseline/main.go       -- loads db/dbInit/OpenELIS-Global.sql for verification (§ 2.2)
         migrate/main.go            -- standalone opt-in goose CLI (§ 5)
         _dbsetup/main.go           -- throwaway scratch-DB helper for verification
                                        (underscore prefix -> go build/vet ./... skip it)
@@ -349,7 +373,7 @@ extraction against a clean DB hit real
 `duplicate key value violates unique constraint` errors on ordinary `INSERT`s
 almost immediately.
 
-**Fix applied, not just documented:** `split_liquibase_sql.py` rewrites the
+**Fix applied, not just documented:** `cmd/splitliquibase` rewrites the
 safely-rewritable statement shapes to be idempotent by construction —
 `CREATE TABLE/SEQUENCE/INDEX` → add `IF NOT EXISTS`,
 `ALTER TABLE ... ADD [COLUMN]` → add `IF NOT EXISTS`, plain `INSERT` → append
@@ -358,7 +382,7 @@ safely-rewritable statement shapes to be idempotent by construction —
 `IF EXISTS`, needed because a from- scratch sequence can also hit a changeset
 dropping something an earlier changeset never created). This is applied
 **per-statement** within a changeset (a dollar-quote/string-literal-aware
-splitter, `split_top_level_statements`), not just to whole-body single-statement
+splitter, `splitTopLevelStatements`), not just to whole-body single-statement
 changesets — most changesets in this changelog are multi-statement.
 
 Two real regexp bugs surfaced and got fixed while building this (both confirmed
@@ -371,12 +395,17 @@ via the actual Postgres error, not guessed):
   (`CREATE SEQUENCE IF NOT EXISTS  IF NOT EXISTS ...`). Fixed by never combining
   a variable-length `\s+` with an immediately adjacent lookahead — match the
   keyword prefix and check "already guarded" as a fully separate regex against
-  whatever follows.
+  whatever follows. (The tool this section describes is now written in Go — Go's
+  `regexp` package is RE2-based and has **no lookahead at all**, so this
+  specific bug class can't recur there structurally; it's kept here as the
+  reason the two-step match-then-check design exists in the first place.)
 - `ALTER TABLE ... ADD` is ambiguous (`ADD COLUMN` vs. `ADD CONSTRAINT` /
   `PRIMARY KEY` / `UNIQUE` / `FOREIGN KEY` / `CHECK` / `EXCLUDE`) and only
   `ADD [COLUMN]` accepts `IF NOT EXISTS` in Postgres — a first pass blindly
   inserted it after every bare `ADD`, producing
-  `ALTER TABLE ... ADD IF NOT EXISTS CONSTRAINT ...` (syntax error).
+  `ALTER TABLE ... ADD IF NOT EXISTS CONSTRAINT ...` (syntax error). The same
+  exclusion was initially missing from down-inference too (§ 3.2) — caught
+  separately, by Codex review rather than by running the migrations.
 
 What's genuinely **not** mechanically fixable, confirmed by the full
 verification run — see § 9.2 for the itemized list (26 changesets): plain
@@ -457,13 +486,14 @@ target).
 2. Baseline assumption wrong (§ 2.2) — found by literally running migration 0001
    against an empty DB and reading the error.
 3. `pg_dump` `COPY ... FROM stdin` blocks needed dedicated handling — a plain
-   string `Exec()` cannot run them; `load_baseline_dump.py` was written to split
-   and drive them through `psycopg2.copy_expert()`.
+   string `Exec()` cannot run them; `cmd/loadbaseline` splits the dump and
+   drives COPY chunks through `lib/pq`'s real COPY protocol support
+   (`pq.CopyInSchema`).
 4. Comment-only chunks (including commented-out
    `/*COPY ... FROM stdin; ... \. */` blocks for tables whose seed data was
-   stripped from the baseline dump) made `psycopg2` raise
-   `can't execute an empty query` — fixed by stripping both `--` and `/* */`
-   comments before deciding a chunk has nothing to execute.
+   stripped from the baseline dump) raised a syntax error on an empty query —
+   fixed by stripping both `--` and `/* */` comments before deciding a chunk has
+   nothing to execute.
 5. goose's own semicolon-splitting breaks `DO $$ ... $$` blocks — fixed with
    universal `StatementBegin`/`StatementEnd` wrapping (§ 3).
 6. `search_path` — Liquibase's extracted SQL has unqualified table refs that
@@ -478,6 +508,29 @@ target).
 8. DROP-side mirror of the same idempotency-guard idea, needed once the
    full-scan diagnostic surfaced `DROP TABLE`/`ALTER TABLE ... DROP COLUMN` on
    objects a from-scratch sequence never created.
+9. **The extraction/split/load tooling (`cmd/splitliquibase`,
+   `cmd/loadbaseline`) was originally written in Python, then fully rewritten to
+   Go** — this project doesn't use Python anywhere else, and the inconsistency
+   wasn't caught until after the scripts were already committed. The rewrite
+   surfaced two more real bugs, both from porting, not from the original logic:
+   - The Liquibase CLI's extraction output has CRLF line endings on Windows;
+     Python's `Path.read_text()` normalizes this transparently (universal
+     newlines), Go's `os.ReadFile` does not — every parsed line was carrying a
+     trailing `\r` until the port added explicit normalization. Caught by
+     diffing the Go tool's output against the already-verified Python output
+     byte-for-byte (993/993 files differed until this fix; 0/993 after).
+   - `ALTER TABLE ... ADD CONSTRAINT` was being mis-inferred as a column-add
+     rollback (`DROP COLUMN IF EXISTS CONSTRAINT`, migration 0856) — a real bug
+     in the _original_ Python `infer_down()`, but only caught by a Codex PR
+     review, not by the from-scratch verification run in § 9.2 (that run only
+     exercises `Up` blocks; a wrong `Down` is silently invisible to it). Fixed
+     in both the Python version (before deletion) and carried into the Go
+     rewrite's `inferDown()` from the start. Also caught in the same review: the
+     Python loader's failure-diagnostic path hardcoded a session-specific
+     scratch file path — harmless when it worked, but on any real failure the
+     `open()` call itself would raise `FileNotFoundError` and mask the actual
+     Postgres error being diagnosed. The Go rewrite writes the diagnostic beside
+     the input dump file instead.
 
 ---
 
@@ -491,14 +544,15 @@ cd liquibase-cli   # standalone CLI, downloaded per § 2.1
   --output-file="<out>/liquibase-full.sql" \
   updateSQL --url="offline:postgresql"
 
-# 2. split into goose files
-python3 migration/scripts/split_liquibase_sql.py <out>/liquibase-full.sql migration/openelis-go/db/migrations
+# 2. split into goose files (all subsequent steps run from migration/openelis-go)
+cd migration/openelis-go
+go run ./cmd/splitliquibase <out>/liquibase-full.sql db/migrations
 
-# 3. build the CLI
-cd migration/openelis-go && go build ./...
+# 3. build everything
+go build ./...
 
 # 4. verify against a scratch DB (needs a reachable Postgres server + superuser creds)
 go run ./cmd/_dbsetup    # edit the DSN inside if your dev DB differs from localhost:15432 postgres/admin
-python3 ../scripts/load_baseline_dump.py ../../db/dbInit/OpenELIS-Global.sql "postgres://postgres:admin@localhost:15432/clinlims_goose_verify"
+go run ./cmd/loadbaseline ../../db/dbInit/OpenELIS-Global.sql "postgres://postgres:admin@localhost:15432/clinlims_goose_verify"
 go run ./cmd/migrate -dsn "postgres://postgres:admin@localhost:15432/clinlims_goose_verify?sslmode=disable" up
 ```
