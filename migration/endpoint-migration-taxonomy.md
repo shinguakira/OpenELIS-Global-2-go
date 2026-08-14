@@ -25,6 +25,19 @@ The Types below are the useful *combinations* of those axes.
 
 ---
 
+## Type Ø — Ops / infrastructure (outside this taxonomy)
+
+Not a real type letter — a callout. `health`, `rest/logging` (+
+`/logging/stream`, `/logging/test`) don't fit any type below: Type A requires
+**Read** direction only, and `/logging` writes runtime process state
+(the active log level) and streams (SSE), neither of which any A–J type
+covers. Rather than force-fit them, they're tracked separately in
+`endpoint-migration-order.md`'s "Ops / infrastructure endpoints" note. See
+[logging-adoption-plan.md](logging-adoption-plan.md) for `/logging`
+specifically.
+
+---
+
 ## Type A — Static / computed (no DB, or read-only config)
 
 **Examples:** `rest/server-time`, `rest/math-functions`,
