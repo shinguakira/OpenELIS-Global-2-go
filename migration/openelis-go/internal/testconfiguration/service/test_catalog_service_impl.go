@@ -9,9 +9,9 @@ import (
 	"sort"
 
 	locvh "openelis-go/internal/localization/valueholder"
+	testvh "openelis-go/internal/test/valueholder"
 	"openelis-go/internal/testconfiguration/daoimpl"
 	"openelis-go/internal/testconfiguration/form"
-	testvh "openelis-go/internal/test/valueholder"
 )
 
 // TestCatalogService assembles the TestCatalogForm.
@@ -24,16 +24,17 @@ type TestCatalogService struct {
 // BuildForm mirrors TestCatalogRestController.showTestCatalog() +
 // createTestList(): fetches all tests with their joined metadata, resolves
 // localization values in bulk, sorts by (testUnit, sampleType, testSortOrder),
-// and builds the form that the controller serialises to JSON.
-func (s *TestCatalogService) BuildForm() (*form.TestCatalogForm, error) {
+// and builds the ready-to-serialize DTO — per constitution.md Layer III, the
+// service returns the complete DTO; the controller (Layer IV) only writes it.
+func (s *TestCatalogService) BuildForm() (*form.TestCatalogFormDTO, error) {
 	tests, err := s.DAO.GetAllTestRows()
 	if err != nil {
 		return nil, err
 	}
 	if len(tests) == 0 {
-		return &form.TestCatalogForm{
+		return &form.TestCatalogFormDTO{
 			FormName:        "testCatalogForm",
-			TestCatalogList: []testvh.TestCatalog{},
+			TestCatalogList: []form.TestCatalogItemDTO{},
 			TestSectionList: []string{},
 		}, nil
 	}
@@ -110,9 +111,60 @@ func (s *TestCatalogService) BuildForm() (*form.TestCatalogForm, error) {
 		}
 	}
 
-	return &form.TestCatalogForm{
+	built := &form.TestCatalogForm{
 		FormName:        "testCatalogForm",
 		TestCatalogList: catalogList,
 		TestSectionList: sectionList,
-	}, nil
+	}
+	dto := toFormDTO(built)
+	return &dto, nil
+}
+
+// --- DTO shaping (constitution.md Layer III — belongs here, not the controller) ---
+
+func toLocalizationDTO(loc locvh.Localization) form.LocalizationDTO {
+	vals := make(map[string]form.LocalizationValueDTO, len(loc.Values))
+	for locale, lv := range loc.Values {
+		vals[locale] = form.LocalizationValueDTO{ID: lv.ID, Locale: lv.Locale, Value: lv.Value}
+	}
+	dto := form.LocalizationDTO{
+		ID:          loc.ID,
+		Values:      vals,
+		Lastupdated: loc.Lastupdated,
+	}
+	if loc.Description != "" {
+		d := loc.Description
+		dto.Description = &d
+	}
+	return dto
+}
+
+func toCatalogItemDTO(item testvh.TestCatalog) form.TestCatalogItemDTO {
+	return form.TestCatalogItemDTO{
+		ID:                  item.ID,
+		Localization:        toLocalizationDTO(item.Localization),
+		TestUnit:            item.TestUnit,
+		SampleType:          item.SampleType,
+		Panel:               item.Panel,
+		ResultType:          item.ResultType,
+		Active:              item.Active,
+		Orderable:           item.Orderable,
+		Loinc:               item.Loinc,
+		Uom:                 item.Uom,
+		SignificantDigits:   item.SignificantDigits,
+		HasLimitValues:      item.HasLimitValues,
+		HasDictionaryValues: item.HasDictionaryValues,
+	}
+}
+
+func toFormDTO(f *form.TestCatalogForm) form.TestCatalogFormDTO {
+	items := make([]form.TestCatalogItemDTO, len(f.TestCatalogList))
+	for i, item := range f.TestCatalogList {
+		items[i] = toCatalogItemDTO(item)
+	}
+	return form.TestCatalogFormDTO{
+		FormName:        f.FormName,
+		TestCatalogList: items,
+		TestSectionList: f.TestSectionList,
+	}
 }

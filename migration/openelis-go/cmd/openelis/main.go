@@ -54,6 +54,7 @@ import (
 
 	// testcatalog editor controller
 	testcatalogrest "openelis-go/internal/testcatalog/controller/rest"
+	testcatalogservice "openelis-go/internal/testcatalog/service"
 
 	// testconfiguration layers (TestCatalog)
 	testconfigrest "openelis-go/internal/testconfiguration/controller/rest"
@@ -154,12 +155,15 @@ func main() {
 	panelDAO := &paneldaoimpl.PanelDAOImpl{DB: gormDB}
 	panelSvc := &panelservice.PanelService{DAO: panelDAO}
 
-	// testcatalog editor (lab-units, sample-types, panels)
-	testcatalogrest.Routes(mux, &testcatalogrest.TestCatalogEditorRestController{
+	// testcatalog editor (lab-units, sample-types, panels) — aggregates the
+	// three services above; see internal/testcatalog/service for why this is
+	// its own service layer rather than the controller calling them directly.
+	testcatalogEditorSvc := &testcatalogservice.TestCatalogEditorService{
 		TestSectionService:  testSectionSvc,
 		TypeOfSampleService: tosSvc,
 		PanelService:        panelSvc,
-	})
+	}
+	testcatalogrest.Routes(mux, &testcatalogrest.TestCatalogEditorRestController{Service: testcatalogEditorSvc})
 
 	// testconfiguration: TestCatalog (full catalog read)
 	testconfigDAO := &testconfigdaoimpl.TestCatalogDAOImpl{DB: gormDB}
