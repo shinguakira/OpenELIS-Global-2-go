@@ -82,6 +82,25 @@ func (s *ProviderService) GetPractitionerByPersonID(personID int64) (*form.Provi
 // priority over search, falling back to an unfiltered paged listing when
 // neither is given. page is 1-indexed (matches Java's convention exactly).
 //
+// Paging semantics were re-derived from live Java responses (not source
+// alone) after a review found this port diverging on every edge case:
+//
+//   - The echoed page/pageSize are the caller's RAW values, never the
+//     internally-clamped ones. Java echoes the raw request param
+//     (ProviderRestController.java:133-134 puts the bound @RequestParam
+//     straight into the response). Building the envelope here rather than in
+//     the controller had accidentally promoted an internal clamp into the
+//     wire contract: ?page=0&pageSize=0 answered "page":1,"pageSize":20.
+//   - pageSize is a genuine ROW CAP, including zero. Java trims with
+//     providers.subList(0, pageSize) (ProviderRestController.java:87-89), so
+//     pageSize=0 returns an empty list — live-confirmed:
+//     ?pageSize=0 -> {"pageSize":0,"page":1,"totalCount":3,"providers":[]}.
+//     Treating 0 as "unset, use 20" (the old behavior here) contradicted
+//     that. The absent-param default lives in the controller, matching
+//     Java's @RequestParam(defaultValue="20"), so it is NOT duplicated here.
+//   - Negative pageSize clamps to 0 (empty page). Java throws
+//     IndexOutOfBoundsException from subList and 500s; not worth porting.
+//
 // Deliberate divergence from Java, documented in
 // migration/b2-org-provider-migration.md: Java's DAOs internally cap the
 // fetched rows at a *server config value* (page.defaultPageSize), not the
@@ -91,12 +110,23 @@ func (s *ProviderService) GetPractitionerByPersonID(personID int64) (*form.Provi
 // respecting the caller's real pageSize is more correct REST behavior
 // besides, so LIMIT here is the caller's pageSize directly, with no hidden
 // server-side ceiling.
+//
+// Second deliberate divergence: page < 1. Java computes
+// startRecNo = ((page-1)*pageSize)+1 with no floor, hands the negative to
+// Hibernate's setFirstResult (ProviderDAOImpl.java:168) and returns HTTP 500
+// — live-confirmed for ?page=0&pageSize=20 and ?page=-3. This port floors
+// page at 1 and serves the first page instead of reproducing a crash. The
+// echoed page still reports the caller's raw value, so the response stays
+// honest about what was asked for.
 func (s *ProviderService) Search(search, phone string, page, pageSize int) (form.SearchResultDTO, error) {
+	// Raw values, captured before any clamping — these are what get echoed.
+	echoPage, echoPageSize := page, pageSize
+
 	if page < 1 {
 		page = 1
 	}
-	if pageSize < 1 {
-		pageSize = 20
+	if pageSize < 0 {
+		pageSize = 0
 	}
 	offset := (page - 1) * pageSize
 
@@ -132,7 +162,7 @@ func (s *ProviderService) Search(search, phone string, page, pageSize int) (form
 	for i, row := range rows {
 		dtos[i] = searchRowToDTO(row)
 	}
-	return form.SearchResultDTO{Providers: dtos, TotalCount: total, Page: page, PageSize: pageSize}, nil
+	return form.SearchResultDTO{Providers: dtos, TotalCount: total, Page: echoPage, PageSize: echoPageSize}, nil
 }
 
 // --- DTO shaping (constitution.md Layer III — belongs here, not the controller) ---

@@ -31,6 +31,30 @@ type ProviderRestController struct {
 	Service *service.ProviderService
 }
 
+// intParam parses an optional int query param the way Spring binds
+// @RequestParam(defaultValue=...) int: empty -> the default, unparseable or
+// out of 32-bit int range -> rejected (ok=false) so the caller can answer
+// 400, exactly as Spring's MethodArgumentTypeMismatchException does.
+//
+// Both halves matter and were live-confirmed against Java:
+//   - ?page=abc      -> Java 400. This port used to silently fall back to the
+//     default and answer 200 with page-1 data.
+//   - ?page=1000000000000000000 -> Java 400 (doesn't fit Java's 32-bit int).
+//     This port used to accept it (Go's int is 64-bit), then overflow
+//     (page-1)*pageSize into a negative OFFSET, which Postgres rejects — a
+//     500 where Java gives a clean 400. Bounding to int32 removes the
+//     overflow at its source rather than patching the multiplication.
+func intParam(raw string, def int) (int, bool) {
+	if raw == "" {
+		return def, true
+	}
+	n, err := strconv.ParseInt(raw, 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return int(n), true
+}
+
 // Routes registers the in-scope provider endpoints.
 func Routes(mux *http.ServeMux, ctrl *ProviderRestController) {
 	// GET rest/Provider/raw/{id} — mirrors getProvider(id). ProviderRestController
@@ -107,17 +131,17 @@ func Routes(mux *http.ServeMux, ctrl *ProviderRestController) {
 	// ProviderRestController.searchProviders.
 	web.Register(mux, "GET", "rest/provider/search", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		page := 1
-		if v := q.Get("page"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				page = n
-			}
+		// Defaults match Java's @RequestParam(defaultValue=...) for an absent
+		// param; the service does NOT re-apply them.
+		page, ok := intParam(q.Get("page"), 1)
+		if !ok {
+			http.Error(w, "invalid page", http.StatusBadRequest)
+			return
 		}
-		pageSize := 20
-		if v := q.Get("pageSize"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				pageSize = n
-			}
+		pageSize, ok := intParam(q.Get("pageSize"), 20)
+		if !ok {
+			http.Error(w, "invalid pageSize", http.StatusBadRequest)
+			return
 		}
 
 		dto, err := ctrl.Service.Search(q.Get("search"), q.Get("phone"), page, pageSize)

@@ -104,6 +104,54 @@ test.describe("b2 — provider reference reads", () => {
     expect(body.totalCount, `${PROVIDER_SEARCH} totalCount unaffected by pageSize`).toBe(count("provider"));
   });
 
+  // The three tests below pin paging EDGE cases. The test above asserts
+  // "pageSize echoes request" — the right property — but only at pageSize=1,
+  // a value no clamp modifies, so it passed identically before and after a
+  // real regression that made the response echo internally-clamped values
+  // (?page=0&pageSize=0 answered page:1,pageSize:20). Boundary assertions
+  // tested only at non-boundary values catch nothing; these use the values
+  // that actually exercise the boundary. All expectations below were
+  // captured live from Java, not derived from source.
+
+  test("provider/search: pageSize=0 is a real row cap, not 'unset'", async ({ request }) => {
+    // Java trims with providers.subList(0, pageSize), so pageSize=0 yields an
+    // empty list while totalCount still reports the true row count.
+    // Live Java: {"pageSize":0,"page":1,"totalCount":3,"providers":[]}
+    const body = await readJson(
+      await request.get(`${PROVIDER_SEARCH}?search=&pageSize=0`),
+      `${PROVIDER_SEARCH}?pageSize=0`,
+    );
+    expect(body.providers, `${PROVIDER_SEARCH} pageSize=0 returns no rows`).toEqual([]);
+    expect(body.pageSize, `${PROVIDER_SEARCH} pageSize=0 echoed as 0`).toBe(0);
+    expect(body.page, `${PROVIDER_SEARCH} absent page defaults to 1`).toBe(1);
+    expect(body.totalCount, `${PROVIDER_SEARCH} totalCount still real`).toBe(count("provider"));
+  });
+
+  test("provider/search: out-of-range page/pageSize are echoed RAW, never clamped", async ({ request }) => {
+    // Java echoes the bound @RequestParam straight back with no clamping.
+    // Live Java: {"pageSize":0,"page":0,"totalCount":3,"providers":[]}
+    const body = await readJson(
+      await request.get(`${PROVIDER_SEARCH}?search=&page=0&pageSize=0`),
+      `${PROVIDER_SEARCH}?page=0&pageSize=0`,
+    );
+    expect(body.page, `${PROVIDER_SEARCH} page echoed raw, not clamped to 1`).toBe(0);
+    expect(body.pageSize, `${PROVIDER_SEARCH} pageSize echoed raw, not clamped to 20`).toBe(0);
+    expect(body.providers, `${PROVIDER_SEARCH} pageSize=0 still caps rows`).toEqual([]);
+  });
+
+  test("provider/search: unparseable / out-of-int32 page is rejected with 400", async ({ request }) => {
+    // Java binds these params as 32-bit int, so both cases fail
+    // MethodArgumentTypeMismatch at binding time and never reach the handler.
+    // Live-confirmed: both return 400 on Java.
+    // The huge-value case also guards a real defect — an unbounded page
+    // overflows (page-1)*pageSize into a negative SQL OFFSET, which Postgres
+    // rejects, turning a bad request into a 500.
+    for (const bad of ["abc", "1000000000000000000"]) {
+      const res = await request.get(`${PROVIDER_SEARCH}?search=&page=${bad}`);
+      expect(res.status(), `${PROVIDER_SEARCH}?page=${bad} is a 400, not 200/500`).toBe(400);
+    }
+  });
+
   test("provider/search?search=<lastName>: substring match includes the target", async ({ request }) => {
     const all = await readJson(await request.get(`${PROVIDER_SEARCH}?search=`), PROVIDER_SEARCH);
     const target = all.providers.find((p: any) => p.lastName);

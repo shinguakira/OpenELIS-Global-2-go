@@ -6,7 +6,7 @@ the real Java webapp and this Go port (same live Postgres instance), then by
 turning that into committed Playwright spec files that assert the same
 contract and actually executing them against both servers
 (`test:readonly` / `test:go-parity`; see § 5). All 9 endpoints now have a
-spec file wired into the `go-parity` project — **13/13 passing** (1 test,
+spec file wired into the `go-parity` project — **16/17 passing** (1 test,
 `user-programs`, is correctly skipped under `go-parity`: it's deferred, not
 implemented in Go — see § 2). Branch: `migration/b2-org-provider` (forked
 from `migration-base`, per [branch-naming.md](branch-naming.md); the
@@ -48,8 +48,8 @@ live testing 404'd on them; see § 3.1.
 "Runs against Go" means matched by `playwright.config.ts`'s `go-parity`
 project `testMatch` regex and actually passing there — confirmed by running
 `npm run test:go-parity` for real against the live Go server, not assumed:
-13/13 b2 tests pass (`user-programs` correctly `test.skip()`s itself under
-`go-parity`, see § 2). The same 13 assertions (plus `user-programs`, 14/14)
+16/17 b2 tests pass (`user-programs` correctly `test.skip()`s itself under
+`go-parity`, see § 2). The same 16 assertions (plus `user-programs`, 17/17)
 also pass under `npm run test:readonly` against live Java. Full run logs are
 in this session's transcript if anyone wants the raw `list` reporter output.
 
@@ -165,6 +165,44 @@ is a documented judgment call per endpoint, open to being overridden.
    total, too few to trigger Java's cap (commonly ~20) either way; this item
    is still source-confirmed only, not live-confirmed. Said plainly rather
    than implied, per the same standard as everything else in this section.
+
+10. **`provider/search` paging edge cases — re-derived from live Java after a
+    code review found this port diverging on every one of them.** The DTO
+    layering refactor had moved envelope construction from the controller into
+    `Search`, which sits _after_ the internal clamp, so the clamp accidentally
+    became the wire contract. Fixing that surfaced three further divergences
+    that predated it. All rows below are live-captured from Java, not derived
+    from source:
+
+    | Request | Java | Go before | Go now |
+    | --- | --- | --- | --- |
+    | `?pageSize=0` | `200` `{"pageSize":0,"page":1,"totalCount":3,"providers":[]}` | 20 rows, echoes `20` | **matches Java** |
+    | `?page=0&pageSize=0` | `200` `{"pageSize":0,"page":0,...,"providers":[]}` | 3 rows, echoes `1`/`20` | **matches Java** |
+    | `?page=abc` | `400` (bind failure) | silently defaulted to 1, `200` | **`400`** |
+    | `?page=1000000000000000000` | `400` (exceeds Java's 32-bit `int`) | **`500`** (overflowed to a negative SQL `OFFSET`) | **`400`** |
+    | `?page=0&pageSize=20` | **`500`** (negative `setFirstResult`) | page-1 data | page-1 data, echoes raw `0` |
+    | `?page=-3&pageSize=20` | **`500`** | page-1 data | page-1 data, echoes raw `-3` |
+
+    Three behaviors now match Java exactly: the echo is always the caller's
+    **raw** value, `pageSize` is a genuine **row cap** (including `0`, matching
+    Java's `providers.subList(0, pageSize)` trim — it is _not_ "unset, use
+    20"; the absent-param default lives in the controller, mirroring
+    `@RequestParam(defaultValue="20")`), and unparseable/out-of-`int32` params
+    are rejected with `400` instead of being silently ignored or overflowing.
+    Bounding to `int32` removes the overflow at its source rather than
+    patching the multiplication.
+
+    **The one remaining divergence is deliberate**: `page < 1`. Java has no
+    floor, so `((page-1)*pageSize)+1` goes negative into Hibernate's
+    `setFirstResult` and returns `500`. This port floors `page` at 1 and
+    serves the first page rather than porting a crash — while still echoing
+    the caller's raw value, so the response stays honest about what was asked.
+
+    Pinned by three e2e tests in `b2-provider.spec.ts` that pass against both
+    servers and were **inversion-tested** (they fail against the pre-fix
+    binary, per Constitution V.6). The pre-existing test that missed all of
+    this asserted the right property — "pageSize echoes request" — but only at
+    `pageSize=1`, a value no clamp modifies.
 
 5. **`OrganizationMenu`/`SearchOrganizationMenu` (deferred, not shipped):
    `totalRecordCount` always shows the grand total, even on a filtered search.**
@@ -344,7 +382,7 @@ real, not just written and assumed correct:
   substance. `user-programs` now `test.skip()`s itself under `go-parity` with
   an inline reason, instead of either failing there or being silently
   excluded.
-- `tests/readonly/b2-provider.spec.ts` written from scratch: 7 tests across
+- `tests/readonly/b2-provider.spec.ts` written from scratch: 11 tests across
   all 4 provider endpoints, ids discovered live via `provider/search` and
   direct DB queries rather than hardcoded, so the suite isn't tied to this
   session's specific dataset.
@@ -383,7 +421,10 @@ identically to Java for all 9 endpoints modulo the divergences documented in
   - #1 (404 vs 500 on not-found, 4 endpoints)
   - #3 (`isActive`, now live-confirmed real-vs-always-false)
   - #4 (`pageSize` cap — still source-only, not live-confirmed; the dev
-    dataset is too small to exercise it)
+    dataset is too small to exercise it). Note the *other* paging behaviors
+    are no longer open: § 3.2 #10 resolved them against live Java and pinned
+    them with inversion-tested e2e coverage. Only this `page.defaultPageSize`
+    LIMIT cap remains unverified.
   - #8 (`organizationTypes`: real array vs Java's unconditional `null`)
   - #9 (`rest/practitioner` on an unlinked person: 404 vs Java's real
     200-empty-body)
