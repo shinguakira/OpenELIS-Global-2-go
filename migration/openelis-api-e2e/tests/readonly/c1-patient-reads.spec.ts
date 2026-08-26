@@ -166,6 +166,29 @@ test.describe("c1 — patient reads", () => {
     }
     expect(Array.isArray(parsed.dataSummary.conflictingFields), `${MERGE_DETAILS} conflictingFields is array`).toBe(true);
     expect(Array.isArray(parsed.identifiers), `${MERGE_DETAILS} identifiers is array`).toBe(true);
+
+    // totalDataItems is a COMPUTED getter on the DTO
+    // (PatientMergeDataSummaryDTO.java:52-54), not a stored field — Jackson
+    // emits it because it looks like a property. A Go port that models the
+    // DTO as plain struct fields will omit it entirely unless it knows to
+    // derive it. Note the sum deliberately excludes totalContacts,
+    // totalRelations and totalAuditEntries.
+    expect(parsed.dataSummary.totalDataItems, `${MERGE_DETAILS} totalDataItems is the documented sum`).toBe(
+      parsed.dataSummary.totalOrders +
+        parsed.dataSummary.totalResults +
+        parsed.dataSummary.totalSamples +
+        parsed.dataSummary.totalDocuments +
+        parsed.dataSummary.totalIdentifiers,
+    );
+
+    // These DTO fields exist on the class but getMergeDetails never populates
+    // them (PatientMergeServiceImpl.java:296-300), so Jackson's NON_NULL drops
+    // them. Asserting their ABSENCE stops a port from "helpfully" filling them
+    // in — which would leak extra PHI (nationalId, phone, email, address) that
+    // Java does not return from this endpoint.
+    for (const neverSet of ["nationalId", "phoneNumber", "email", "address"]) {
+      expect(neverSet in parsed, `${MERGE_DETAILS} ${neverSet} is never populated by Java`).toBe(false);
+    }
   });
 
   test("merge/details: dataSummary counts match the DB (oracle)", async ({ request }) => {
@@ -231,39 +254,54 @@ test.describe("c1 — patient reads", () => {
     }
   });
 
-  test("merge/details: GUID identities are counted but NOT listed (live-confirmed)", async ({ request }) => {
-    // Live finding worth pinning: patient 1203 reported totalIdentifiers=2
-    // while `identifiers` held exactly 1 entry. The missing one is
-    // patient_identity_type 14 = GUID — an internal identifier that is counted
-    // in the summary but excluded from the human-facing list.
+  test("merge/details: totalIdentifiers counts ALL rows; identifiers[] excludes internal types", async ({
+    request,
+  }) => {
+    // Java skips GUID, AKA, MOTHER and MOTHERS_INITIAL when building the list
+    // (PatientMergeServiceImpl.java:304,314) but sets totalIdentifiers from
+    // the UNFILTERED collection (:330). So the count and the array length
+    // legitimately disagree — first spotted live, where a patient reported
+    // totalIdentifiers=2 with a single-element array.
     //
-    // This is asserted as a real behavior because a Go port that naively
-    // returns every patient_identity row would emit an extra element and leak
-    // an internal GUID into a UI list. If this turns out to be a Java bug
-    // rather than deliberate filtering, this test is the thing that forces
-    // the decision to be made explicitly instead of by accident.
+    // A port that returns every patient_identity row would leak an internal
+    // GUID into a human-facing list; one that also filters the count would
+    // "fix" a number Java does not fix. Both halves are pinned.
+    const EXCLUDED = ["GUID", "AKA", "MOTHER", "MOTHERS_INITIAL"];
+    const excludedList = EXCLUDED.map((t) => `'${t}'`).join(",");
+
     const rows = query(
-      "SELECT pi.patient_id FROM clinlims.patient_identity pi WHERE pi.identity_type_id = 14" +
-        " AND EXISTS (SELECT 1 FROM clinlims.patient_identity o WHERE o.patient_id = pi.patient_id" +
-        " AND o.identity_type_id <> 14) ORDER BY pi.patient_id LIMIT 1",
+      "SELECT pi.patient_id FROM clinlims.patient_identity pi" +
+        " JOIN clinlims.patient_identity_type pit ON pit.id = pi.identity_type_id" +
+        ` WHERE upper(pit.identity_type) IN (${excludedList})` +
+        " AND EXISTS (SELECT 1 FROM clinlims.patient_identity o" +
+        "   JOIN clinlims.patient_identity_type ot ON ot.id = o.identity_type_id" +
+        `   WHERE o.patient_id = pi.patient_id AND upper(ot.identity_type) NOT IN (${excludedList}))` +
+        " ORDER BY pi.patient_id LIMIT 1",
     );
-    test.skip(rows.length === 0, "no patient has a GUID identity alongside another type");
+    test.skip(rows.length === 0, "no patient mixes an excluded identity type with a listed one");
     const patientId = rows[0][0];
 
     const dbTotal = Number(
       query(`SELECT count(*) FROM clinlims.patient_identity WHERE patient_id = ${patientId}`)[0][0],
     );
-    const guidCount = Number(
+    const excludedCount = Number(
       query(
-        `SELECT count(*) FROM clinlims.patient_identity WHERE patient_id = ${patientId} AND identity_type_id = 14`,
+        "SELECT count(*) FROM clinlims.patient_identity pi" +
+          " JOIN clinlims.patient_identity_type pit ON pit.id = pi.identity_type_id" +
+          ` WHERE pi.patient_id = ${patientId} AND upper(pit.identity_type) IN (${excludedList})`,
       )[0][0],
     );
 
     const parsed = await readJson(await request.get(`${MERGE_DETAILS}/${patientId}`), MERGE_DETAILS);
     expect(parsed.dataSummary.totalIdentifiers, "totalIdentifiers counts ALL identity rows").toBe(dbTotal);
-    expect(parsed.identifiers.length, "identifiers list EXCLUDES GUID rows").toBe(dbTotal - guidCount);
+    expect(parsed.identifiers.length, "identifiers[] excludes the internal types").toBe(dbTotal - excludedCount);
     for (const ident of parsed.identifiers) {
-      expect(ident.identityType, "no GUID identity is listed").not.toMatch(/guid/i);
+      expect(
+        EXCLUDED.some((t) => String(ident.identityType).toUpperCase().includes(t)),
+        `no excluded identity type is listed (saw "${ident.identityType}")`,
+      ).toBe(false);
+      // `system` is declared on IdentifierDTO but never populated -> absent.
+      expect("system" in ident, "IdentifierDTO.system is never populated by Java").toBe(false);
     }
   });
 
@@ -317,12 +355,31 @@ test.describe("c1 — patient reads", () => {
     expect(typeof body.data, `${ID_DOCUMENTS}/full data is a string`).toBe("string");
   });
 
-  // ── 5. rest/patient-photos/{id}/{isThumbnail} ───────────────────────────
-
-  test("patient-photos: same base64 envelope for both thumbnail and full", async ({ request }) => {
+  test("patient-id-documents: non-numeric documentId is 400, non-numeric patientId is 200", async ({ request }) => {
     const rows = query("SELECT id FROM clinlims.patient ORDER BY id LIMIT 1");
     const patientId = rows[0][0];
 
+    // documentId is bound as Integer, so Spring rejects a non-numeric value at
+    // binding with MethodArgumentTypeMismatch -> 400.
+    const badDoc = await request.get(`${ID_DOCUMENTS}/${patientId}/abc/full`);
+    expect(badDoc.status(), `${ID_DOCUMENTS} non-numeric documentId`).toBe(400);
+
+    // ...but patientId is bound as String against a varchar column, so a
+    // non-numeric value is not an error at all — it just matches nothing.
+    // The two path variables on the SAME endpoint behave differently; a port
+    // that validates both the same way diverges on one of them.
+    const badPatient = await request.get(`${ID_DOCUMENTS}/abc`);
+    expect(badPatient.status(), `${ID_DOCUMENTS} non-numeric patientId`).toBe(200);
+    expect(await badPatient.json(), `${ID_DOCUMENTS} non-numeric patientId body`).toEqual([]);
+  });
+
+  // ── 5. rest/patient-photos/{id}/{isThumbnail} ───────────────────────────
+
+  test("patient-photos: thumbnail returns BARE base64, full returns a data: URI", async ({ request }) => {
+    const rows = query("SELECT id FROM clinlims.patient ORDER BY id LIMIT 1");
+    const patientId = rows[0][0];
+
+    const seen: Record<string, string> = {};
     for (const isThumb of ["true", "false"]) {
       const res = await request.get(`${PATIENT_PHOTOS}/${patientId}/${isThumb}`);
       expect(res.status(), `${PATIENT_PHOTOS} ${isThumb} status`).toBe(200);
@@ -333,7 +390,38 @@ test.describe("c1 — patient reads", () => {
       const body = await res.json();
       expect(Object.keys(body), `${PATIENT_PHOTOS} ${isThumb} envelope`).toEqual(["data"]);
       expect(typeof body.data, `${PATIENT_PHOTOS} ${isThumb} data is a string`).toBe("string");
+      seen[isThumb] = body.data;
     }
+
+    // THE BIGGEST PARITY TRAP IN THIS UNIT (PatientPhotoServiceImpl.java:116-119):
+    // the two branches return STRUCTURALLY DIFFERENT strings.
+    //   isThumbnail=false -> "data:image/jpeg;base64,AAAA..."  (full data-URI)
+    //   isThumbnail=true  -> "AAAA..."                          (BARE base64)
+    // The frontend compensates for exactly this: AyncAvatar.jsx requests
+    // /true for the avatar while usePatientDetails.js requests /false. A Go
+    // port that emits a data-URI for both "looks right" and silently breaks
+    // the avatar.
+    //
+    // This dev DB has ZERO patient_photo rows, so both branches return "" and
+    // the difference cannot be exercised. Rather than assert nothing, the
+    // check below is written to activate automatically the moment a photo
+    // fixture exists — it is skipped, not silently passing.
+    test.skip(
+      seen["false"] === "" && seen["true"] === "",
+      "no patient_photo rows in this dataset — the data-URI vs bare-base64 split cannot be exercised",
+    );
+    expect(seen["false"], `${PATIENT_PHOTOS}/false must be a data: URI`).toMatch(/^data:[^;]*;base64,/);
+    expect(seen["true"], `${PATIENT_PHOTOS}/true must be BARE base64, no data: prefix`).not.toMatch(/^data:/);
+  });
+
+  test("patient-photos: a non-numeric patient id is 200 empty, NOT an error", async ({ request }) => {
+    // patient_photo.patient_id is a plain varchar with no numeric usertype, so
+    // a malformed id simply matches nothing. Contrast with merge/details,
+    // where a non-numeric id hits Integer.parseInt inside the Hibernate
+    // usertype and 500s. Same-looking input, opposite outcome, per endpoint.
+    const res = await request.get(`${PATIENT_PHOTOS}/abc/true`);
+    expect(res.status(), `${PATIENT_PHOTOS} non-numeric id`).toBe(200);
+    expect(await res.json(), `${PATIENT_PHOTOS} non-numeric id body`).toEqual({ data: "" });
   });
 
   test("patient-photos: non-boolean isThumbnail is rejected with 400", async ({ request }) => {
