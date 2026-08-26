@@ -1,8 +1,18 @@
 // §4 — b2: organization + program reference reads (strict parity gate).
 //
-// Taxonomy Type B, Wave 2. The provider-side reads are all param-driven
-// (search / menu), so the param-less b2 reads are organization types/list +
-// user programs. Same design as b1: assert the real contract, not "HTTP 200".
+// Taxonomy Type B, Wave 2. Also runs against the Go port via the go-parity
+// project (see playwright.config.ts) — except user-programs, which is
+// session/RBAC-dependent and deliberately not implemented in Go yet (see
+// migration/b2-org-provider-migration.md §2), so it's skipped there.
+//
+// Design (same as a2/b1): assert the real contract, not "HTTP 200". Where
+// live testing found Go deliberately diverging from a confirmed Java bug or
+// serialization quirk, both sides' real behavior is asserted explicitly
+// (branched on testInfo.project.name), not silently pinned to one value —
+// see migration/b2-org-provider-migration.md §3 for the full writeup of each:
+//   - organization/{id} not-found: 404 (Go) vs 500 (Java, confirmed bug)
+//   - organization-list/{id} organizationTypes: real array (Go) vs Java's
+//     unconditional null (Hibernate lazy="true" + no forced load)
 //
 // Findings excluded here (real, out of scope): GET rest/Organization returns 500
 // on Java itself; rest/organization/search is a paginated Type-C search (its own
@@ -10,6 +20,7 @@
 // params (400 without).
 import { test, expect } from "@playwright/test";
 import {
+  readJson,
   readJsonArray,
   expectExactKeys,
   expectKeysWithin,
@@ -19,9 +30,13 @@ import {
 
 const ORG_TYPES = "rest/organization/types";
 const ORG_LIST = "rest/organization-list";
+const ORG_BY_ID = "rest/organization";
+const DEPARTMENTS_FOR_SITE = "rest/departments-for-site";
 const USER_PROGRAMS = "rest/user-programs";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Large enough that it will never collide with a real seeded/test id.
+const MISSING_ID = "999999999";
 
 test.describe("b2 — organization + program reference reads", () => {
   test("organization/types: {id,name,description} rows, unique ids", async ({ request }) => {
@@ -73,7 +88,89 @@ test.describe("b2 — organization + program reference reads", () => {
     // order: not guaranteed by Java (not name-sorted) → NOT asserted.
   });
 
-  test("user-programs: IdValuePair rows, unique ids", async ({ request }) => {
+  test("organization/{id}: matches its organization-list row; not-found diverges by design", async ({
+    request,
+  }, testInfo) => {
+    // Pick a real id from the live list rather than hardcoding one — resilient
+    // to whichever dataset this runs against.
+    const list = await readJsonArray(await request.get(ORG_LIST), ORG_LIST);
+    const sample = list[0];
+    const body = await readJson(await request.get(`${ORG_BY_ID}/${sample.id}`), `${ORG_BY_ID}/{id}`);
+
+    // organization/{id} and organization-list serialize the same entity in
+    // Java, so a given id's fields must agree between the two endpoints.
+    expect(body.id, `${ORG_BY_ID}/{id} id`).toBe(sample.id);
+    expect(body.organizationName, `${ORG_BY_ID}/{id} organizationName`).toBe(sample.organizationName);
+    expect(body.fhirUuid, `${ORG_BY_ID}/{id} fhirUuid`).toBe(sample.fhirUuid);
+    expect(body.shortName ?? null, `${ORG_BY_ID}/{id} shortName`).toBe(sample.shortName ?? null);
+    expect(
+      body.organizationTypes === null || Array.isArray(body.organizationTypes),
+      `${ORG_BY_ID}/{id} organizationTypes is null or array`,
+    ).toBe(true);
+
+    // Not-found: real, confirmed, deliberate divergence — see
+    // migration/b2-org-provider-migration.md §3.2 #1. Java's
+    // BaseObjectServiceImpl.get(id) throws ObjectNotFoundException on a miss,
+    // uncaught by the controller → 500 (live-confirmed, not theoretical).
+    // This port returns a real 404 instead.
+    const missing = await request.get(`${ORG_BY_ID}/${MISSING_ID}`);
+    if (testInfo.project.name === "go-parity") {
+      expect(missing.status(), `${ORG_BY_ID}/{id} missing (Go: real 404)`).toBe(404);
+    } else {
+      expect(missing.status(), `${ORG_BY_ID}/{id} missing (Java: confirmed 500 bug)`).toBe(500);
+    }
+  });
+
+  // NOTE: organization/generate-site-code is NOT tested here. It executes
+  // `SELECT nextval('clinlims.site_code_seq')`, so it permanently advances a
+  // shared DB sequence — it does not belong in a read-only suite. It lives in
+  // tests/mutating/b2-organization-sitecode.spec.ts (still wired into
+  // go-parity, so the Go port keeps the coverage).
+
+  test("departments-for-site: IdValuePair rows for a real org id; edge cases", async ({ request }) => {
+    const list = await readJsonArray(await request.get(ORG_LIST), ORG_LIST);
+    const parentId = list[0].id;
+
+    // NOTE: not readJsonArray — in this dev dataset no organization has any
+    // children, so an empty array is the real, expected response, not a
+    // signal something is broken. Shape is checked either way.
+    const body = await readJson(
+      await request.get(`${DEPARTMENTS_FOR_SITE}?refferingSiteId=${parentId}`),
+      DEPARTMENTS_FOR_SITE,
+    );
+    expect(Array.isArray(body), `${DEPARTMENTS_FOR_SITE} is array`).toBe(true);
+    for (const row of body) {
+      expectExactKeys(row, ["id", "value"], `${DEPARTMENTS_FOR_SITE} row`);
+      expectNonEmptyString(row.id, `${DEPARTMENTS_FOR_SITE} id`);
+      expectNonEmptyString(row.value, `${DEPARTMENTS_FOR_SITE} value`);
+    }
+
+    // A nonexistent parent id isn't validated on either side — just a WHERE
+    // org_id = X with no matches, so still 200 + [], not a 404.
+    const unknownParentBody = await readJson(
+      await request.get(`${DEPARTMENTS_FOR_SITE}?refferingSiteId=${MISSING_ID}`),
+      `${DEPARTMENTS_FOR_SITE} unknown parent`,
+    );
+    expect(Array.isArray(unknownParentBody), `${DEPARTMENTS_FOR_SITE} unknown parent is array`).toBe(true);
+    expect(unknownParentBody.length, `${DEPARTMENTS_FOR_SITE} unknown parent is empty`).toBe(0);
+
+    // Missing required query param: status matches on both sides (400); body
+    // format differs (Java: Spring ProblemDetail JSON; Go: plain text), so
+    // only status is asserted.
+    const missingParam = await request.get(DEPARTMENTS_FOR_SITE);
+    expect(missingParam.status(), `${DEPARTMENTS_FOR_SITE} missing refferingSiteId`).toBe(400);
+  });
+
+  test("user-programs: IdValuePair rows, unique ids", async ({ request }, testInfo) => {
+    // Not a pure reference read — Java filters by the calling user's own
+    // lab-unit/test-section permissions (session/RBAC-scoped). The Go port
+    // has no session/RBAC layer yet and deliberately doesn't implement this
+    // endpoint at all (see migration/b2-org-provider-migration.md §2) rather
+    // than silently return an unfiltered list. Skip under go-parity instead
+    // of asserting a 404 there — that 404 isn't a "port behavior" worth
+    // pinning, it's just "not built yet".
+    test.skip(testInfo.project.name === "go-parity", "user-programs is deferred, not implemented in Go");
+
     const body = await readJsonArray(await request.get(USER_PROGRAMS), USER_PROGRAMS);
     for (const row of body) {
       expectExactKeys(row, ["id", "value"], `${USER_PROGRAMS} row`);

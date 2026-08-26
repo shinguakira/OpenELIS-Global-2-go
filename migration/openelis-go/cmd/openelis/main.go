@@ -11,16 +11,16 @@ import (
 
 	"gorm.io/gorm"
 
-	"openelis-go/internal/common/db"
 	commondaoimpl "openelis-go/internal/common/daoimpl"
+	"openelis-go/internal/common/db"
 	"openelis-go/internal/common/i18n"
 	commonrest "openelis-go/internal/common/rest"
 	commonservices "openelis-go/internal/common/services"
 	"openelis-go/internal/common/web"
 
 	// dictionarycategory layers
-	dictcatdaoimpl "openelis-go/internal/dictionarycategory/daoimpl"
 	dictcatrest "openelis-go/internal/dictionarycategory/controller/rest"
+	dictcatdaoimpl "openelis-go/internal/dictionarycategory/daoimpl"
 	dictcatservice "openelis-go/internal/dictionarycategory/service"
 
 	// localization layers (a2)
@@ -28,9 +28,19 @@ import (
 	localizationdao "openelis-go/internal/localization/daoimpl"
 	localizationservice "openelis-go/internal/localization/service"
 
+	// organization layers (b2)
+	orgrest "openelis-go/internal/organization/controller/rest"
+	orgdaoimpl "openelis-go/internal/organization/daoimpl"
+	orgservice "openelis-go/internal/organization/service"
+
 	// panel layers
 	paneldaoimpl "openelis-go/internal/panel/daoimpl"
 	panelservice "openelis-go/internal/panel/service"
+
+	// provider layers (b2)
+	providerrest "openelis-go/internal/provider/controller/rest"
+	providerdaoimpl "openelis-go/internal/provider/daoimpl"
+	providerservice "openelis-go/internal/provider/service"
 
 	// system (a1)
 	systemrest "openelis-go/internal/system/controller/rest"
@@ -44,10 +54,11 @@ import (
 
 	// testcatalog editor controller
 	testcatalogrest "openelis-go/internal/testcatalog/controller/rest"
+	testcatalogservice "openelis-go/internal/testcatalog/service"
 
 	// testconfiguration layers (TestCatalog)
-	testconfigdaoimpl "openelis-go/internal/testconfiguration/daoimpl"
 	testconfigrest "openelis-go/internal/testconfiguration/controller/rest"
+	testconfigdaoimpl "openelis-go/internal/testconfiguration/daoimpl"
 	testconfigservice "openelis-go/internal/testconfiguration/service"
 
 	// typeofsample layers
@@ -55,8 +66,8 @@ import (
 	tosservice "openelis-go/internal/typeofsample/service"
 
 	// unitofmeasure layers
-	uomdaoimpl "openelis-go/internal/unitofmeasure/daoimpl"
 	uomrest "openelis-go/internal/unitofmeasure/controller/rest"
+	uomdaoimpl "openelis-go/internal/unitofmeasure/daoimpl"
 	uomservice "openelis-go/internal/unitofmeasure/service"
 )
 
@@ -144,12 +155,15 @@ func main() {
 	panelDAO := &paneldaoimpl.PanelDAOImpl{DB: gormDB}
 	panelSvc := &panelservice.PanelService{DAO: panelDAO}
 
-	// testcatalog editor (lab-units, sample-types, panels)
-	testcatalogrest.Routes(mux, &testcatalogrest.TestCatalogEditorRestController{
+	// testcatalog editor (lab-units, sample-types, panels) — aggregates the
+	// three services above; see internal/testcatalog/service for why this is
+	// its own service layer rather than the controller calling them directly.
+	testcatalogEditorSvc := &testcatalogservice.TestCatalogEditorService{
 		TestSectionService:  testSectionSvc,
 		TypeOfSampleService: tosSvc,
 		PanelService:        panelSvc,
-	})
+	}
+	testcatalogrest.Routes(mux, &testcatalogrest.TestCatalogEditorRestController{Service: testcatalogEditorSvc})
 
 	// testconfiguration: TestCatalog (full catalog read)
 	testconfigDAO := &testconfigdaoimpl.TestCatalogDAOImpl{DB: gormDB}
@@ -157,6 +171,22 @@ func main() {
 	testconfigrest.Routes(mux, &testconfigrest.TestCatalogRestController{Service: testconfigSvc})
 
 	log.Printf("DB-backed routes enabled (b1: dictionary-categories, uom, test-catalog, TestCatalog)")
+
+	// -----------------------------------------------------------------------
+	// b2: organization + provider reference reads.
+	// -----------------------------------------------------------------------
+
+	// organization
+	orgDAO := &orgdaoimpl.OrganizationDAOImpl{DB: gormDB}
+	orgSvc := &orgservice.OrganizationService{DAO: orgDAO}
+	orgrest.Routes(mux, &orgrest.OrganizationRestController{Service: orgSvc})
+
+	// provider
+	providerDAO := &providerdaoimpl.ProviderDAOImpl{DB: gormDB}
+	providerSvc := &providerservice.ProviderService{DAO: providerDAO}
+	providerrest.Routes(mux, &providerrest.ProviderRestController{Service: providerSvc})
+
+	log.Printf("DB-backed routes enabled (b2: organization, provider)")
 
 	srv := &http.Server{Addr: addr, Handler: mux}
 	log.Printf("openelis-go listening on %s", addr)

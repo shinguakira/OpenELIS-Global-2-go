@@ -10,10 +10,68 @@ OpenELIS analog of `e2e.md` (the OpenMRS plan).
 - **Target under test:** OpenELIS Global 2 (`develop`) on Tomcat, PostgreSQL
   (`clinlims`, 375 tables), co-resident HAPI FHIR. Base URL:
   `https://localhost/api/OpenELIS-Global`.
-- **REST prefix:** `…/rest/…` (every controller is class-mapped under `/rest`);
-  `~420` method endpoints across `112` controllers. Provider endpoints under
-  `/Provider/**`.
-- **FHIR prefix:** `…/fhir/*` (CapabilityStatement at `…/fhir/metadata`).
+- **REST prefix — real, non-uniform, verify per controller, every time.**
+  `/rest` is the *intended* convention for the JSON API layer
+  (`AGENTS.md:354`: `@RestController` + `@RequestMapping("/rest/{module}")`),
+  and most of it (160 of 292 Spring controllers, counted directly by grep, not
+  estimated) does follow that exact pattern — `ProviderRestController` among
+  them (`@RequestMapping("/rest")` at class level). **But it is not
+  universal, and an earlier version of this exact line claimed it was
+  ("there is no separate un-prefixed namespace") — that claim was wrong,
+  caught and corrected the same day it was written.** The real picture, four
+  distinct categories, live-grepped:
+  1. **160/292** — `@RestController`/`@Controller` with a class-level
+     `@RequestMapping("/rest/...")`. The common case, the one to expect by
+     default.
+  2. **125/292** — **no class-level mapping at all.** Mostly old
+     server-rendered-JSP page controllers, 1:1 mechanically ported from this
+     app's pre-2019 Struts 1.x action classes (confirmed via git history —
+     commits `1c4007e10`/`6e960f800` remove Struts; the ported controllers
+     kept the exact same flat, un-prefixed, PascalCase paths their Struts
+     `<action path="...">` entries used, e.g. `LoginPageController.java`'s
+     `/LoginPage`, `HomePageController.java`'s `/HomePage`,
+     `WorkPlanByTestController.java`'s `/WorkPlanByTest`) — never retrofitted
+     with `/rest` because they render JSP pages, not JSON. A handful of these
+     are `@RestController`s that DO end up under `/rest` in practice, just
+     via a different mechanism than a class mapping: `/rest` retyped on every
+     individual method instead (`MenuController.java`:
+     `@GetMapping("/rest/menu")`; note its sibling `WorkPlanByTestController`
+     above has the *same feature name* with *no* `/rest` at all — a clean
+     paired example of two conventions for the same kind of thing). Others
+     land somewhere else entirely with no `/rest` in sight
+     (`LoggingController.java` → `/logging`; `HealthCheckController.java` →
+     `/health/odoo`).
+  3. **7/292** — class-level mapping to a genuinely different prefix:
+     `/import`, `/health`, `/dataexport/fhir`, `/api/labelPresets`,
+     `/api/orderEntry`, `/api/siteSettings/barcode`, `/logoUpload`.
+  4. **`/ValidateLogin` isn't a controller method at all.** Spring Security's
+     login filter intercepts it directly (`SecurityConfig.java`:
+     `.formLogin(...).loginProcessingUrl("/ValidateLogin")`), before
+     Spring MVC's `DispatcherServlet` would ever see it. `/session`, on the
+     same `LoginPageController` that also owns `/LoginPage`, *is* a real
+     `@GetMapping("/session")` — one class casually mixing an un-prefixed
+     page route, an un-prefixed REST-shaped route, and (elsewhere in the same
+     file) a `/rest`-prefixed one, with no class annotation tying any of it
+     together.
+  **Practical rule, unchanged from before, now correctly justified**: before
+  registering any Go route, grep the *specific* target controller's
+  class-level `@RequestMapping`, and if it has none, check every individual
+  method annotation instead — do not infer from what similar-sounding
+  controllers do, and do not trust this doc's path listings (§7's Provider
+  paths were wrong once already; see `b2-org-provider-migration.md` §3.1) or
+  general claims like this one without a fresh grep.
+- **FHIR prefix `…/fhir/*` is not Spring MVC at all.** It's HAPI FHIR's own
+  servlet (`FhirRestfulServer`, registered directly in
+  `AnnotationWebAppInitializer.java` via `addMapping("/fhir/*")`, using HAPI's
+  own `@Read`/`@Create`/`@Search` annotations, not Spring's `@RequestMapping`
+  family) — a second, independent routing system living beside Spring's
+  `DispatcherServlet` (which only owns whatever `/fhir/*` doesn't claim
+  first). A few *Spring* controllers also have "Fhir" in their class name
+  (`FhirActionController`, `FhirTransformationController`,
+  `FhirQueryRestController`, ...) but they're ordinary REST-layer additions
+  scattered across unrelated prefixes (`/fhir/optimizeStorage`,
+  `/PatientToFhir`, `/rest/fhir/{resourceType}`) — sharing a name with the
+  real FHIR API, not a routing relationship to it.
 - **Auth:** **session cookie** via Spring Security form login —
   `POST /ValidateLogin?apiCall=true` (form `loginName`/`password`) → `{success:true}`;
   `GET /session` reports `{authenticated, userId, loginName, roles[]}`. Not HTTP
@@ -22,9 +80,30 @@ OpenELIS analog of `e2e.md` (the OpenMRS plan).
   persistent cookie jar per worker; golden JSON snapshots for response shapes.
 - **DB oracle:** `docker exec openelisglobal-database psql -U clinlims -d clinlims`
   to assert row state after writes (the write path is the strictest parity check).
-- **Principle:** assert on *contract + behavior*, not volatile fields
-  (`lastupdated`, generated ids/uuids, accession numbers). Normalize/strip those
-  before snapshotting.
+- **Principle — what "parity-verified" actually means, non-negotiable:**
+  - **No mocking, ever.** Every assertion in this suite runs against the real,
+    live Java webapp (authenticated the same way a real client is) and the
+    real, live Postgres it's connected to — never a stub, never a fixture
+    substituted for the real HTTP round-trip. A Go endpoint that only ever
+    got curled in isolation, or checked against assumed/remembered behavior,
+    is **not verified** — it's a guess that happens to compile.
+  - **Assert real field-by-field data, not just HTTP status.** `200 OK` proves
+    reachability, nothing else — it would not have caught any of the b2
+    findings (a wrong-path 404 is easy to notice, but a subtly wrong field, a
+    wrong divergence, a silently dropped key would sail through a
+    status-only check). Compare actual response bodies, field by field,
+    against Java's actual response for the actual same input.
+  - Still: assert on *contract + behavior*, not volatile fields
+    (`lastupdated`, generated ids/uuids, accession numbers). Normalize/strip
+    those before snapshotting — but don't drop them from the *shape* check,
+    only from *exact-value* pinning (b2 found real bugs — a missing
+    `lastupdated` field entirely — that a shape-blind snapshot would miss).
+  - **Mine the target controller's own JUnit test first (§16), every time,
+    not as an optional nice-to-have.** It's the fastest way to see Java's
+    real URL, real request shape, and real edge cases before writing a
+    single line of Go — the b2 routing bug (this doc's own §7 had the wrong
+    path) would very likely have been caught immediately by reading
+    `ProviderRestControllerTest.java` first, which was skipped.
 
 ---
 
@@ -131,12 +210,20 @@ OpenELIS analog of `e2e.md` (the OpenMRS plan).
 - [ ] Reject path → **DB** status = rejected; refer path creates referral rows.
 
 ## 7. Organization / Provider
-- [ ] `GET /rest/organization-list`, `/rest/organization/{id}`, `/rest/organization/search`,
-      `/rest/organization/types`, `/rest/organization/generate-site-code`.
+- [x] `GET /rest/organization-list`, `/rest/organization/{id}`,
+      `/rest/organization/types`, `/rest/organization/generate-site-code`,
+      `/rest/departments-for-site` — b2, live-verified both sides, see
+      `b2-org-provider-migration.md`.
+- [ ] `/rest/organization/search` (paginated Type-C search, own group).
 - [ ] **Org CRUD:** `POST /rest/Organization` create → `GET` back → `GET /rest/CancelOrganization`;
       **DB:** `organization` row; retire hides by default.
-- [ ] `GET /Provider/raw/{id}`, `/Provider/Person/{id}`, `/provider/search`,
-      `POST /Provider/FhirUuid` → **DB** `provider`.
+- [x] `GET /rest/Provider/raw/{id}`, `/rest/Provider/Person/{id}`,
+      `/rest/provider/search`, `/rest/practitioner` — b2, live-verified both
+      sides. **Paths corrected**: previously listed here without the `/rest`
+      prefix (wrong — see the REST-prefix note above); the b2 Go
+      implementation copied that wrong path and 404'd on every real call
+      until caught by live testing against Java.
+- [ ] `POST /rest/Provider/FhirUuid` → **DB** `provider`.
 
 ## 8. Reports & audit
 - [ ] `POST /rest/ReportPrint` (routine report) → returns report artifact (PDF/data), 200.

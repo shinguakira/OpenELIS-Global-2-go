@@ -1,46 +1,18 @@
 // Package rest ports org.openelisglobal.localization.controller.rest — the
 // SupportedLocale REST controller (@RequestMapping("/rest/supportedlocales")).
 // Folder layout mirrors the Java source during migration.
+//
+// Per constitution.md Layer IV: request/response mapping and service calls
+// only. See internal/localization/form (Layer V) and
+// internal/localization/service (Layer III) for the DTO type and its shaping.
 package rest
 
 import (
 	"net/http"
-	"strconv"
 
 	"openelis-go/internal/common/web"
 	"openelis-go/internal/localization/service"
-	"openelis-go/internal/localization/valueholder"
 )
-
-// supportedLocaleDTO mirrors SupportedLocaleRestController.SupportedLocaleDTO.
-// Field order matches the Java DTO's JSON output.
-type supportedLocaleDTO struct {
-	Id          string `json:"id"`
-	LocaleCode  string `json:"localeCode"`
-	DisplayName string `json:"displayName"`
-	Active      bool   `json:"active"`
-	Fallback    bool   `json:"fallback"`
-	SortOrder   int    `json:"sortOrder"`
-}
-
-func toDTO(l valueholder.SupportedLocale) supportedLocaleDTO {
-	return supportedLocaleDTO{
-		Id:          strconv.FormatInt(l.Id, 10),
-		LocaleCode:  l.LocaleCode,
-		DisplayName: l.DisplayName,
-		Active:      l.Active,
-		Fallback:    l.Fallback,
-		SortOrder:   l.SortOrder,
-	}
-}
-
-func toDTOs(list []valueholder.SupportedLocale) []supportedLocaleDTO {
-	dtos := make([]supportedLocaleDTO, 0, len(list)) // non-nil → serializes as []
-	for _, l := range list {
-		dtos = append(dtos, toDTO(l))
-	}
-	return dtos
-}
 
 // Routes registers the supportedlocales endpoints. Mirrors the @GetMapping methods
 // on SupportedLocaleRestController. NOTE: when /{id} is later ported, the router
@@ -59,7 +31,7 @@ func allLocales(svc *service.SupportedLocaleService) http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		web.WriteJSON(w, http.StatusOK, toDTOs(list))
+		web.WriteJSON(w, http.StatusOK, list)
 	}
 }
 
@@ -72,7 +44,7 @@ func activeLocales(svc *service.SupportedLocaleService) http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		web.WriteJSON(w, http.StatusOK, toDTOs(list))
+		web.WriteJSON(w, http.StatusOK, list)
 	}
 }
 
@@ -89,6 +61,6 @@ func fallbackLocale(svc *service.SupportedLocaleService) http.HandlerFunc {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		web.WriteJSON(w, http.StatusOK, toDTO(*fb))
+		web.WriteJSON(w, http.StatusOK, fb)
 	}
 }
