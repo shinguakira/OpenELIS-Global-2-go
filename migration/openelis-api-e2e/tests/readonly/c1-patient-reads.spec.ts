@@ -105,17 +105,81 @@ test.describe("c1 — patient reads", () => {
       /^\d{2}\/\d{2}\/\d{4}$/,
     );
 
-    // PARITY TRAP, live-observed and deliberately pinned loosely: on the same
-    // record Java rendered birthDateForDisplay as "01/15/1990" (MM/dd/yyyy)
-    // but birthTimeForDisplay as "15/01/1990" (dd/MM/yyyy) — two different
-    // field orders from one source date. Whether that is intentional or a
-    // Java bug is unresolved, so this asserts only the shape. Resolve it
-    // before porting, then tighten this to the exact expected order; do not
-    // let the Go port guess.
     if ("birthTimeForDisplay" in body) {
       expect(body.birthTimeForDisplay, `${BY_LAB_NUMBER} birthTimeForDisplay is dd/dd/dddd`).toMatch(
         /^\d{2}\/\d{2}\/\d{4}$/,
       );
+    }
+  });
+
+  test("patientByLabNumer: birthDate is the STORED value, echoed faithfully", async ({ request }) => {
+    // RESOLVED (was an open question): birthDateForDisplay is NOT a rendering
+    // of birthDate. It is its own persisted column, `entered_birth_date`,
+    // holding the literal text the user typed (which may contain "XX" when the
+    // day/month is unknown — see db/dbInit/OpenELIS-Global.sql:3844). So the
+    // two fields disagreeing is NOT a serialization bug and must NOT be
+    // "fixed" by deriving one from the other.
+    //
+    // They disagree here for a separate, real reason:
+    // Patient.setBirthDateForDisplay (Patient.java:261-267) writes BACK into
+    // birthDate using a LENIENT SimpleDateFormat whose pattern comes from the
+    // runtime locale (fr-FR -> dd/MM/yyyy). Parsing "01/15/1990" as
+    // day=01/month=15 rolls over to 1991-03-01. That corruption already ran at
+    // WRITE time, so the column itself holds the wrong date.
+    //
+    // The read path is therefore FAITHFUL: it returns what is stored. That is
+    // exactly what this asserts, and it is the contract the Go port must meet
+    // — read and return birth_date; do NOT replicate the write-back setter.
+    const { accession } = await anySampleAccession();
+    const body = await readJson(
+      await request.get(`${BY_LAB_NUMBER}?accessionNumber=${encodeURIComponent(accession)}`),
+      BY_LAB_NUMBER,
+    );
+    test.skip(!("birthDate" in body), "this patient has no birthDate");
+
+    const stored = query(
+      `SELECT extract(epoch FROM birth_date) FROM clinlims.patient WHERE id = '${body.id}'`,
+    )[0][0];
+    test.skip(!stored, "birth_date is null for this patient");
+    expect(body.birthDate, `${BY_LAB_NUMBER} birthDate echoes the stored birth_date`).toBe(
+      Math.round(Number(stored) * 1000),
+    );
+  });
+
+  test("patientByLabNumer: birthTime is TRUNCATED to midnight (time-of-birth is dropped)", async ({
+    request,
+  }) => {
+    // PARITY TRAP for the port. birth_time is `timestamp` in the schema and is
+    // documented as "Time of birth for newborn patients"
+    // (db/dbInit/OpenELIS-Global.sql:3809) — the dev row genuinely stores
+    // 10:00:00. But Patient.hbm.xml:44 maps it as java.sql.Date, so Hibernate
+    // truncates the clock and the API emits midnight.
+    //
+    // A Go port scanning the column into a time.Time and serializing it would
+    // return 10:00:00 and diverge on a field nobody would think to check. This
+    // asserts the truncation explicitly so the port is forced to reproduce it
+    // (or to diverge deliberately and document it).
+    const { accession } = await anySampleAccession();
+    const body = await readJson(
+      await request.get(`${BY_LAB_NUMBER}?accessionNumber=${encodeURIComponent(accession)}`),
+      BY_LAB_NUMBER,
+    );
+    test.skip(!("birthTime" in body), "this patient has no birthTime");
+
+    const raw = query(
+      `SELECT to_char(birth_time, 'HH24:MI:SS') FROM clinlims.patient WHERE id = '${body.id}'`,
+    )[0][0];
+    test.skip(!raw, "birth_time is null for this patient");
+
+    // The API value must land exactly on a UTC midnight...
+    expect(body.birthTime % 86_400_000, `${BY_LAB_NUMBER} birthTime is truncated to midnight`).toBe(0);
+    // ...and this is only a meaningful assertion when the stored row actually
+    // HAS a non-midnight time to lose. Otherwise it proves nothing.
+    if (raw !== "00:00:00") {
+      expect(
+        raw,
+        `stored birth_time (${raw}) has a real clock time that the API drops — truncation confirmed`,
+      ).not.toBe("00:00:00");
     }
   });
 
@@ -408,10 +472,108 @@ test.describe("c1 — patient reads", () => {
     // fixture exists — it is skipped, not silently passing.
     test.skip(
       seen["false"] === "" && seen["true"] === "",
-      "no patient_photo rows in this dataset — the data-URI vs bare-base64 split cannot be exercised",
+      "no patient_photo rows — load src/test/resources/fixtures/patient-media-e2e.sql to exercise this",
     );
     expect(seen["false"], `${PATIENT_PHOTOS}/false must be a data: URI`).toMatch(/^data:[^;]*;base64,/);
     expect(seen["true"], `${PATIENT_PHOTOS}/true must be BARE base64, no data: prefix`).not.toMatch(/^data:/);
+
+    // The two branches must also read DIFFERENT columns (photo_data vs
+    // thumbnail_data). Asserting only the prefix would still pass a port that
+    // returned the full image for both and merely stripped the prefix.
+    const fullPayload = seen["false"].replace(/^data:[^;]*;base64,/, "");
+    expect(seen["true"], `${PATIENT_PHOTOS} thumbnail reads thumbnail_data, not photo_data`).not.toBe(
+      fullPayload,
+    );
+  });
+
+  test("patient-id-documents: item keys, NON_NULL omission, and the deleted filter", async ({ request }) => {
+    const rows = query("SELECT id FROM clinlims.patient ORDER BY id LIMIT 1");
+    const patientId = rows[0][0];
+    const body = await readJson(await request.get(`${ID_DOCUMENTS}/${patientId}`), ID_DOCUMENTS);
+    test.skip(
+      body.length === 0,
+      "no patient_id_document rows — load src/test/resources/fixtures/patient-media-e2e.sql",
+    );
+
+    // The controller hand-picks 5 keys from the entity (document_data and
+    // patient_id are deliberately NOT exposed here — the full blob only comes
+    // from the /full endpoint). Anything else appearing is a leak.
+    for (const doc of body) {
+      expectKeysWithin(
+        doc,
+        ["id", "thumbnail", "category", "description", "lastUpdated"],
+        ["id", "thumbnail", "category"],
+        `${ID_DOCUMENTS} item`,
+      );
+      expect(doc.thumbnail, `${ID_DOCUMENTS} thumbnail is a data: URI`).toMatch(/^data:[^;]*;base64,/);
+      expect("documentData" in doc, `${ID_DOCUMENTS} must not expose the full blob in the list`).toBe(false);
+      expect("patientId" in doc, `${ID_DOCUMENTS} must not echo patientId per item`).toBe(false);
+    }
+
+    // Jackson's NON_NULL is set via setSerializationInclusion, which applies
+    // CONTENT inclusion too — so a null value inside these HashMaps drops the
+    // KEY rather than emitting null. A Go port using a struct with
+    // `json:"description"` (no omitempty) would emit "description": null and
+    // diverge. Requires both a described and an undescribed row to prove.
+    const described = query(
+      `SELECT count(*) FROM clinlims.patient_id_document WHERE patient_id = '${patientId}' AND deleted = false AND description IS NOT NULL`,
+    )[0][0];
+    const undescribed = query(
+      `SELECT count(*) FROM clinlims.patient_id_document WHERE patient_id = '${patientId}' AND deleted = false AND description IS NULL`,
+    )[0][0];
+    if (Number(described) > 0 && Number(undescribed) > 0) {
+      expect(body.filter((d: any) => "description" in d).length, "described rows keep the key").toBe(
+        Number(described),
+      );
+      expect(body.filter((d: any) => !("description" in d)).length, "null description OMITS the key").toBe(
+        Number(undescribed),
+      );
+    }
+
+    // Soft-deleted rows must never surface (DAO filters `deleted = false`).
+    const liveCount = Number(
+      query(
+        `SELECT count(*) FROM clinlims.patient_id_document WHERE patient_id = '${patientId}' AND deleted = false`,
+      )[0][0],
+    );
+    expect(body.length, `${ID_DOCUMENTS} excludes soft-deleted rows`).toBe(liveCount);
+    const deletedIds = query(
+      `SELECT id FROM clinlims.patient_id_document WHERE patient_id = '${patientId}' AND deleted = true`,
+    ).map((r) => Number(r[0]));
+    for (const gone of deletedIds) {
+      expect(body.some((d: any) => d.id === gone), `soft-deleted doc ${gone} must not be listed`).toBe(false);
+    }
+  });
+
+  test("patient-id-documents/{doc}/full: returns that document, and {} for another patient's doc", async ({
+    request,
+  }) => {
+    const rows = query("SELECT id FROM clinlims.patient ORDER BY id LIMIT 1");
+    const patientId = rows[0][0];
+    const mine = query(
+      `SELECT id FROM clinlims.patient_id_document WHERE patient_id = '${patientId}' AND deleted = false ORDER BY id LIMIT 1`,
+    );
+    test.skip(mine.length === 0, "no patient_id_document rows — load patient-media-e2e.sql");
+    const docId = mine[0][0];
+
+    const body = await readJson(await request.get(`${ID_DOCUMENTS}/${patientId}/${docId}/full`), `${ID_DOCUMENTS}/full`);
+    expect(body.data, `${ID_DOCUMENTS}/full returns a data: URI`).toMatch(/^data:[^;]*;base64,/);
+
+    // Cross-patient request: Java scopes the fetch by patientId and then scans
+    // in Java for the docId, so a mismatched pair yields {"data":""} — NOT 403
+    // or 404. Pinned because it is IDOR-shaped: the port must not "improve"
+    // this into a 403 (a behavior change) nor into returning the document (a
+    // real data leak).
+    const others = query(
+      `SELECT id FROM clinlims.patient_id_document WHERE patient_id <> '${patientId}' AND deleted = false ORDER BY id LIMIT 1`,
+    );
+    if (others.length > 0) {
+      const foreign = await readJson(
+        await request.get(`${ID_DOCUMENTS}/${patientId}/${others[0][0]}/full`),
+        `${ID_DOCUMENTS}/full foreign`,
+      );
+      expect(foreign, "another patient's docId yields empty data, not the document").toEqual({ data: "" });
+    }
   });
 
   test("patient-photos: a non-numeric patient id is 200 empty, NOT an error", async ({ request }) => {
