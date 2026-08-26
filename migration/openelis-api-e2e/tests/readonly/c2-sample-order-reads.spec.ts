@@ -157,6 +157,37 @@ test.describe("c2 — sample + order reads", () => {
     }
   });
 
+  test("order/dashboard: pageSize is echoed but IGNORED; externalCount is hardcoded 0", async ({ request }) => {
+    // Three confirmed Java quirks, pinned so the port reproduces them
+    // knowingly rather than "fixing" them into a working pager:
+    //
+    //  1. pageSize is used only to compute the OFFSET. The number of rows
+    //     actually returned comes from the server's page.defaultPageSize
+    //     config, not from the request — so asking for 1 row does not get you
+    //     1 row, while the echoed pageSize still says 1.
+    //  2. externalCount is hardcoded to 0 and never computed.
+    //  3. includeExternal is accepted as a param and never read at all.
+    //
+    // MIGRATION POLICY: these are Java bugs. They are pinned, not fixed.
+    const res = await readJson(await request.get(`${ORDER_DASHBOARD}?pageSize=1`), ORDER_DASHBOARD);
+
+    expect(res.pageSize, "pageSize is echoed back verbatim").toBe(1);
+    // The echoed value and the real row count are allowed to disagree — that
+    // IS the bug. Asserting they agree would encode a fix.
+    expect(Array.isArray(res.orders), "orders is still an array").toBe(true);
+
+    expect(res.externalCount, "externalCount is hardcoded 0, never computed").toBe(0);
+
+    // includeExternal is inert: passing true must not change the response.
+    const withExternal = await readJson(
+      await request.get(`${ORDER_DASHBOARD}?includeExternal=true`),
+      ORDER_DASHBOARD,
+    );
+    const without = await readJson(await request.get(ORDER_DASHBOARD), ORDER_DASHBOARD);
+    expect(withExternal.orders.length, "includeExternal=true is ignored").toBe(without.orders.length);
+    expect(withExternal.externalCount, "includeExternal does not populate externalCount").toBe(0);
+  });
+
   // ── rest/unassigned-sample (the trailing-slash trap) ────────────────────
 
   test("unassigned-sample: bare path works, trailing slash 404s (Spring 6)", async ({ request }) => {
@@ -194,7 +225,7 @@ test.describe("c2 — sample + order reads", () => {
     expect(missing.status(), `${UNASSIGNED}/items/search without accessionNumber`).toBe(400);
   });
 
-  test("unassigned-sample/count-by-facility: {count:n} matching the list length", async ({ request }) => {
+  test("unassigned-sample/count-by-facility: {count:n}, a SUBSET of by-facility", async ({ request }) => {
     const orgs = query("SELECT id FROM clinlims.organization ORDER BY id LIMIT 1");
     test.skip(orgs.length === 0, "no organizations in this dataset");
     const facilityId = orgs[0][0];
@@ -206,14 +237,23 @@ test.describe("c2 — sample + order reads", () => {
     expect(Object.keys(counted), `${UNASSIGNED}/count-by-facility envelope`).toEqual(["count"]);
     expect(typeof counted.count, `${UNASSIGNED}/count-by-facility count is a number`).toBe("number");
 
-    // Cross-check the count against the list endpoint for the same facility —
-    // the two must agree, which no single-endpoint shape assertion can catch.
     const listed = await readJson(
       await request.get(`${UNASSIGNED}/by-facility/${facilityId}`),
       `${UNASSIGNED}/by-facility`,
     );
     expect(Array.isArray(listed), `${UNASSIGNED}/by-facility is an array`).toBe(true);
-    expect(counted.count, "count-by-facility agrees with by-facility length").toBe(listed.length);
+
+    // NOT an equality. countUnassignedSamplesByFacility applies an extra
+    // lost/canceled filter that getUnassignedSamplesByDestinationFacility does
+    // NOT, so the count is legitimately a SUBSET of the list length. An
+    // earlier draft of this test asserted equality; it passed only because
+    // both are 0 in this dataset and would have failed the moment real
+    // referral data existed. The correct, non-vacuous invariant is the
+    // inequality plus the guarantee that count is never negative.
+    expect(counted.count, "count-by-facility never exceeds by-facility length").toBeLessThanOrEqual(
+      listed.length,
+    );
+    expect(counted.count, "count-by-facility is non-negative").toBeGreaterThanOrEqual(0);
   });
 
   test("unassigned-sample/by-facility: a non-numeric facilityId is 400", async ({ request }) => {
