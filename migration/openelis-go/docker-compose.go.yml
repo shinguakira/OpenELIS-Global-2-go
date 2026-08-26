@@ -19,7 +19,13 @@ services:
             dockerfile: Dockerfile
         platform: linux/amd64
         ports:
-            - "8090:8090"
+            # Loopback-only. This service has NO authentication layer yet, and b2
+            # added provider/person endpoints that serve PII (names, addresses,
+            # phone numbers, email). Publishing on 0.0.0.0 would let any host on
+            # the network read it without the session Java requires. The parity
+            # harness runs on the host, so loopback is sufficient; revisit only
+            # when a real auth layer exists (see AGENTS.md security requirements).
+            - "127.0.0.1:8090:8090"
         environment:
             # SAME TZ var the Java webapp uses (docker-compose.yml), so both
             # resolve the same zone id — that is the compatibility being checked.

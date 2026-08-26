@@ -110,9 +110,16 @@ func Routes(mux *http.ServeMux, ctrl *ProviderRestController) {
 	// doc comment) or when no provider is linked to that person.
 	web.Register(mux, "GET", "rest/practitioner", func(w http.ResponseWriter, r *http.Request) {
 		idStr := r.URL.Query().Get("providerId")
+		if idStr == "" {
+			http.Error(w, "providerId is required", http.StatusBadRequest)
+			return
+		}
+		// Distinct message from the missing case: answering "providerId is
+		// required" for ?providerId=abc tells the caller to send a parameter
+		// they already sent.
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			http.Error(w, "providerId is required", http.StatusBadRequest)
+			http.Error(w, "invalid providerId", http.StatusBadRequest)
 			return
 		}
 		dto, err := ctrl.Service.GetPractitionerByPersonID(id)

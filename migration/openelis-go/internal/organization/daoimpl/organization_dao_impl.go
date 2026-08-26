@@ -4,6 +4,8 @@
 package daoimpl
 
 import (
+	"errors"
+
 	"gorm.io/gorm"
 
 	"openelis-go/internal/organization/valueholder"
@@ -38,7 +40,7 @@ func (d *OrganizationDAOImpl) GetAll() ([]valueholder.Organization, error) {
 func (d *OrganizationDAOImpl) GetByID(id int64) (*valueholder.Organization, error) {
 	var org valueholder.Organization
 	result := d.DB.First(&org, "id = ?", id)
-	if result.Error == gorm.ErrRecordNotFound {
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	if result.Error != nil {

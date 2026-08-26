@@ -36,7 +36,12 @@ export default defineConfig({
     //   npx playwright test --project=go-parity   (requires the Go service up)
     {
       name: "go-parity",
-      testMatch: /readonly[\\/](a1-server-time|a2-static-reads|b2-organization|b2-provider)\.spec\.ts/,
+      // Includes one mutating spec on purpose: b2-organization-sitecode
+      // exercises generate-site-code, which consumes a DB sequence, so it
+      // cannot live in tests/readonly/ — but the Go port still needs the
+      // coverage (it pins the UTC-vs-host-local site-code date fix).
+      testMatch:
+        /(readonly[\\/](a1-server-time|a2-static-reads|b2-organization|b2-provider)|mutating[\\/]b2-organization-sitecode)\.spec\.ts/,
       use: {
         baseURL: GO_BASE_URL,
         ignoreHTTPSErrors: true,

@@ -16,6 +16,23 @@ import (
 	"openelis-go/internal/provider/valueholder"
 )
 
+// MaxPageSize bounds the SQL LIMIT for provider/search.
+//
+// Without a ceiling, pageSize is caller-controlled and goes straight to GORM
+// as the limit, so ?pageSize=1000000000 forces a full provider×person scan,
+// an allocation for every row, and an unbounded response body — a
+// resource-exhaustion vector on an endpoint that currently has no
+// authentication in front of it. Bounding to int32 at the controller does not
+// help here: 1000000000 fits in int32 comfortably.
+//
+// This does NOT reintroduce Java's confusing behavior. Java caps rows at the
+// server config value page.defaultPageSize (~20) regardless of what the
+// caller asks for; this port honours the caller's pageSize up to a sane
+// explicit ceiling, which is both safer than no limit and more predictable
+// than Java's hidden one. The echoed pageSize remains the caller's raw value,
+// exactly as Java echoes its raw param.
+const MaxPageSize = 1000
+
 // ProviderService holds no DB handle — all access goes through
 // ProviderDAOImpl (DAO-only-imports-ORM rule).
 type ProviderService struct {
@@ -36,7 +53,13 @@ func (s *ProviderService) GetProviderByID(id int64) (*form.ProviderDTO, error) {
 	if err != nil {
 		return nil, err
 	}
-	var pv valueholder.Person
+	// person should always exist — provider.person_id is NOT NULL with a
+	// MATCH FULL FK (prov_person_fk) — but if the row is ever unreadable
+	// (corruption, a violated FK), seed the fallback with the real PersonID
+	// rather than a bare zero value. Emitting "person":{"id":"0"} while the
+	// provider row plainly references a different id is an internally
+	// inconsistent response that would send a debugger down the wrong path.
+	pv := valueholder.Person{ID: p.PersonID}
 	if person != nil {
 		pv = *person
 	}
@@ -127,6 +150,9 @@ func (s *ProviderService) Search(search, phone string, page, pageSize int) (form
 	}
 	if pageSize < 0 {
 		pageSize = 0
+	}
+	if pageSize > MaxPageSize {
+		pageSize = MaxPageSize
 	}
 	offset := (page - 1) * pageSize
 

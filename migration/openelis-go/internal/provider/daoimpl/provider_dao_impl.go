@@ -4,6 +4,7 @@
 package daoimpl
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 
@@ -28,7 +29,7 @@ type ProviderDAOImpl struct {
 func (d *ProviderDAOImpl) GetProviderByID(id int64) (*valueholder.Provider, error) {
 	var p valueholder.Provider
 	result := d.DB.First(&p, "id = ?", id)
-	if result.Error == gorm.ErrRecordNotFound {
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	if result.Error != nil {
@@ -45,7 +46,7 @@ func (d *ProviderDAOImpl) GetProviderByID(id int64) (*valueholder.Provider, erro
 func (d *ProviderDAOImpl) GetPersonByID(id int64) (*valueholder.Person, error) {
 	var p valueholder.Person
 	result := d.DB.First(&p, "id = ?", id)
-	if result.Error == gorm.ErrRecordNotFound {
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	if result.Error != nil {
