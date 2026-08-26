@@ -143,6 +143,24 @@ test.describe("c3 — result reads (clinical)", () => {
     expect(Array.isArray(body.testResult), `${LOGBOOK} testResult is an array`).toBe(true);
     expect(body.paging, `${LOGBOOK} has paging`).toBeTruthy();
 
+    // HONEST GAP: testResult is [] in this dataset (no validated/released
+    // results seeded), so the assertion above proves only that the key exists
+    // and is a list — it says NOTHING about row shape. Rather than let an
+    // empty array masquerade as coverage, fail loudly if someone later seeds
+    // results and this test still silently skips the row checks.
+    if (body.testResult.length === 0) {
+      test.info().annotations.push({
+        type: "coverage-gap",
+        description:
+          "LogbookResults.testResult is empty — row shape UNVERIFIED. Seed validated results to close this.",
+      });
+    } else {
+      for (const row of body.testResult.slice(0, 10)) {
+        expect(typeof row, `${LOGBOOK} testResult row is an object`).toBe("object");
+        expect(row, `${LOGBOOK} testResult row is not null`).not.toBeNull();
+      }
+    }
+
     // These display* flags drive which columns the results screen renders, so
     // they are part of the contract, not incidental.
     for (const flag of ["displayMethods", "displayTestKit", "displayTestMethod", "displayTestSections"]) {
@@ -157,7 +175,7 @@ test.describe("c3 — result reads (clinical)", () => {
     expect(typeof body.searchFinished, `${ACCESSION_VALIDATION} searchFinished is boolean`).toBe("boolean");
   });
 
-  test("ReferredOutTests: referredOutTestsForm envelope with its selection list", async ({ request }) => {
+  test("ReferredOutTests: selection list rows match real test_section rows (DB oracle)", async ({ request }) => {
     const body = await readJson(await request.get(REFERRED_OUT), REFERRED_OUT);
     // Note the lowercase initial — formName casing is inconsistent across this
     // wave (LogbookResultsForm / ResultValidationForm / WorkplanForm vs
@@ -166,6 +184,33 @@ test.describe("c3 — result reads (clinical)", () => {
     expect(Array.isArray(body.testUnitSelectionList), `${REFERRED_OUT} testUnitSelectionList is an array`).toBe(
       true,
     );
+
+    // This list is genuinely POPULATED in this dataset, so assert against real
+    // rows rather than stopping at Array.isArray — an isArray check would pass
+    // on [] and prove nothing.
+    expect(body.testUnitSelectionList.length, `${REFERRED_OUT} selection list is non-empty`).toBeGreaterThan(0);
+
+    // DB oracle: every {id,value} must correspond to a real test_section row
+    // with a matching name. Comparing the response only to itself would be
+    // circular; this proves the endpoint reads the table it claims to.
+    const sections = new Map(
+      query("SELECT id, name FROM clinlims.test_section").map((r) => [r[0], r[1]]),
+    );
+    for (const row of body.testUnitSelectionList) {
+      expect(sections.has(row.id), `${REFERRED_OUT} id ${row.id} is a real test_section id`).toBe(true);
+      expect(row.value, `${REFERRED_OUT} value for id ${row.id} matches test_section.name`).toBe(
+        sections.get(row.id),
+      );
+    }
+
+    // The endpoint filters — it returns a strict SUBSET of test_section, not
+    // the whole table. Asserted as an inequality (not equality) because the
+    // exact filter is not pinned here; what matters is that a port cannot pass
+    // by dumping every row.
+    expect(
+      body.testUnitSelectionList.length,
+      `${REFERRED_OUT} returns a subset of test_section, not all of it`,
+    ).toBeLessThanOrEqual(sections.size);
   });
 
   // ── accession-results (the one lean read) ───────────────────────────────
@@ -206,12 +251,31 @@ test.describe("c3 — result reads (clinical)", () => {
 
 // ── COVERAGE LIMITS (stated, not hidden) ────────────────────────────────────
 //
-// The dev dataset has analyses in only two statuses (32 rows at status 4, 3 at
-// status 6) and no validated/released results, so the RESULT-BEARING paths of
-// LogbookResults, AccessionValidation and accession-results return empty
-// collections. Their envelopes are pinned; the populated row shapes are not
-// reachable here and need seeded result data — the same kind of gap c1 had for
-// patient media before patient-media-e2e.sql.
+// WHAT IS ACTUALLY VERIFIED AGAINST REAL DATA, and what is not. Written out
+// explicitly because a green run here does NOT mean this wave is fully
+// covered, and an isArray() assertion that passes on [] is not coverage:
+//
+//   VERIFIED against real rows:
+//     - WorkPlanByTest with a real test_id: workplanTests populates, and row
+//       field types (numeric ranges, booleans, formatted receivedDate) are
+//       asserted on actual rows.
+//     - WorkPlanBy* identical-envelope check: compares four real responses
+//       byte-for-byte, so it holds regardless of data volume.
+//     - ReferredOutTests.testUnitSelectionList: every {id,value} is
+//       cross-checked against the real test_section table (DB oracle).
+//     - The test_id-vs-testTypeID param trap: proven by contrasting a
+//       populated response against an ignored-param one.
+//
+//   NOT VERIFIED — envelope only, collections are empty in this dataset:
+//     - LogbookResults.testResult        (no validated/released results)
+//     - accession-results.testResult     (same)
+//     - AccessionValidation payload      (same)
+//     - WorkPlanBy* when unparameterised (empty by design)
+//   For these, only the envelope/key presence is pinned. The ROW shapes are
+//   unverified and will stay so until result data is seeded — the same kind
+//   of gap c1 had for patient media before patient-media-e2e.sql closed it.
+//   The dataset has analyses in only two statuses (32 at status 4, 3 at
+//   status 6) and no released results.
 //
 // These endpoints also accept search/filter params that this file does not
 // exercise. They were left out deliberately rather than guessed at: the param
