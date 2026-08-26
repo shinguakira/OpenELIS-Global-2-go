@@ -123,9 +123,30 @@ test.describe("c2 — sample + order reads", () => {
     // This is a Type-D form load, not a lean read: it carries reference lists
     // (payment options, etc.) alongside the order data. A port must build the
     // whole envelope, not just the sample row.
-    expect(Array.isArray(body.sampleOrderItems.paymentOptions), `${ORDER_SEARCH} paymentOptions is a list`).toBe(
-      true,
+    const options = body.sampleOrderItems.paymentOptions;
+    expect(Array.isArray(options), `${ORDER_SEARCH} paymentOptions is a list`).toBe(true);
+    expect(options.length, `${ORDER_SEARCH} paymentOptions is non-empty`).toBeGreaterThan(0);
+
+    // DB oracle. This list is genuinely populated, so stopping at
+    // Array.isArray would be a test that passes on [] and proves nothing.
+    // Every {id,value} must resolve to a real clinlims.dictionary row whose
+    // dict_entry matches the emitted value — which also pins WHICH column
+    // feeds `value` (dict_entry, not local_abbrev), a detail a port would
+    // otherwise have to guess.
+    const dict = new Map(
+      query(
+        `SELECT id, dict_entry FROM clinlims.dictionary WHERE id IN (${options
+          .map((o: any) => Number(o.id))
+          .filter((n: number) => Number.isFinite(n))
+          .join(",")})`,
+      ).map((r) => [r[0], r[1]]),
     );
+    for (const opt of options) {
+      expect(dict.has(opt.id), `${ORDER_SEARCH} paymentOption id ${opt.id} is a real dictionary row`).toBe(true);
+      expect(opt.value, `${ORDER_SEARCH} paymentOption ${opt.id} value == dictionary.dict_entry`).toBe(
+        dict.get(opt.id),
+      );
+    }
   });
 
   test("order/search: a missing labNumber is rejected with 400", async ({ request }) => {
@@ -155,6 +176,25 @@ test.describe("c2 — sample + order reads", () => {
         expect(typeof order.lastUpdated, `${ORDER_DASHBOARD} lastUpdated is a string, not epoch`).toBe("string");
       }
     }
+
+    // DB oracle. The loop above only checks TYPES; on its own it would pass
+    // even if the endpoint invented labNumbers. Every returned labNumber must
+    // be a real clinlims.sample.accession_number, and the page must be a
+    // strict subset of the table (it is paged — 21 of 32 rows in this
+    // dataset), so a port cannot pass by returning everything or by returning
+    // fabricated rows.
+    const realAccessions = new Set(
+      query("SELECT accession_number FROM clinlims.sample WHERE accession_number IS NOT NULL").map((r) => r[0]),
+    );
+    for (const order of body.orders) {
+      expect(
+        realAccessions.has(order.labNumber),
+        `${ORDER_DASHBOARD} labNumber ${order.labNumber} is a real sample accession`,
+      ).toBe(true);
+    }
+    expect(body.orders.length, `${ORDER_DASHBOARD} returns a paged subset of sample`).toBeLessThanOrEqual(
+      realAccessions.size,
+    );
   });
 
   test("order/dashboard: pageSize is echoed but IGNORED; externalCount is hardcoded 0", async ({ request }) => {
@@ -322,6 +362,32 @@ test.describe("c2 — sample + order reads", () => {
   });
 });
 
+// ── WHAT IS ACTUALLY VERIFIED AGAINST REAL DATA ─────────────────────────────
+//
+// Spelled out because a green run does NOT mean this wave is covered, and an
+// isArray() assertion that passes on [] is not coverage:
+//
+//   VERIFIED against real rows (DB oracle or populated response):
+//     - all-by-accession: rows echo the requested accession, ids are numeric.
+//     - order/search: every paymentOption {id,value} is cross-checked against
+//       clinlims.dictionary (and pins that `value` comes from dict_entry).
+//     - order/dashboard: every labNumber must be a real sample
+//       accession_number, and the page is a strict subset of the table.
+//     - order/dashboard quirks: pageSize-ignored / externalCount-0 /
+//       includeExternal-inert, each proven by contrasting real responses.
+//     - unassigned-by-accession: always-500 proven across three inputs.
+//     - count-by-facility <= by-facility: an inequality that holds on real
+//       data (an earlier draft asserted equality and was WRONG).
+//
+//   ENVELOPE-ONLY — the collection is empty in this dataset, so row shape is
+//   UNVERIFIED:
+//     - unassigned-sample and unassigned-sample/items  (no referral rows)
+//     - unassigned-sample/items/search                 (same)
+//     - order/{accession}/attachments 200 path         (no order_attachment
+//       rows; the 404 path IS verified)
+//   Closing these means seeding referrals and attachments, the same way
+//   src/test/resources/fixtures/patient-media-e2e.sql closed c1's photo gap.
+//
 // ── DELIBERATELY NOT COVERED (and why) ──────────────────────────────────────
 //
 // 1. MUTATING endpoints on the unassigned-sample controller —
