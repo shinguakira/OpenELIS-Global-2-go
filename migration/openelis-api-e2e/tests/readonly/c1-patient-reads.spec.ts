@@ -634,3 +634,34 @@ test.describe("c1 — patient reads", () => {
     }
   });
 });
+
+// ── WHAT IS ACTUALLY VERIFIED AGAINST REAL DATA ─────────────────────────────
+//
+// Stated explicitly so a green run is not mistaken for full coverage. This
+// file is the most heavily DB-oracled of the c1/c2/c3 set (~24 live SQL
+// cross-checks); nothing here asserts against a mock, and no assertion relies
+// on an empty collection to pass.
+//
+//   VERIFIED against real rows:
+//     - patientByLabNumer resolves to the sample's ACTUAL patient (oracle on
+//       sample_human), and birthDate is compared to the stored birth_date
+//       column rather than to the response's own display field.
+//     - birthTime truncation proven against a row that really stores 10:00:00.
+//     - merge/details totalOrders/totalSamples cross-checked against
+//       sample_human and sample_item counts — this is what exposed that the
+//       two field names read backwards from the tables.
+//     - identifiers[] vs totalIdentifiers proven against real
+//       patient_identity + patient_identity_type rows, including the
+//       GUID/AKA/MOTHER/MOTHERS_INITIAL exclusion.
+//     - photo and document behavior proven against seeded rows
+//       (src/test/resources/fixtures/patient-media-e2e.sql): the
+//       data-URI-vs-bare-base64 split, the two branches reading DIFFERENT
+//       columns, NON_NULL key omission for a null description, the
+//       deleted=false filter, and the cross-patient {"data":""} case.
+//
+//   NOT VERIFIED (honest gaps):
+//     - The populated shapes above depend on patient-media-e2e.sql being
+//       loaded. Without it those tests test.skip() WITH A REASON rather than
+//       passing vacuously — check for skips before trusting a green run.
+//     - gpsLatitude/gpsLongitude and several optional Person fields are null
+//       in this dataset, so only their absence-handling is exercised.
