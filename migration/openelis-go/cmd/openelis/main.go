@@ -11,16 +11,16 @@ import (
 
 	"gorm.io/gorm"
 
-	"openelis-go/internal/common/db"
 	commondaoimpl "openelis-go/internal/common/daoimpl"
+	"openelis-go/internal/common/db"
 	"openelis-go/internal/common/i18n"
 	commonrest "openelis-go/internal/common/rest"
 	commonservices "openelis-go/internal/common/services"
 	"openelis-go/internal/common/web"
 
 	// dictionarycategory layers
-	dictcatdaoimpl "openelis-go/internal/dictionarycategory/daoimpl"
 	dictcatrest "openelis-go/internal/dictionarycategory/controller/rest"
+	dictcatdaoimpl "openelis-go/internal/dictionarycategory/daoimpl"
 	dictcatservice "openelis-go/internal/dictionarycategory/service"
 
 	// localization layers (a2)
@@ -31,6 +31,11 @@ import (
 	// panel layers
 	paneldaoimpl "openelis-go/internal/panel/daoimpl"
 	panelservice "openelis-go/internal/panel/service"
+
+	// patient layers (c1)
+	patientrest "openelis-go/internal/patient/controller/rest"
+	patientdaoimpl "openelis-go/internal/patient/daoimpl"
+	patientservice "openelis-go/internal/patient/service"
 
 	// system (a1)
 	systemrest "openelis-go/internal/system/controller/rest"
@@ -46,8 +51,8 @@ import (
 	testcatalogrest "openelis-go/internal/testcatalog/controller/rest"
 
 	// testconfiguration layers (TestCatalog)
-	testconfigdaoimpl "openelis-go/internal/testconfiguration/daoimpl"
 	testconfigrest "openelis-go/internal/testconfiguration/controller/rest"
+	testconfigdaoimpl "openelis-go/internal/testconfiguration/daoimpl"
 	testconfigservice "openelis-go/internal/testconfiguration/service"
 
 	// typeofsample layers
@@ -55,8 +60,8 @@ import (
 	tosservice "openelis-go/internal/typeofsample/service"
 
 	// unitofmeasure layers
-	uomdaoimpl "openelis-go/internal/unitofmeasure/daoimpl"
 	uomrest "openelis-go/internal/unitofmeasure/controller/rest"
+	uomdaoimpl "openelis-go/internal/unitofmeasure/daoimpl"
 	uomservice "openelis-go/internal/unitofmeasure/service"
 )
 
@@ -108,9 +113,14 @@ func main() {
 
 	msgs := i18n.Messages()
 	statusDAO := &commondaoimpl.StatusDAOImpl{DB: gormDB}
-	if statusSvc, err := commonservices.NewStatusService(statusDAO, msgs); err != nil {
+	// Hoisted out of the if/else below because c1's merge/details also needs it
+	// (to resolve the analysis statuses excluded from totalResults). Stays nil
+	// if construction fails, and every consumer must handle that.
+	var statusSvc *commonservices.StatusService
+	if svc, err := commonservices.NewStatusService(statusDAO, msgs); err != nil {
 		log.Printf("WARN: status service init failed (%v); status-type routes disabled", err)
 	} else {
+		statusSvc = svc
 		commonrest.StatusRoutes(mux, statusSvc)
 		log.Printf("DB-backed routes enabled (status-types)")
 	}
@@ -157,6 +167,36 @@ func main() {
 	testconfigrest.Routes(mux, &testconfigrest.TestCatalogRestController{Service: testconfigSvc})
 
 	log.Printf("DB-backed routes enabled (b1: dictionary-categories, uom, test-catalog, TestCatalog)")
+
+	// -----------------------------------------------------------------------
+	// c1: patient reads.
+	//
+	// SECURITY: these serve PHI (names, birth dates, national IDs, addresses,
+	// phones, email) and this service has NO authentication layer. Java gates
+	// all of them on a session, and merge/details additionally on the
+	// "Reception" role. Keep the service bound to loopback until session/RBAC
+	// exists — see migration/openelis-go/docker-compose.go.yml.
+	// -----------------------------------------------------------------------
+	patientDAO := &patientdaoimpl.PatientDAOImpl{DB: gormDB}
+	patientSvc := &patientservice.PatientService{DAO: patientDAO}
+	// merge/details needs the status service to resolve which analysis
+	// statuses are excluded from dataSummary.totalResults, exactly as Java's
+	// countResultsForPatient does via IStatusService. Without it the count
+	// includes every analysis and diverges from Java (measured: 28 vs 0 on the
+	// dev dataset, because every analysis there is "Not Tested" — an excluded
+	// status). statusSvc is a typed nil when construction failed, so pass it
+	// only when non-nil to keep the interface field genuinely nil.
+	patientMergeSvc := &patientservice.PatientMergeService{DAO: patientDAO}
+	if statusSvc != nil {
+		patientMergeSvc.Status = statusSvc
+	} else {
+		log.Printf("WARN: status service unavailable; c1 merge/details totalResults will NOT match Java")
+	}
+	patientrest.Routes(mux, &patientrest.PatientRestController{
+		Service:      patientSvc,
+		MergeService: patientMergeSvc,
+	})
+	log.Printf("DB-backed routes enabled (c1: patient reads — PHI, no auth layer, keep loopback-only)")
 
 	srv := &http.Server{Addr: addr, Handler: mux}
 	log.Printf("openelis-go listening on %s", addr)

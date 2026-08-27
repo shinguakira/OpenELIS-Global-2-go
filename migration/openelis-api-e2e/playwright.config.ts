@@ -36,7 +36,7 @@ export default defineConfig({
     //   npx playwright test --project=go-parity   (requires the Go service up)
     {
       name: "go-parity",
-      testMatch: /readonly[\\/](a1-server-time|a2-static-reads)\.spec\.ts/,
+      testMatch: /readonly[\\/](a1-server-time|a2-static-reads|c1-patient-reads)\.spec\.ts/,
       use: {
         baseURL: GO_BASE_URL,
         ignoreHTTPSErrors: true,
