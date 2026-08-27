@@ -123,8 +123,11 @@ func (g *Guard) ServeProtected(w http.ResponseWriter, r *http.Request, next http
 // `{ "status": 401, "message": "Not Authorized" }`.
 func DenyModule(w http.ResponseWriter, r *http.Request, contextPath string) {
 	if service.IsRestFullPath(contextPath) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Character-Encoding", "UTF-8")
+		// Written by hand rather than marshalled, because Java's own literal
+		// carries interior spaces that json.Marshal would not reproduce.
+		// Content-Type comes from web.ContentTypeJSON so this response cannot
+		// drift from every other JSON response the service emits.
+		w.Header().Set("Content-Type", web.ContentTypeJSON)
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{ "status": 401, "message": "Not Authorized" }`))
 		return

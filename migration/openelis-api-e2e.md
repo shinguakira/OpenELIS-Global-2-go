@@ -81,6 +81,16 @@ OpenELIS analog of `e2e.md` (the OpenMRS plan).
 - **DB oracle:** `docker exec openelisglobal-database psql -U clinlims -d clinlims`
   to assert row state after writes (the write path is the strictest parity check).
 - **Principle — what "parity-verified" actually means, non-negotiable:**
+  - **NO GO UNIT TESTS — every test lives in this suite.** `migration/openelis-go`
+    has zero `*_test.go` files by design. A Go unit test can only assert what
+    its author *thinks* Java does; it has no oracle. This suite's whole value is
+    that Java and Go are checked **against each other**, on the same live
+    request, in the same run. A passing Go unit test therefore proves the port
+    matches an assumption, not the baseline — and makes a wrong assumption look
+    verified, which is worse than leaving it visibly untested. If a behavior has
+    no Java-observable counterpart (internal memory reclamation, a startup
+    config refusal), it gets **fixed and documented as untested**, never given a
+    unit test to make the change feel covered.
   - **No mocking, ever.** Every assertion in this suite runs against the real,
     live Java webapp (authenticated the same way a real client is) and the
     real, live Postgres it's connected to — never a stub, never a fixture

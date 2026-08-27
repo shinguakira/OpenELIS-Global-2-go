@@ -294,3 +294,108 @@ test.describe("p0-authz: the two gates are independent and ordered", () => {
     await ctx.dispose();
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 4. Response encoding on the denial shapes
+// ───────────────────────────────────────────────────────────────────────────
+//
+// Java answers EVERY JSON response with `application/json;charset=UTF-8` —
+// verified live across reads, /session, login success, login failure and both
+// denial shapes above. It emits no separate encoding header, because
+// `response.setCharacterEncoding("UTF-8")` in the servlet API is what produces
+// that charset parameter; it is not a header of its own.
+//
+// The Go port hand-writes the 401 body (it is not JSON-marshalled), and the
+// first cut of that translated setCharacterEncoding into a literal
+// `Character-Encoding: UTF-8` header — which is not an HTTP header at all, so no
+// client or proxy treats it as an encoding declaration, and the charset Java
+// does send was missing. Both halves are asserted here.
+test.describe("p0-authz: denial responses carry Java's encoding", () => {
+  const EXPECTED_CONTENT_TYPE = "application/json;charset=UTF-8";
+
+  /** Normalised for comparison: Java emits no space after the semicolon. */
+  const contentTypeOf = (h: Record<string, string>) =>
+    (h["content-type"] ?? "").replace(/\s+/g, "").toLowerCase();
+
+  test("the 401 module denial", async () => {
+    const ctx = await asFixtureUser(E2E_USERS.reception);
+    const res = await ctx.get(TEST_CATALOG);
+    expect(res.status()).toBe(401);
+    expect(contentTypeOf(res.headers()), "401 content-type").toBe(
+      EXPECTED_CONTENT_TYPE.toLowerCase(),
+    );
+    expect(
+      Object.keys(res.headers()).map((k) => k.toLowerCase()),
+      "no bogus Character-Encoding header",
+    ).not.toContain("character-encoding");
+    await ctx.dispose();
+  });
+
+  test("the 500 admin-gate denial", async () => {
+    const ctx = await asFixtureUser(E2E_USERS.reception);
+    const res = await ctx.get(ADMIN_ONLY[0]);
+    expect(res.status()).toBe(500);
+    expect(contentTypeOf(res.headers()), "500 content-type").toBe(
+      EXPECTED_CONTENT_TYPE.toLowerCase(),
+    );
+    await ctx.dispose();
+  });
+
+  test("an ordinary allowed read", async () => {
+    // Included because the fix belongs in common/web.WriteJSON, which every
+    // ported endpoint shares — so this is where a partial fix (denials only)
+    // would show up.
+    const ctx = await asFixtureUser(E2E_USERS.reception);
+    const res = await ctx.get(UNGATED);
+    expect(res.status()).toBe(200);
+    expect(contentTypeOf(res.headers()), "200 content-type").toBe(
+      EXPECTED_CONTENT_TYPE.toLowerCase(),
+    );
+    await ctx.dispose();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 5. The permissions.agent premise
+// ───────────────────────────────────────────────────────────────────────────
+test.describe("p0-authz: authorization model premise", () => {
+  test("no site_information row switches permissions.agent away from Role", async () => {
+    // Everything in this file assumes Java is running its ROLE authorization
+    // model. The other mode (UserModuleServiceImpl.isVerifyUserModule) reads
+    // system_user_module — modules assigned directly to a user — and matches
+    // them against the action NAME by prefix instead of doing a
+    // system_module_url lookup. It is not ported.
+    //
+    // site_information is the one configuration source Java and Go share:
+    // DefaultConfigurationProperties.loadFromDatabase stores a row whose name is
+    // not a Property enum under its raw name, so a row called
+    // "permissions.agent" WOULD be picked up by
+    // getPropertyValue("permissions.agent").
+    //
+    // LIMIT OF THIS CHECK, stated rather than glossed: the property files under
+    // /var/lib/openelis-global/properties/ outrank site_information on the Java
+    // side and live on the Java container's filesystem, where the Go service
+    // cannot see them. That is why the port also takes OE_PERMISSIONS_AGENT and
+    // refuses to start on anything but Role, rather than relying on this row
+    // being absent.
+    const rows = query(
+      "SELECT value FROM clinlims.site_information WHERE name = 'permissions.agent';",
+    );
+    if (rows.length > 0) {
+      expect(
+        rows[0][0].trim().toLowerCase(),
+        "site_information overrides permissions.agent to an unported model",
+      ).toBe("role");
+    }
+
+    // The other model's table is empty, which is the second half of why
+    // deferring it is safe today.
+    const directAssignments = query(
+      "SELECT count(*) FROM clinlims.system_user_module;",
+    );
+    expect(
+      directAssignments[0][0],
+      "system_user_module holds direct user→module grants (the unported model's data)",
+    ).toBe("0");
+  });
+});

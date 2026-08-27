@@ -10,6 +10,14 @@ import (
 	"sync/atomic"
 )
 
+// ContentTypeJSON is the Content-Type Java sends on every JSON response —
+// verified live across ported reads, /session, login success, login failure and
+// both authorization denial shapes. The charset parameter is what the servlet
+// API's response.setCharacterEncoding("UTF-8") produces; there is no separate
+// encoding header, and inventing one (`Character-Encoding`) declares nothing to
+// any client or proxy.
+const ContentTypeJSON = "application/json;charset=UTF-8"
+
 // WriteJSON writes v as a JSON response — the analog of Spring returning
 // ResponseEntity with produces=APPLICATION_JSON_VALUE.
 //
@@ -17,7 +25,7 @@ import (
 // ">=", "<=", "&&" literally, whereas Go's encoder defaults to ">=" etc.
 // Disabling it keeps the response bytes identical to the Java baseline.
 func WriteJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", ContentTypeJSON)
 	w.WriteHeader(status)
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)

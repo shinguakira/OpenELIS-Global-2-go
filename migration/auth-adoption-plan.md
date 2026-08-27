@@ -19,7 +19,7 @@ rather than quietly editing the original.
 ## 0.1 What shipped, and how it was verified
 
 **Oracles:** `openelis-api-e2e/tests/readonly/p0-auth.spec.ts` (authentication,
-34 tests) and `p0-authz.spec.ts` (authorization, 19 tests). Each runs against
+34 tests) and `p0-authz.spec.ts` (authorization + response encoding, 23 tests). Each runs against
 **both** targets from one file (`api-readonly` → Java, `go-parity` → Go).
 Nothing in either is target-specific except one explicitly skipped test for an
 endpoint that is not ported yet.
@@ -27,11 +27,11 @@ endpoint that is not ported yet.
 | Run | Result |
 | --- | --- |
 | Java (`api-readonly`, p0-auth) | **34 passed** |
-| Java (`api-readonly`, p0-authz) | **19 passed** |
+| Java (`api-readonly`, p0-authz) | **23 passed** |
 | Go (`go-parity`, p0-auth) | **33 passed, 1 skipped** (`rest/open-configuration-properties` is not ported — deferred to the config branch) |
-| Go (`go-parity`, p0-authz) | **19 passed** |
-| Go (`go-parity`, ALL ported units a1/a2/b1/b2 + p0) | **76 passed, 2 skipped** |
-| Java (`api-readonly`, full suite incl. the 500-endpoint auth sweep) | **532 passed** |
+| Go (`go-parity`, p0-authz) | **23 passed** |
+| Go (`go-parity`, ALL ported units a1/a2/b1/b2 + p0) | **80 passed, 2 skipped** |
+| Java (`api-readonly`, full suite incl. the 500-endpoint auth sweep) | **536 passed** |
 | **Inversion** — p0-auth against the pre-auth binary (`migration-base`) | **27 of 33 failed** |
 | **Inversion** — p0-authz against the Phase-1-only binary (`eebef8418`) | **7 of 19 failed** |
 
@@ -89,6 +89,25 @@ Decisions resolved:
   Unreachable in practice — no ported or mapped `url_path` is exactly `/rest`
   or contains `/rest` twice.
 - **§ 9.4 unported chains** — still unported, still out of scope.
+
+**Two fixes here have NO e2e oracle, and are therefore untested. Stated, not
+hidden:**
+
+- **Session reaping.** `GET /session` is public and creates a session on every
+  cookie-less request (Java's `request.getSession()` does the same), so without
+  an active sweep an anonymous caller grows the in-memory store without bound.
+  `MemoryStore.StartReaper` fixes it, mirroring Tomcat's container background
+  process. Nothing about *when memory is reclaimed* is visible over HTTP — both
+  a reaping and a non-reaping server answer an expired id identically — so no
+  Playwright assertion can distinguish them.
+- **The `permissions.agent` startup refusal.** Whether the process exits is not
+  an HTTP-observable property of a running service.
+
+Per [OpenELIS-Go-Migration-Plan.md](OpenELIS-Go-Migration-Plan.md) § 5, neither
+gets a Go unit test to make it *feel* covered: a Go unit test has no Java oracle,
+so it would assert the author's assumption rather than parity. What IS covered
+e2e is the adjacent, Java-verifiable premise — that `site_information` carries no
+`permissions.agent` override and `system_user_module` is empty (p0-authz § 5).
 
 Not addressed here, and still open: § 8.1 (session sharing during strangler
 coexistence) is unchanged — Java and Go still do not share sessions.
@@ -237,6 +256,26 @@ the oracle. The original sections are left intact; read these as amendments.
     makes the auto-allow rule fail for every unmapped endpoint
     (`/organization-list` does not start with `/rest`), denying the entire
     ported surface. Caught here before it shipped.
+
+14. **Java's answer to a CORRUPTED csrf mask is nondeterministic — 302 or 500.**
+    Spring un-masks the submitted value and runs the resulting bytes through
+    `Utf8.decode`. Corrupting one character of a real masked token leaves one
+    token byte arbitrary, so whether the decode succeeds — and therefore whether
+    the request ends in the clean access-denied redirect or an unhandled
+    exception — depends on whether that random byte happens to be valid UTF-8.
+    **Measured live: 7 of 12 runs returned 500, 5 returned 302.**
+
+    Consequence for the oracle: "corrupt a character and assert the response"
+    is asserting a coin toss, and an earlier version of the forged-csrf test did
+    exactly that and flaked (1 in 6). The test now forges a VALID mask of a
+    DIFFERENT ASCII token instead — deterministic on both stacks, and a stronger
+    assertion, because the server has to actually un-mask and COMPARE rather
+    than merely choke on malformed input. Verified stable 20/20 against Java.
+
+    The Go port never 500s on a corrupted mask (it compares strings and denies),
+    so it diverges from Java on that input. Not pinned, for the same reason
+    § 6.4's interceptor race is not pinned: a nondeterministic outcome is not a
+    contract.
 
 ---
 

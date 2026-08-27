@@ -38,3 +38,54 @@ export function unmaskCsrf(masked: string): string | null {
   for (let i = 0; i < n; i++) out[i] = raw[i] ^ raw[n + i];
   return out.toString("utf8");
 }
+
+/** Encode bytes as unpadded base64url, the way Spring emits masked tokens. */
+function b64urlEncode(buf: Buffer): string {
+  return buf
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/**
+ * Mask a raw token the way Spring's XorCsrfTokenRequestAttributeHandler does:
+ *     masked = base64url( random(n) || (token XOR random) ),  n = len(token)
+ *
+ * Needed to forge a token DETERMINISTICALLY. The obvious forgery — corrupt one
+ * character of a real masked value — is not deterministic against Java: the
+ * server un-masks, gets a byte that is now arbitrary, and runs it through
+ * `Utf8.decode`. Whether that byte happens to be valid UTF-8 decides whether
+ * Java answers with its clean access-denied redirect (302) or throws and
+ * answers 500. Measured live: roughly 60% 500, 40% 302 over 12 runs.
+ *
+ * Building a VALID mask of a DIFFERENT-but-still-ASCII token avoids the coin
+ * toss entirely, and tests the stronger property anyway — that the server
+ * really un-masks and compares, rather than merely choking on malformed input.
+ */
+export function maskCsrf(token: string): string {
+  const raw = Buffer.from(token, "utf8");
+  const pad = Buffer.alloc(raw.length);
+  for (let i = 0; i < pad.length; i++) pad[i] = (i * 7 + 13) % 256; // deterministic
+  const xored = Buffer.alloc(raw.length);
+  for (let i = 0; i < raw.length; i++) xored[i] = raw[i] ^ pad[i];
+  return b64urlEncode(Buffer.concat([pad, xored]));
+}
+
+/**
+ * Return a token of the SAME length that is still printable ASCII but is not
+ * `token` — a well-formed credential belonging to nobody.
+ */
+export function differentAsciiToken(token: string): string {
+  const chars = [...token];
+  // Rotate the first alphanumeric character within a safe ASCII range. Both
+  // targets' tokens are ASCII (Java: a UUID, Go: base64url), so the result
+  // stays valid UTF-8 and the server reaches its compare step.
+  for (let i = 0; i < chars.length; i++) {
+    if (/[0-9a-y]/.test(chars[i])) {
+      chars[i] = String.fromCharCode(chars[i].charCodeAt(0) + 1);
+      return chars.join("");
+    }
+  }
+  throw new Error(`cannot derive a different token from ${JSON.stringify(token)}`);
+}

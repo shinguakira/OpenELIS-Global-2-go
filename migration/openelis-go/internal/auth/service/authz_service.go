@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -26,17 +27,59 @@ type AuthzService struct {
 	ModuleDAO *daoimpl.ModuleDAOImpl
 }
 
-// PermissionsAgentRole reflects `permissions.agent=Role` in
-// SystemConfiguration.properties — verified as the effective value (there is no
-// site_information override row in the dev DB).
+// PermissionsAgentRole is the only `permissions.agent` mode this port
+// implements. It is the effective value on the dev stack and the WAR default in
+// SystemConfiguration.properties.
 //
 // In Role mode the permitted-module set comes from
-// system_user_role → system_role_module; `system_user_module` is never
-// consulted (and is empty). The other mode (`isVerifyUserModule`) is not ported;
-// if a deployment ever sets permissions.agent to something else, this port
-// would silently apply the wrong rule — hence the constant, so the assumption
-// is greppable.
+// system_user_role → system_role_module. The OTHER mode
+// (UserModuleServiceImpl.isVerifyUserModule) reads `system_user_module` —
+// modules assigned DIRECTLY to a user — and matches them against the action NAME
+// by prefix instead of doing a system_module_url lookup. Different logic, not a
+// variation, and not ported.
 const PermissionsAgentRole = "Role"
+
+// EffectivePermissionsAgent resolves which authorization model to run and
+// REFUSES anything this port does not implement, so a misconfigured deployment
+// fails at startup instead of silently applying the wrong rules — granting
+// access Java denies, or denying access Java grants, with nothing to flag it.
+//
+// Resolution, highest precedence first:
+//
+//  1. `env` — the OE_PERMISSIONS_AGENT environment variable.
+//  2. `dbOverride` — a `site_information` row named "permissions.agent".
+//     DefaultConfigurationProperties.loadFromDatabase stores rows whose name is
+//     not a Property enum under their raw name, so such a row really would be
+//     picked up by Java's getPropertyValue("permissions.agent").
+//  3. PermissionsAgentRole, the WAR default.
+//
+// WHY AN ENV VAR IS NEEDED AT ALL — the honest limit of this check. On the Java
+// side the files under /var/lib/openelis-global/properties/ OUTRANK
+// site_information (DefaultConfigurationProperties.init: the change-value file
+// is copied in "prefer source", i.e. it overwrites). Those files live on the
+// Java container's filesystem, which the Go service cannot read. So the DB row
+// is the only shared source, and checking it alone would be a partial check
+// dressed up as a complete one. The env var is the operator's way to tell the
+// port what Java actually resolved.
+func EffectivePermissionsAgent(env, dbOverride string) (string, error) {
+	agent := strings.TrimSpace(env)
+	if agent == "" {
+		agent = strings.TrimSpace(dbOverride)
+	}
+	if agent == "" {
+		return PermissionsAgentRole, nil
+	}
+	// Java compares with equalsIgnoreCase, so a deployment spelling it "ROLE"
+	// is configured correctly and must start.
+	if !strings.EqualFold(agent, PermissionsAgentRole) {
+		return "", fmt.Errorf(
+			"permissions.agent is %q, but this service only implements the %q model;"+
+				" the other model (system_user_module direct assignment) is not ported."+
+				" Refusing to start rather than applying the wrong authorization rules",
+			agent, PermissionsAgentRole)
+	}
+	return PermissionsAgentRole, nil
+}
 
 // HasPermission mirrors ModuleAuthenticationInterceptor.hasPermission for
 // permissions.agent=Role:

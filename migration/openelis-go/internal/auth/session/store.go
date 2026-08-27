@@ -162,3 +162,58 @@ func (s *MemoryStore) Delete(id string) {
 	defer s.mu.Unlock()
 	delete(s.sessions, id)
 }
+
+// DefaultReapInterval is how often StartReaper sweeps. Tomcat's equivalent
+// (StandardEngine's backgroundProcessorDelay, which drives
+// StandardManager.processExpires) defaults to 10s; the exact cadence is not
+// observable contract, so this trades a little promptness for far fewer wakeups.
+const DefaultReapInterval = time.Minute
+
+// StartReaper sweeps expired sessions on a timer and returns a function that
+// stops it. Calling the returned function more than once is safe.
+//
+// This is NOT an optimisation, it is a fix for an unauthenticated memory-growth
+// bug. GET /session is public and creates a session on every cookie-less
+// request — Java's request.getSession() does the same, which is why an anonymous
+// caller receives a sessionId at all. Without a sweep, an entry is only ever
+// removed when that exact id is presented again, so a client that drops its
+// cookie (or a caller looping the endpoint) leaves entries behind forever.
+//
+// Java does not have the problem because Tomcat's container background process
+// expires sessions independently of any request. This is the port's equivalent.
+func (s *MemoryStore) StartReaper(interval time.Duration) func() {
+	if interval <= 0 {
+		interval = DefaultReapInterval
+	}
+	done := make(chan struct{})
+	var once sync.Once
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case now := <-ticker.C:
+				s.reapExpired(now)
+			}
+		}
+	}()
+	return func() { once.Do(func() { close(done) }) }
+}
+
+// reapExpired removes every session whose deadline has passed as of `now` and
+// returns how many were removed. Taking the instant as a parameter keeps it
+// deterministically testable without sleeping.
+func (s *MemoryStore) reapExpired(now time.Time) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	removed := 0
+	for id, e := range s.sessions {
+		if now.After(e.expires) {
+			delete(s.sessions, id)
+			removed++
+		}
+	}
+	return removed
+}

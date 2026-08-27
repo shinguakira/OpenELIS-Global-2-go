@@ -41,7 +41,7 @@ import {
   LOGIN_PASS_FIELD,
   SESSION_PATH,
 } from "../../fixtures/contract";
-import { unmaskCsrf } from "../../fixtures/csrf";
+import { unmaskCsrf, maskCsrf, differentAsciiToken } from "../../fixtures/csrf";
 import { query } from "../../fixtures/db";
 import { readJson, expectNonEmptyString } from "../../fixtures/assert";
 
@@ -596,11 +596,28 @@ test.describe("p0-auth: logout and csrf enforcement", () => {
   test("POST Logout with a forged csrf token is refused", async () => {
     const [ctx, csrf] = await authedCtxWithCsrf();
 
-    // Structurally valid (same length, same alphabet, un-maskable) but not this
-    // session's token. A port that only checks the header is PRESENT, or that
-    // compares the masked strings, passes the previous test and fails this one.
-    const forged = csrf.replace(/[A-Za-z]/, (c) => (c === "a" ? "b" : "a"));
-    expect(forged, "forged token really differs").not.toBe(csrf);
+    // A WELL-FORMED mask of a token that simply is not this session's. Built
+    // rather than corrupted, and the distinction matters:
+    //
+    // Corrupting a character of the real masked value leaves the server
+    // un-masking to an arbitrary byte, which Spring then runs through
+    // Utf8.decode — so whether Java answers with its access-denied redirect
+    // (302) or throws and answers 500 depends on whether that random byte
+    // happens to be valid UTF-8. Measured live at roughly 60/40. That is a coin
+    // toss, not a contract, and an earlier version of this test asserted one
+    // side of it and flaked.
+    //
+    // Forging a valid mask of a different ASCII token removes the
+    // nondeterminism AND tests the stronger property: the server must actually
+    // un-mask and COMPARE. A port that checks only that the header is present,
+    // or that compares the masked strings directly, passes the previous test
+    // and fails this one.
+    const real = unmaskCsrf(csrf);
+    expect(real, "the session's csrf un-masks").not.toBeNull();
+    const forged = maskCsrf(differentAsciiToken(real!));
+    expect(unmaskCsrf(forged), "forged token carries a different value").not.toBe(
+      real,
+    );
 
     const res = await ctx.post("Logout", {
       maxRedirects: 0,

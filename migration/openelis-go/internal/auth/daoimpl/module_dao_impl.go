@@ -65,3 +65,27 @@ func (d *ModuleDAOImpl) ModuleURLsForPath(urlPath string) ([]valueholder.SystemM
 	}
 	return rows, nil
 }
+
+// PermissionsAgentOverride reads a `site_information` row named
+// "permissions.agent", if one exists.
+//
+// This is the one configuration source Java and Go share. It is NOT the whole
+// picture — see service.EffectivePermissionsAgent for why the property files on
+// the Java container outrank it and why an env var exists as well.
+//
+// Returns ("", false, nil) when no row is present, which is the normal case:
+// the WAR's SystemConfiguration.properties default then applies.
+func (d *ModuleDAOImpl) PermissionsAgentOverride() (string, bool, error) {
+	var values []string
+	err := d.DB.
+		Table("clinlims.site_information").
+		Where("name = ?", "permissions.agent").
+		Pluck("value", &values).Error
+	if err != nil {
+		return "", false, err
+	}
+	if len(values) == 0 {
+		return "", false, nil
+	}
+	return values[0], true, nil
+}

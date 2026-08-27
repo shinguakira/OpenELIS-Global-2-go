@@ -136,12 +136,34 @@ func main() {
 	// securityMatcher and ends in anyRequest().authenticated().
 	// -----------------------------------------------------------------------
 	sessionStore := authsession.NewMemoryStore()
+	// Expire sessions on a timer, independently of any request. GET /session is
+	// public and creates a session on every cookie-less call, so without this an
+	// anonymous caller grows the store without bound. Tomcat does the same via
+	// its container background process; the port is not free to skip it.
+	stopReaper := sessionStore.StartReaper(authsession.DefaultReapInterval)
+	defer stopReaper()
+
 	authModuleDAO := &authdaoimpl.ModuleDAOImpl{DB: gormDB}
 	authSvc := &authservice.AuthService{
 		LoginDAO:  &authdaoimpl.LoginDAOImpl{DB: gormDB},
 		RoleDAO:   &authdaoimpl.RoleDAOImpl{DB: gormDB},
 		ModuleDAO: authModuleDAO,
 	}
+
+	// Refuse to start under an authorization model this service does not
+	// implement, rather than silently applying the Role rules to a deployment
+	// Java would evaluate differently. See EffectivePermissionsAgent for the
+	// resolution order and for why the DB row alone is not a complete check.
+	agentOverride, _, err := authModuleDAO.PermissionsAgentOverride()
+	if err != nil {
+		log.Fatalf("cannot read the permissions.agent configuration: %v", err)
+	}
+	agent, err := authservice.EffectivePermissionsAgent(os.Getenv("OE_PERMISSIONS_AGENT"), agentOverride)
+	if err != nil {
+		log.Fatalf("SECURITY: %v", err)
+	}
+	log.Printf("authorization model: permissions.agent=%s", agent)
+
 	// AuthzService ports ModuleAuthenticationInterceptor. It is wired into the
 	// Guard rather than onto individual routes because Java registers that
 	// interceptor on /** — so a future ported endpoint that HAS a
