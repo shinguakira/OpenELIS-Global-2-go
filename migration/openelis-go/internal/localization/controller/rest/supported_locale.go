@@ -19,7 +19,13 @@ import (
 // must match literal /fallback before the /{id} pattern (as Spring does).
 func Routes(mux *http.ServeMux, svc *service.SupportedLocaleService) {
 	web.Register(mux, "GET", "rest/supportedlocales", allLocales(svc))
-	web.Register(mux, "GET", "rest/supportedlocales/active", activeLocales(svc))
+	// ANONYMOUS by Java's rule: "/rest/supportedlocales/active" is listed in
+	// SecurityConfig.OPEN_PAGES. Its siblings are NOT — the whitelist matches
+	// the exact path, so /rest/supportedlocales (no /active) and /fallback both
+	// require authentication like any other endpoint. The Go port served all
+	// three anonymously until P0 auth landed; p0-auth.spec.ts pins the pair so
+	// the distinction cannot silently regress.
+	web.RegisterOpen(mux, "GET", "rest/supportedlocales/active", activeLocales(svc))
 	web.Register(mux, "GET", "rest/supportedlocales/fallback", fallbackLocale(svc))
 }
 

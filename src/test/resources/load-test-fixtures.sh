@@ -26,6 +26,7 @@ ANALYZER_MINIMAL_SQL_FILE="$SCRIPT_DIR/analyzer-minimal.sql"
 FILE_IMPORT_E2E_SQL="$SCRIPT_DIR/fixtures/file-import-e2e.sql"
 ANALYZER_HARNESS_LANE_SQL_FILE="$SCRIPT_DIR/fixtures/analyzer-harness-lane-data.sql"
 STORAGE_IN_PROGRESS_ORDER_SQL="$SCRIPT_DIR/fixtures/storage-in-progress-order.sql"
+AUTH_E2E_SQL="$SCRIPT_DIR/fixtures/auth-e2e.sql"
 RESET_SCRIPT="$SCRIPT_DIR/reset-test-database.sh"
 
 RESET=false
@@ -347,6 +348,13 @@ load_profile_fixtures() {
     # testdata/storage-e2e.xml (patient id 1000). Do not also load it from
     # a separate SQL fixture — the external_id/national_id columns are
     # unique and a duplicate insert would conflict.
+
+    # Auth/authz parity users (reserved ids 9900-9999). Independent of profile:
+    # the dev DB ships only `admin` (is_admin=Y), which bypasses every module
+    # check, so both lanes need the non-admin / locked / disabled / expired rows.
+    if [ -f "$AUTH_E2E_SQL" ]; then
+        load_sql_file "$AUTH_E2E_SQL" "auth-e2e.sql (parity login users, ids 9900-9999)" "fatal"
+    fi
 
     # Analyzer cleanup/deactivation is part of both lanes today.
     if [ -f "$FILE_IMPORT_E2E_SQL" ]; then

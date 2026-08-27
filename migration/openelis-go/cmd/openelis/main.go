@@ -11,6 +11,13 @@ import (
 
 	"gorm.io/gorm"
 
+	// auth layers (P0 Foundations)
+	authrest "openelis-go/internal/auth/controller/rest"
+	authdaoimpl "openelis-go/internal/auth/daoimpl"
+	authmiddleware "openelis-go/internal/auth/middleware"
+	authservice "openelis-go/internal/auth/service"
+	authsession "openelis-go/internal/auth/session"
+
 	commondaoimpl "openelis-go/internal/common/daoimpl"
 	"openelis-go/internal/common/db"
 	"openelis-go/internal/common/i18n"
@@ -79,6 +86,10 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	// ANONYMOUS by Java's rule: "/health/**" is listed in
+	// SecurityConfig.OPEN_PAGES. Registered straight on the mux (not through
+	// web.Register) because it is not a /rest path and needs no context-path
+	// alias.
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		web.WriteJSON(w, http.StatusOK, map[string]string{"status": "UP"})
 	})
@@ -109,6 +120,33 @@ func main() {
 		log.Printf("DB not ready (attempt %d/%d): %v — retrying in %s", i, maxAttempts, err, retryDelay)
 		time.Sleep(retryDelay)
 	}
+
+	// -----------------------------------------------------------------------
+	// P0 Foundations: authentication.
+	//
+	// This block must run before the service starts listening, and its failure
+	// must be fatal: web.Register is DEFAULT-DENY and refuses every protected
+	// route until a Protector is installed, so a process that reached
+	// ListenAndServe without this would serve nothing but 500s. Failing loudly
+	// here is the point — the alternative (degrading to anonymous access) is
+	// how PHI leaks.
+	//
+	// See migration/auth-adoption-plan.md. Java's equivalent is
+	// SecurityConfig.defaultSecurityConfigurationFilterChain, which has no
+	// securityMatcher and ends in anyRequest().authenticated().
+	// -----------------------------------------------------------------------
+	sessionStore := authsession.NewMemoryStore()
+	authSvc := &authservice.AuthService{
+		LoginDAO: &authdaoimpl.LoginDAOImpl{DB: gormDB},
+		RoleDAO:  &authdaoimpl.RoleDAOImpl{DB: gormDB},
+	}
+	web.UseProtector(&authmiddleware.Guard{Store: sessionStore})
+	authrest.Routes(mux, &authrest.LoginRestController{
+		Service: authSvc,
+		Store:   sessionStore,
+	})
+	log.Printf("auth enabled: default-deny on every registered route " +
+		"(POST ValidateLogin, GET session, POST Logout are open per Java LOGIN_PAGES)")
 
 	// a2: rest/supportedlocales{,/active,/fallback}
 	svc := &localizationservice.SupportedLocaleService{
