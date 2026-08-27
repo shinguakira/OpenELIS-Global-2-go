@@ -84,6 +84,52 @@ async function anySampleAccession(): Promise<{ accession: string; patientId: str
 }
 
 test.describe("c1 — patient reads", () => {
+  // ── Fixture premises ────────────────────────────────────────────────────
+  // Several tests below guard themselves with `test.skip` when their fixture
+  // rows are missing — the honest thing to do locally, but it means a suite
+  // that stops loading the fixture goes GREEN while exercising nothing.
+  //
+  // That is not hypothetical: patient-media-e2e.sql was never referenced by
+  // load-test-fixtures.sh, so in CI four c1 tests silently took their skip
+  // branch. This test is what makes that failure loud. If it fails, run
+  //   ./src/test/resources/load-test-fixtures.sh --profile=core
+  // and check that the loader still calls the fixture.
+  test("the patient-media fixture is loaded (otherwise later skips hide real gaps)", async () => {
+    expect(
+      Number(query("SELECT count(*) FROM clinlims.patient_photo WHERE id BETWEEN 9900000 AND 9900099")[0][0]),
+      "patient_photo rows — populated-media paths depend on these",
+    ).toBeGreaterThan(0);
+
+    const docs = Number(
+      query("SELECT count(*) FROM clinlims.patient_id_document WHERE id BETWEEN 9900000 AND 9900099")[0][0],
+    );
+    expect(docs, "patient_id_document rows").toBeGreaterThan(0);
+
+    // The specific shapes later tests need, not just "some rows": a
+    // soft-deleted row, a null-description row, and a row owned by a DIFFERENT
+    // patient. Each backs one assertion that would otherwise skip.
+    expect(
+      Number(query("SELECT count(*) FROM clinlims.patient_id_document WHERE deleted = true")[0][0]),
+      "a soft-deleted document — the deleted-filter test needs it",
+    ).toBeGreaterThan(0);
+    expect(
+      Number(
+        query("SELECT count(*) FROM clinlims.patient_id_document WHERE description IS NULL AND deleted = false")[0][0],
+      ),
+      "a null-description document — the NON_NULL omission test needs it",
+    ).toBeGreaterThan(0);
+    expect(
+      Number(query("SELECT count(DISTINCT patient_id) FROM clinlims.patient_id_document WHERE deleted = false")[0][0]),
+      "documents on at least two patients — the cross-patient lookup test needs it",
+    ).toBeGreaterThan(1);
+
+    // The patient-less sample, which backs patientByLabNumer's second 404.
+    expect(
+      Number(query("SELECT count(*) FROM clinlims.sample WHERE accession_number = 'E2E-NOPAT-01'")[0][0]),
+      "the patient-less sample — the second 404 path needs it",
+    ).toBe(1);
+  });
+
   // ── 1. rest/patientByLabNumer ───────────────────────────────────────────
   // Lives on SampleEditRestController, NOT a patient controller — and the
   // query param is `accessionNumber`, not `labNumber` as the endpoint name
