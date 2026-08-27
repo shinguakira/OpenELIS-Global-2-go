@@ -30,8 +30,8 @@ target**, so the substitution for each layer is explicit before any porting.
 | Web / routing    | **Spring Framework 6.2.17** MVC (traditional, **not** Boot)                         | stdlib `net/http` (`ServeMux`, method routing); `chi`/`echo` only if needed                                                                    | Controllers → handlers. No Spring context.                            |
 | Security / auth  | **Spring Security 6.2.8**                                                           | custom middleware + `context.Context` principal                                                                                                | Port role/rolemodule privilege checks explicitly.                     |
 | DI / wiring      | Spring IoC container                                                                | plain constructor wiring in `main`                                                                                                             | No annotations; wire dependencies by hand.                            |
-| ORM              | **Hibernate 5.6.15.Final** (+ validator 8.0.2, search 6.1.8)                        | **none** — `jackc/pgx` v5 + `sqlc` (explicit SQL)                                                                                              | **Biggest shift.** No lazy loading; queries are written.              |
-| DB driver        | **PostgreSQL JDBC 42.7.11**                                                         | `jackc/pgx` v5                                                                                                                                 | Same wire protocol.                                                   |
+| ORM              | **Hibernate 5.6.15.Final** (+ validator 8.0.2, search 6.1.8)                        | **GORM** (`gorm.io/gorm` + `gorm.io/driver/postgres`) — adopted starting b1, decision + rationale in [orm-adoption-plan.md](orm-adoption-plan.md) | **Superseded plan.** Originally proposed as raw `pgx`+`sqlc`; switched to GORM (de facto Go standard, ~37k stars) before b1 shipped — see the plan doc for why. Still explicit-query style (explicit `Select`/`Joins`/`Where` + `Find`/`First`; `Raw().Scan()` only where there is no valueholder to scan into, e.g. a bare `nextval`), so the "no Hibernate-style lazy loading" shift below is unaffected. |
+| DB driver        | **PostgreSQL JDBC 42.7.11**                                                         | `jackc/pgx` v5 (used directly in `cmd/loadbaseline`'s `COPY` path; everywhere else it's underneath GORM's postgres driver, not called directly) | Same wire protocol.                                                   |
 | Database         | **PostgreSQL 14+**                                                                  | **PostgreSQL 14+ (unchanged)**                                                                                                                 | Schema kept as-is; both apps share it during coexistence.             |
 | Schema migration | **Liquibase 4.8.0** (993 changesets / 277 files)                                    | **Liquibase kept** during coexistence; later `goose` (extraction + tooling done, see [liquibase-to-goose-plan.md](liquibase-to-goose-plan.md)) | Liquibase stays the single schema owner until Java retires.           |
 | FHIR             | **HAPI FHIR 7.0.2** (structures-r4, server, client, base) + `org.hl7.fhir.r4` 6.9.4 | **facade to HAPI server** (kept) or a Go FHIR lib                                                                                              | Do **not** hand-roll FHIR R4 (plan D5).                               |
@@ -39,7 +39,7 @@ target**, so the substitution for each layer is explicit before any porting.
 | JSON             | **Jackson 2.18.6** (+ hibernate5, jdk8, jsr310, csv)                                | stdlib `encoding/json`                                                                                                                         | Match field names/shapes exactly for parity.                          |
 | Reports / PDF    | **JasperReports 6.15.0**                                                            | **stays Java** initially; Go PDF lib later                                                                                                     | PDF byte-parity is hard; assert on data, not bytes (taxonomy Type G). |
 | XML binding      | **Castor 1.4.1**                                                                    | stdlib `encoding/xml` (only where still needed)                                                                                                | Mostly legacy; port only if the path survives.                        |
-| Logging          | **Log4j 2.17.1**                                                                    | stdlib `log/slog`                                                                                                                              | Structured logging.                                                   |
+| Logging          | **Log4j 2.17.1**                                                                    | **`go.uber.org/zap`**, exposed via the stdlib `log/slog` interface (`zapslog` adapter) — decision + rationale in [logging-adoption-plan.md](logging-adoption-plan.md) | **Superseded plan.** Originally proposed as plain stdlib `slog`; switched to zap-under-slog once `LoggingController.java`'s runtime level-switching (`zap.AtomicLevel` ships a free HTTP handler for exactly this; plain `slog` doesn't) became a concrete goal. Not yet implemented — current code still uses plain stdlib `log`. |
 | Build            | **Maven**                                                                           | `go build` / `go test`                                                                                                                         | No plugin/lifecycle machinery.                                        |
 | Unit test        | JUnit + **Testcontainers 1.19.8**                                                   | stdlib `testing` + table tests; Testcontainers-go if needed                                                                                    | Port high-value rule tests (validation, ranges).                      |
 | Parity / e2e     | Playwright 1.58 (API + UI)                                                          | **same suite, unchanged**                                                                                                                      | The language-neutral parity oracle (`openelis-api-e2e`).              |
@@ -62,13 +62,20 @@ talking to the same endpoints; only what serves them changes.
 
 ## 4. The three shifts that matter most
 
-1. **Hibernate ORM → explicit SQL (`pgx`/`sqlc`).** Java walks object graphs
-   lazily; Go loads exactly what each query specifies. This is where behavior
+1. **Hibernate ORM → GORM, explicit-query style.** Java walks object graphs
+   lazily (`sample.getSampleItems().getAnalyses()...`, fetched on access); Go
+   loads exactly what each query specifies (`db.Raw(...).Scan(&result)` — see
+   [orm-adoption-plan.md](orm-adoption-plan.md)). This is where behavior
    silently diverges — every service method's touched object graph must be
-   mapped deliberately. (See plan §4.)
+   mapped deliberately, and where Java's lazy-loading timing itself turns out
+   to matter (e.g. a `lazy="true"` collection serializing as `null` once the
+   session closes — a real, confirmed case in
+   [b2-org-provider-migration.md](b2-org-provider-migration.md) §3.2 #8).
+   (See plan §4.)
 2. **Spring context → plain wiring.** No IoC/DI, no annotations, no
-   `@Transactional` magic. Transaction boundaries become explicit `pgx.Tx`
-   scopes; auth checks become explicit middleware.
+   `@Transactional` magic. Transaction boundaries become explicit
+   `db.Transaction(func(tx *gorm.DB) error {...})` scopes (GORM, not raw
+   `pgx.Tx` — see item 1); auth checks become explicit middleware.
 3. **JVM/Tomcat/WAR → native binary.** No servlet container, no JSP, no warm-up.
    This is the operational payoff (startup, memory, image size) — quantified in
    [baseline-performance.md](baseline-performance.md).

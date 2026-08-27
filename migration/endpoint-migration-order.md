@@ -54,6 +54,18 @@ endpoints. `server-time` is the recommended very first endpoint.
 **Exit:** Go service live behind proxy; 14 routes flipped; parity green; rollback
 (flip line back) rehearsed at least once.
 
+### Ops / infrastructure endpoints — outside the wave sequence
+
+Not domain data, don't gate or get gated by anything downstream, so they
+don't fit the dependency-driven wave numbering above. Tracked here instead
+of inside a wave so they aren't invisible to planning (a real gap this repo
+had until it was noticed — see `logging-adoption-plan.md`).
+
+| Endpoint | M | Status | Note |
+|---|---|---|---|
+| `health` | GET | **done** (Go, `cmd/openelis/main.go`) | Placeholder only — `{"status":"UP"}`, not a port of Java's `/health/odoo` (Odoo-billing connectivity check). |
+| `rest/logging`, `rest/logging/stream`, `rest/logging/test` | GET | **not started** — library decision made (zap, [logging-adoption-plan.md](logging-adoption-plan.md)), port itself not yet begun or scheduled | Admin-only. Runtime log-level switch + SSE live tail + test-line emitter. Not blocking anything; port only if/when worth the effort — see that doc's "not yet decided" note. |
+
 ---
 
 ## Wave 1 — Reference data: Dictionary + Test Catalog (reads)

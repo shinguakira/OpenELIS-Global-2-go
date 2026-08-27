@@ -207,30 +207,82 @@ fields, accession/uniqueness) before moving on.
 - **Accession numbering & sequences.** Order/accession generation has
   concurrency and format rules driven by site configuration — build the config
   plumbing early (Foundations).
+- **Controller URL mapping — a class-level `@RequestMapping` prefix is easy to
+  miss and easy to get wrong from memory.** Spring controllers commonly
+  declare `@RequestMapping("/rest")` (or similar) once at the class level;
+  every `@GetMapping`/`@PostMapping` in that file is relative to it — the
+  method-level annotation alone does not tell you the real path. **Real,
+  confirmed incident**: the b2 wave registered 3 Go routes
+  (`Provider/raw/{id}`, `Provider/Person/{id}`, `provider/search`) without
+  the `/rest` prefix `ProviderRestController` actually requires — copied from
+  a wrong path listing in `openelis-api-e2e.md` itself (now fixed) — and
+  every one of them 404'd on every real call until caught by live-testing
+  against Java directly (source review and unit-level Go testing both missed
+  it; only a live side-by-side request against the real Java server
+  surfaced it). See `b2-org-provider-migration.md` §3.1. **Before registering
+  any Go route for any future wave**: grep the target Java controller file
+  for its class-level `@RequestMapping` yourself — do not trust a prior
+  wave's doc, a remembered path, or a method-level annotation in isolation.
+  Also affects: server timezone assumptions (see `time.Now()` vs
+  `time.Now().UTC()` in the same doc, §3.1 #7) — anything derived from "how
+  Java behaves" needs to be read from Java's actual source or observed live,
+  never assumed.
 
 ---
 
 ## 5. Parity & testing strategy — reuse this workspace's e2e harness
 
-The `e2e/` folder in this workspace is a **language-neutral, black-box
-Playwright (API-mode) parity oracle**, currently scaffolded for the OpenMRS REST
-contract (`e2e.md`). **Extend the same pattern to OpenELIS:**
+`migration/openelis-api-e2e/` is the **language-neutral, black-box Playwright
+(API-mode) parity oracle** for this migration (plan: `openelis-api-e2e.md`;
+the OpenMRS analog was the original template, `e2e.md`, now superseded for
+OpenELIS by this dedicated suite — it is **not** empty, it's the active,
+growing gate: 479 tests as of the b2 wave). **What "parity-verified" requires
+— non-negotiable, see `openelis-api-e2e.md`'s Principle section for the full
+version with the incident that motivated it:**
 
-- **Golden-master / parity harness.** Seed a Postgres DB (the OpenELIS DB image
-  / test fixtures under `src/test/resources/testdata/`); run the same request
-  against Java and Go; assert identical JSON (REST + FHIR) or identical DB state
-  (writes). Primary gate.
-- **Author the OpenELIS parity suite** (the `e2e/tests/` dir is empty today —
-  see §E2E status). Target both the **FHIR R4 API** (port 8081) and the
-  React-facing **REST controllers** (`/api/OpenELIS-Global`).
-- **Port high-value unit tests.** Result validation, reference-range limits,
-  accession formatting, identifier rules translate to Go table tests — cheap and
-  they encode the rules.
+- **No mocking, ever.** Every assertion runs against the real, live Java
+  webapp and the real, live Postgres it's connected to. A Go endpoint checked
+  only in isolation, or against assumed/remembered Java behavior, is a guess,
+  not a verification — say so plainly if that's all that's been done for a
+  given endpoint, don't call it "verified."
+- **Assert real field-by-field response data, not just HTTP status.** `200`
+  proves reachability, nothing about correctness.
+- **Mine the target controller's own JUnit test first**
+  (`*RestControllerTest.java`, `openelis-api-e2e.md` §16) before writing any
+  Go — it's the fastest path to Java's real URL, request shape, and edge
+  cases, and skipping it has already let a real bug (b2's wrong route
+  prefix, `b2-org-provider-migration.md` §3.1) go undetected past
+  implementation and into a "looks done" state.
+- **Golden-master / parity harness.** Same live request against Java and Go;
+  assert identical JSON (REST + FHIR) or identical DB state (writes). Primary
+  gate — see `go-parity` project in `playwright.config.ts`; a spec isn't
+  "parity-verified" until it's matched by that project's `testMatch` *and*
+  has actually been run and passed there, not merely written.
+- Target both the **FHIR R4 API** and the React-facing **REST controllers**
+  (`/api/OpenELIS-Global`).
+- **NO GO UNIT TESTS. Every test in this migration is an e2e test.** This
+  supersedes an earlier version of this bullet, which said to "port high-value
+  unit tests … to Go table tests." That was wrong and it has already misled
+  work: `migration/openelis-go` contains **zero** `*_test.go` files, and that is
+  the intended state, not a gap to fill.
+
+  **Why:** a Go unit test asserts what the person writing it *believes* Java
+  does. It has no oracle. The entire value of this migration's test suite is
+  that **Java and Go are checked against each other**, on the same live request,
+  in the same run — which only an e2e test in
+  `migration/openelis-api-e2e/` can do. A green Go unit test proves the port
+  matches its author's assumption; it proves nothing about parity, and it makes
+  a wrong assumption look verified. That is worse than no test.
+
+  Consequence to accept, not work around: **a behavior with no Java-observable
+  counterpart gets no test.** Internal-only concerns (memory reclamation,
+  startup configuration refusal) are fixed and *documented as untested*, never
+  given a Go unit test to make the change feel covered.
 - **Keep the existing Playwright suite** (42 specs in `frontend/playwright`)
   running against the strangler proxy as a full-stack regression net during
   coexistence.
-- Wire CI (`e2e-playwright.yml`) to run parity + Go unit tests per context as it
-  lands.
+- Wire CI (`e2e-playwright.yml`) to run the parity projects per context as it
+  lands — `api-readonly` (Java) and `go-parity` (Go) over the same specs.
 
 ---
 

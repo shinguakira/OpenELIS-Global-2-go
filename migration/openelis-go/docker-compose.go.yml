@@ -19,7 +19,20 @@ services:
             dockerfile: Dockerfile
         platform: linux/amd64
         ports:
-            - "8090:8090"
+            # Loopback-only — but the REASON changed with P0 auth, so do not
+            # read this as "unauthenticated service, do not expose".
+            #
+            # The service now enforces authentication on every registered route
+            # (common/web.Register is default-deny) and the c1 patient endpoints
+            # that serve PHI are gated exactly as Java gates them, merge/details'
+            # Reception role included. What is still missing is SESSION SHARING:
+            # Java and Go each keep sessions in their own process memory, so a
+            # user authenticated against one is anonymous to the other
+            # (auth-adoption-plan.md §8.1). Until that is resolved the strangler
+            # proxy cannot route real traffic here, which is what loopback
+            # enforces. The parity harness runs on the host, so loopback is
+            # sufficient for it.
+            - "127.0.0.1:8090:8090"
         environment:
             # SAME TZ var the Java webapp uses (docker-compose.yml), so both
             # resolve the same zone id — that is the compatibility being checked.

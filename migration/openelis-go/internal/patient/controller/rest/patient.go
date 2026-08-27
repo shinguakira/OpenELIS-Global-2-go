@@ -17,11 +17,24 @@
 //
 // ── SECURITY NOTE ──────────────────────────────────────────────────────────
 // These endpoints return PHI: names, birth dates, national IDs, addresses,
-// phone numbers, email. Java requires an authenticated session for all of
-// them, and additionally requires the "Reception" role for merge/details.
-// THIS PORT HAS NO AUTH LAYER, so it serves them to anyone who can reach the
-// port. That is why the Go service is bound to loopback in
-// docker-compose.go.yml. Do not expose it until a session/RBAC layer exists.
+// phone numbers, email. Two gates apply, both measured against live Java:
+//
+//		endpoint                          anon   authed, no Reception   Reception
+//		patientByLabNumer                 302    200                    200
+//		patient/merge/details/{id}        302    403 (bodiless)         200
+//		patient-id-documents/{id}         302    200                    200
+//		patient-photos/{id}/{isThumbnail} 302    200                    200
+//
+//	 1. Authentication, for all of them. Nothing extra is needed here: every
+//	    route below goes through web.Register, which is DEFAULT-DENY since P0
+//	    auth landed, so an unauthenticated caller gets the same 302 to
+//	    /LoginPage Java sends, carrying no body.
+//	 2. The "Reception" role, for merge/details only — declared at that route.
+//
+// Neither gate is the module system: none of these paths has a
+// system_module_url row (checked directly, not assumed), so
+// ModuleAuthenticationInterceptor auto-allows them, and none of the owning
+// Java controllers carries an @PreAuthorize.
 package rest
 
 import (
@@ -30,6 +43,7 @@ import (
 	"strconv"
 	"strings"
 
+	authmw "openelis-go/internal/auth/middleware"
 	"openelis-go/internal/common/web"
 	"openelis-go/internal/patient/service"
 )
@@ -78,23 +92,36 @@ func Routes(mux *http.ServeMux, ctrl *PatientRestController) {
 	//                         usertype; a Java bug, pinned not fixed)
 	//   numeric but absent -> 404
 	//   found              -> 200
-	web.Register(mux, "GET", "rest/patient/merge/details/{patientId}", func(w http.ResponseWriter, r *http.Request) {
-		dto, err := ctrl.MergeService.GetMergeDetails(r.PathValue("patientId"))
-		if err != nil {
-			var malformed service.ErrMalformedID
-			if errors.As(err, &malformed) {
+	// RECEPTION-GATED. Java checks it in the handler itself
+	// (PatientMergeRestController.hasMergePermission ->
+	// userRoleService.userInRole(userId, Constants.ROLE_RECEPTION)) and returns
+	// ResponseEntity.status(FORBIDDEN).build() — a BODILESS 403.
+	//
+	// There is deliberately NO admin bypass. That check calls userInRole
+	// directly; the `|| isUserAdmin(...)` fallback lives only in
+	// ModuleAuthenticationInterceptor, which governs the separate module system.
+	// Verified live: `is_admin='Y'` with no roles gets 403, and so does the
+	// Global Administrator role — only Reception opens it. A port that "helpfully"
+	// let admins through would diverge on both.
+	web.Register(mux, "GET", "rest/patient/merge/details/{patientId}", authmw.RequireRole(
+		"Reception",
+		func(w http.ResponseWriter, r *http.Request) {
+			dto, err := ctrl.MergeService.GetMergeDetails(r.PathValue("patientId"))
+			if err != nil {
+				var malformed service.ErrMalformedID
+				if errors.As(err, &malformed) {
+					http.Error(w, "internal error", http.StatusInternalServerError)
+					return
+				}
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		if dto == nil {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		web.WriteJSON(w, http.StatusOK, dto)
-	})
+			if dto == nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			web.WriteJSON(w, http.StatusOK, dto)
+		}))
 
 	// GET rest/patient-id-documents/{patientId} — mirrors
 	// PatientManagementRestController.getIdDocuments.

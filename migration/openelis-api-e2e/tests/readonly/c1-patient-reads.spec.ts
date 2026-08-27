@@ -3,9 +3,7 @@
 // Taxonomy Type C/D, Wave 3, branch migration/c1-patient-reads. Written
 // BEFORE the Go implementation on purpose: this file captures what Java
 // actually does, so the port has an executable specification to satisfy
-// rather than a description to interpret. It is deliberately NOT yet in
-// playwright.config.ts's `go-parity` testMatch — there is no Go
-// implementation to run it against. Add it there as c1 lands.
+// rather than a description to interpret. It now runs under `go-parity` too.
 //
 // Every expectation below was captured from the LIVE Java server (authed,
 // against the dev Postgres), not derived from reading source. Where source
@@ -20,14 +18,37 @@
 //      from a prior response. A spec file is not a place to check in a
 //      patient's national ID.
 //   2. The auth boundary is a first-class assertion here, not an
-//      afterthought — see the "unauthenticated" test. Java answers 302
-//      (redirect to login) for these; a Go port that serves them anonymously
-//      would be a PHI leak, and the current Go service has no auth layer at
-//      all (that is why it is bound to loopback — see
-//      migration/openelis-go/docker-compose.go.yml).
-import { test, expect } from "@playwright/test";
+//      afterthought — see the "authorization" section at the bottom. This is
+//      the wave P0 auth existed for: before it, the Go service served every
+//      one of these endpoints to any anonymous caller, and the boundary test
+//      was `test.skip`ped against go-parity for exactly that reason. That skip
+//      is gone, which was the stated definition of done for
+//      auth-adoption-plan.md's Phase 1.
+import { test, expect, request as apiRequest, type APIRequestContext } from "@playwright/test";
 import { readJson, expectKeysWithin, expectNonEmptyString } from "../../fixtures/assert";
 import { query } from "../../fixtures/db";
+import { E2E_PASS, E2E_USERS, E2E_AUTHZ_USERS } from "../../fixtures/env";
+import {
+  LOGIN_PATH,
+  LOGIN_USER_FIELD,
+  LOGIN_PASS_FIELD,
+  SESSION_PATH,
+} from "../../fixtures/contract";
+
+/** Log in as a fixture user and return that context. */
+async function loginAs(user: string): Promise<APIRequestContext> {
+  const ctx = await apiRequest.newContext({
+    baseURL: test.info().project.use.baseURL,
+    ignoreHTTPSErrors: true,
+    storageState: { cookies: [], origins: [] },
+  });
+  await ctx.get(SESSION_PATH);
+  const res = await ctx.post(LOGIN_PATH, {
+    form: { [LOGIN_USER_FIELD]: user, [LOGIN_PASS_FIELD]: E2E_PASS },
+  });
+  expect(res.status(), `login as ${user}`).toBe(200);
+  return ctx;
+}
 
 const BY_LAB_NUMBER = "rest/patientByLabNumer"; // typo is Java's, not ours
 const MERGE_DETAILS = "rest/patient/merge/details";
@@ -599,32 +620,16 @@ test.describe("c1 — patient reads", () => {
 
   // ── Cross-cutting: the PHI auth boundary ────────────────────────────────
 
-  test("all c1 endpoints refuse anonymous access (PHI boundary)", async ({ playwright }, testInfo) => {
-    // KNOWN, DELIBERATE GAP — skipped against the Go port ONLY.
+  test("all c1 endpoints refuse anonymous access (PHI boundary)", async () => {
+    // THE test this whole wave waited on. Until P0 auth landed this was
+    // `test.skip`ped against go-parity, because the Go service had no auth
+    // layer and served every one of these endpoints to anyone who could reach
+    // the port. Removing that skip was the stated definition of done for
+    // auth-adoption-plan.md Phase 1.
     //
-    // Java gates every one of these on an authenticated session (302 to
-    // login), and merge/details additionally on the "Reception" role. The Go
-    // port has NO session or RBAC layer at all — it is an unauthenticated
-    // read service — so it serves this PHI to anyone who can reach the port.
-    // This test genuinely FAILS against Go, which is the correct signal.
-    //
-    // It is skipped rather than left red because the gap is architectural and
-    // already tracked: c1 cannot close it without a session layer, which is
-    // its own unit of work. Two things keep this honest in the meantime:
-    //   1. The test still RUNS against Java (api-readonly), so the Java-side
-    //      boundary stays verified and any regression there is caught.
-    //   2. The Go service is bound to 127.0.0.1 in docker-compose.go.yml
-    //      precisely because of this, and main.go logs the warning on boot.
-    // DELETE this skip the moment auth lands — do not let it become permanent.
-    test.skip(
-      testInfo.project.name === "go-parity",
-      "Go port has no auth layer yet; it serves this PHI anonymously. Tracked — service is loopback-bound. Remove this skip when session/RBAC lands.",
-    );
-
     // A dedicated context with NO stored auth state — the rest of this suite
-    // runs authenticated, so without this the auth boundary is never actually
-    // exercised for these endpoints.
-    const anon = await playwright.request.newContext({
+    // runs authenticated, so without this the boundary is never exercised.
+    const anon = await apiRequest.newContext({
       baseURL: test.info().project.use.baseURL,
       ignoreHTTPSErrors: true,
       storageState: { cookies: [], origins: [] },
@@ -642,17 +647,99 @@ test.describe("c1 — patient reads", () => {
         `${PATIENT_PHOTOS}/${patientId}/true`,
       ]) {
         const res = await anon.get(path, { maxRedirects: 0 });
-        // Java answers 302 → login. The invariant that matters is "not a
-        // successful PHI-bearing 200", so accept any non-2xx and assert no
-        // patient data came back.
-        expect(res.status(), `anonymous ${path} must not succeed`).not.toBe(200);
+        // Java's Spring Security entry point: 302 to <context>/LoginPage,
+        // measured on all five. Asserted unfollowed — following the redirect
+        // lands on Tomcat's login JSP, which a Go port has no reason to serve,
+        // so "302 to /LoginPage carrying nothing" is the language-neutral
+        // contract and "the body looks like the login page" is not.
+        expect(res.status(), `anonymous ${path} must be refused`).toBe(302);
+        expect(
+          res.headers()["location"] ?? "",
+          `anonymous ${path} redirect target`,
+        ).toMatch(/\/LoginPage$/);
+
         const text = await res.text();
+        expect(text, `anonymous ${path} must be bodiless`).toBe("");
         expect(text, `anonymous ${path} must not leak a patient id`).not.toContain(`"patientId"`);
         expect(text, `anonymous ${path} must not leak a nationalId`).not.toContain(`"nationalId"`);
       }
     } finally {
       await anon.dispose();
     }
+  });
+
+  // ── Cross-cutting: the Reception role gate on merge/details ──────────────
+  //
+  // merge/details is the ONE c1 endpoint with a gate beyond authentication.
+  // Java checks it in the handler
+  // (PatientMergeRestController.hasMergePermission ->
+  // userRoleService.userInRole(userId, Constants.ROLE_RECEPTION)) and returns
+  // ResponseEntity.status(FORBIDDEN).build() — a BODILESS 403.
+  //
+  // The other four endpoints are authentication-only: no system_module_url row
+  // (so the module interceptor auto-allows them) and no @PreAuthorize on any of
+  // the owning controllers. Both checked directly against the running stack,
+  // not assumed.
+  test.describe("c1 authorization: merge/details requires Reception", () => {
+    const patientId = () =>
+      query("SELECT id FROM clinlims.patient ORDER BY id LIMIT 1")[0][0];
+
+    test("a user WITH Reception gets the merge details", async () => {
+      const ctx = await loginAs(E2E_USERS.reception);
+      const body = await readJson(
+        await ctx.get(`${MERGE_DETAILS}/${patientId()}`),
+        `${MERGE_DETAILS} as Reception`,
+      );
+      expect(Object.keys(body).length, "merge details returns real content").toBeGreaterThan(0);
+      await ctx.dispose();
+    });
+
+    test("an authenticated user WITHOUT Reception gets a bodiless 403", async () => {
+      const ctx = await loginAs(E2E_USERS.noRoles);
+      const res = await ctx.get(`${MERGE_DETAILS}/${patientId()}`);
+      expect(res.status(), "no-Reception merge/details status").toBe(403);
+      expect(await res.text(), "403 is bodiless").toBe("");
+      await ctx.dispose();
+    });
+
+    // The two below are what stop a port from "helpfully" letting admins
+    // through. hasMergePermission calls userInRole DIRECTLY — the
+    // `|| isUserAdmin(...)` fallback exists only in
+    // ModuleAuthenticationInterceptor, a different mechanism. Both verified
+    // live against Java: 403, not 200.
+    test("login_user.is_admin='Y' does NOT bypass the Reception gate", async () => {
+      const ctx = await loginAs(E2E_AUTHZ_USERS.isAdmin);
+      const res = await ctx.get(`${MERGE_DETAILS}/${patientId()}`);
+      expect(res.status(), "is_admin merge/details status").toBe(403);
+      expect(await res.text(), "403 is bodiless").toBe("");
+      await ctx.dispose();
+    });
+
+    test("the Global Administrator role does NOT bypass the Reception gate", async () => {
+      const ctx = await loginAs(E2E_AUTHZ_USERS.globalAdmin);
+      const res = await ctx.get(`${MERGE_DETAILS}/${patientId()}`);
+      expect(res.status(), "Global Administrator merge/details status").toBe(403);
+      expect(await res.text(), "403 is bodiless").toBe("");
+      await ctx.dispose();
+    });
+
+    test("the other four c1 endpoints need only authentication", async () => {
+      // Same no-roles user that is refused merge/details reads all of these —
+      // proving the 403 above is the Reception gate specifically, not a blanket
+      // denial of low-privilege users.
+      const ctx = await loginAs(E2E_USERS.noRoles);
+      const { accession } = await anySampleAccession();
+      const id = patientId();
+      for (const path of [
+        `${BY_LAB_NUMBER}?accessionNumber=${encodeURIComponent(accession)}`,
+        `${ID_DOCUMENTS}/${id}`,
+        `${PATIENT_PHOTOS}/${id}/true`,
+      ]) {
+        const res = await ctx.get(path);
+        expect(res.status(), `no-roles user reads ${path}`).toBe(200);
+      }
+      await ctx.dispose();
+    });
   });
 });
 

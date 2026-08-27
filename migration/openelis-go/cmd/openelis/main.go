@@ -11,6 +11,13 @@ import (
 
 	"gorm.io/gorm"
 
+	// auth layers (P0 Foundations)
+	authrest "openelis-go/internal/auth/controller/rest"
+	authdaoimpl "openelis-go/internal/auth/daoimpl"
+	authmiddleware "openelis-go/internal/auth/middleware"
+	authservice "openelis-go/internal/auth/service"
+	authsession "openelis-go/internal/auth/session"
+
 	commondaoimpl "openelis-go/internal/common/daoimpl"
 	"openelis-go/internal/common/db"
 	"openelis-go/internal/common/i18n"
@@ -28,6 +35,11 @@ import (
 	localizationdao "openelis-go/internal/localization/daoimpl"
 	localizationservice "openelis-go/internal/localization/service"
 
+	// organization layers (b2)
+	orgrest "openelis-go/internal/organization/controller/rest"
+	orgdaoimpl "openelis-go/internal/organization/daoimpl"
+	orgservice "openelis-go/internal/organization/service"
+
 	// panel layers
 	paneldaoimpl "openelis-go/internal/panel/daoimpl"
 	panelservice "openelis-go/internal/panel/service"
@@ -36,6 +48,11 @@ import (
 	patientrest "openelis-go/internal/patient/controller/rest"
 	patientdaoimpl "openelis-go/internal/patient/daoimpl"
 	patientservice "openelis-go/internal/patient/service"
+
+	// provider layers (b2)
+	providerrest "openelis-go/internal/provider/controller/rest"
+	providerdaoimpl "openelis-go/internal/provider/daoimpl"
+	providerservice "openelis-go/internal/provider/service"
 
 	// system (a1)
 	systemrest "openelis-go/internal/system/controller/rest"
@@ -49,6 +66,7 @@ import (
 
 	// testcatalog editor controller
 	testcatalogrest "openelis-go/internal/testcatalog/controller/rest"
+	testcatalogservice "openelis-go/internal/testcatalog/service"
 
 	// testconfiguration layers (TestCatalog)
 	testconfigrest "openelis-go/internal/testconfiguration/controller/rest"
@@ -73,6 +91,10 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	// ANONYMOUS by Java's rule: "/health/**" is listed in
+	// SecurityConfig.OPEN_PAGES. Registered straight on the mux (not through
+	// web.Register) because it is not a /rest path and needs no context-path
+	// alias.
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		web.WriteJSON(w, http.StatusOK, map[string]string{"status": "UP"})
 	})
@@ -103,6 +125,62 @@ func main() {
 		log.Printf("DB not ready (attempt %d/%d): %v — retrying in %s", i, maxAttempts, err, retryDelay)
 		time.Sleep(retryDelay)
 	}
+
+	// -----------------------------------------------------------------------
+	// P0 Foundations: authentication.
+	//
+	// This block must run before the service starts listening, and its failure
+	// must be fatal: web.Register is DEFAULT-DENY and refuses every protected
+	// route until a Protector is installed, so a process that reached
+	// ListenAndServe without this would serve nothing but 500s. Failing loudly
+	// here is the point — the alternative (degrading to anonymous access) is
+	// how PHI leaks.
+	//
+	// See migration/auth-adoption-plan.md. Java's equivalent is
+	// SecurityConfig.defaultSecurityConfigurationFilterChain, which has no
+	// securityMatcher and ends in anyRequest().authenticated().
+	// -----------------------------------------------------------------------
+	sessionStore := authsession.NewMemoryStore()
+	// Expire sessions on a timer, independently of any request. GET /session is
+	// public and creates a session on every cookie-less call, so without this an
+	// anonymous caller grows the store without bound. Tomcat does the same via
+	// its container background process; the port is not free to skip it.
+	stopReaper := sessionStore.StartReaper(authsession.DefaultReapInterval)
+	defer stopReaper()
+
+	authModuleDAO := &authdaoimpl.ModuleDAOImpl{DB: gormDB}
+	authSvc := &authservice.AuthService{
+		LoginDAO:  &authdaoimpl.LoginDAOImpl{DB: gormDB},
+		RoleDAO:   &authdaoimpl.RoleDAOImpl{DB: gormDB},
+		ModuleDAO: authModuleDAO,
+	}
+
+	// Refuse to start under an authorization model this service does not
+	// implement, rather than silently applying the Role rules to a deployment
+	// Java would evaluate differently. See EffectivePermissionsAgent for the
+	// resolution order and for why the DB row alone is not a complete check.
+	agentOverride, _, err := authModuleDAO.PermissionsAgentOverride()
+	if err != nil {
+		log.Fatalf("cannot read the permissions.agent configuration: %v", err)
+	}
+	agent, err := authservice.EffectivePermissionsAgent(os.Getenv("OE_PERMISSIONS_AGENT"), agentOverride)
+	if err != nil {
+		log.Fatalf("SECURITY: %v", err)
+	}
+	log.Printf("authorization model: permissions.agent=%s", agent)
+
+	// AuthzService ports ModuleAuthenticationInterceptor. It is wired into the
+	// Guard rather than onto individual routes because Java registers that
+	// interceptor on /** — so a future ported endpoint that HAS a
+	// system_module_url row gets checked without anyone remembering to.
+	authzSvc := &authservice.AuthzService{ModuleDAO: authModuleDAO}
+	web.UseProtector(&authmiddleware.Guard{Store: sessionStore, Authz: authzSvc})
+	authrest.Routes(mux, &authrest.LoginRestController{
+		Service: authSvc,
+		Store:   sessionStore,
+	})
+	log.Printf("auth enabled: default-deny on every registered route " +
+		"(POST ValidateLogin, GET session, POST Logout are open per Java LOGIN_PAGES)")
 
 	// a2: rest/supportedlocales{,/active,/fallback}
 	svc := &localizationservice.SupportedLocaleService{
@@ -154,12 +232,15 @@ func main() {
 	panelDAO := &paneldaoimpl.PanelDAOImpl{DB: gormDB}
 	panelSvc := &panelservice.PanelService{DAO: panelDAO}
 
-	// testcatalog editor (lab-units, sample-types, panels)
-	testcatalogrest.Routes(mux, &testcatalogrest.TestCatalogEditorRestController{
+	// testcatalog editor (lab-units, sample-types, panels) — aggregates the
+	// three services above; see internal/testcatalog/service for why this is
+	// its own service layer rather than the controller calling them directly.
+	testcatalogEditorSvc := &testcatalogservice.TestCatalogEditorService{
 		TestSectionService:  testSectionSvc,
 		TypeOfSampleService: tosSvc,
 		PanelService:        panelSvc,
-	})
+	}
+	testcatalogrest.Routes(mux, &testcatalogrest.TestCatalogEditorRestController{Service: testcatalogEditorSvc})
 
 	// testconfiguration: TestCatalog (full catalog read)
 	testconfigDAO := &testconfigdaoimpl.TestCatalogDAOImpl{DB: gormDB}
@@ -169,13 +250,35 @@ func main() {
 	log.Printf("DB-backed routes enabled (b1: dictionary-categories, uom, test-catalog, TestCatalog)")
 
 	// -----------------------------------------------------------------------
-	// c1: patient reads.
+	// b2: organization + provider reference reads.
+	// -----------------------------------------------------------------------
+
+	// organization
+	orgDAO := &orgdaoimpl.OrganizationDAOImpl{DB: gormDB}
+	orgSvc := &orgservice.OrganizationService{DAO: orgDAO}
+	orgrest.Routes(mux, &orgrest.OrganizationRestController{Service: orgSvc})
+
+	// provider
+	providerDAO := &providerdaoimpl.ProviderDAOImpl{DB: gormDB}
+	providerSvc := &providerservice.ProviderService{DAO: providerDAO}
+	providerrest.Routes(mux, &providerrest.ProviderRestController{Service: providerSvc})
+
+	log.Printf("DB-backed routes enabled (b2: organization, provider)")
+
+	// -----------------------------------------------------------------------
+	// c1: patient reads — the first wave that serves PHI (names, birth dates,
+	// national IDs, addresses, phones, email).
 	//
-	// SECURITY: these serve PHI (names, birth dates, national IDs, addresses,
-	// phones, email) and this service has NO authentication layer. Java gates
-	// all of them on a session, and merge/details additionally on the
-	// "Reception" role. Keep the service bound to loopback until session/RBAC
-	// exists — see migration/openelis-go/docker-compose.go.yml.
+	// These are protected by construction: every route below goes through
+	// web.Register, which is DEFAULT-DENY since P0 auth landed, so an
+	// unauthenticated caller gets Java's 302 to /LoginPage and no data. The
+	// additional "Reception" role gate Java applies to merge/details is
+	// declared at the route itself — see internal/patient/controller/rest.
+	//
+	// The service nonetheless stays bound to loopback in docker-compose.go.yml:
+	// that is now about session sharing during strangler coexistence
+	// (auth-adoption-plan.md §8.1 — Java and Go do not share sessions), not
+	// about the absence of an auth layer.
 	// -----------------------------------------------------------------------
 	patientDAO := &patientdaoimpl.PatientDAOImpl{DB: gormDB}
 	patientSvc := &patientservice.PatientService{DAO: patientDAO}
@@ -196,7 +299,7 @@ func main() {
 		Service:      patientSvc,
 		MergeService: patientMergeSvc,
 	})
-	log.Printf("DB-backed routes enabled (c1: patient reads — PHI, no auth layer, keep loopback-only)")
+	log.Printf("DB-backed routes enabled (c1: patient reads — PHI, authenticated; merge/details additionally requires the Reception role)")
 
 	srv := &http.Server{Addr: addr, Handler: mux}
 	log.Printf("openelis-go listening on %s", addr)
