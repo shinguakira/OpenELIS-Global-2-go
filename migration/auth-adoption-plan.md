@@ -30,8 +30,8 @@ endpoint that is not ported yet.
 | Java (`api-readonly`, p0-authz) | **23 passed** |
 | Go (`go-parity`, p0-auth) | **33 passed, 1 skipped** (`rest/open-configuration-properties` is not ported — deferred to the config branch) |
 | Go (`go-parity`, p0-authz) | **23 passed** |
-| Go (`go-parity`, ALL ported units a1/a2/b1/b2 + p0) | **80 passed, 2 skipped** |
-| Java (`api-readonly`, full suite incl. the 500-endpoint auth sweep) | **536 passed** |
+| Go (`go-parity`, ALL ported units a1/a2/b1/b2/**c1** + p0) | **104 passed, 2 skipped** |
+| Java (`api-readonly`, full suite incl. the 500-endpoint auth sweep) | **560 passed** |
 | **Inversion** — p0-auth against the pre-auth binary (`migration-base`) | **27 of 33 failed** |
 | **Inversion** — p0-authz against the Phase-1-only binary (`eebef8418`) | **7 of 19 failed** |
 
@@ -628,7 +628,25 @@ Go, **the two will not share a session** — see § 8.
 
 Each phase is independently shippable and independently verifiable.
 
-### Phase 1 — Authentication (unblocks c1) — **DONE** (see § 0.1)
+### Phase 1 — Authentication (unblocks c1) — **DONE**, and c1 is now on it
+
+The exit criterion this section defines — *"delete the `test.skip` in the c1
+PHI-boundary test"* — is met. `migration/c1-patient-reads` merged
+`migration-base` and the skip is gone; `c1-patient-reads.spec.ts` now runs under
+`go-parity` with all five PHI endpoints asserted to answer an anonymous caller
+with a bodiless 302 to `/LoginPage`, plus the Reception gate on `merge/details`
+(bodiless 403, with no admin bypass — `is_admin='Y'` and the Global
+Administrator role are both refused, verified on both stacks). See § 0.1 for the
+counts.
+
+That merge also caught a Phase-1 gap the earlier assertions were too loose to
+notice: Go's `http.Redirect` helper appends its own `<a href="…">Found</a>.`
+body, where Java sends `Content-Length: 0` on every one of these redirects.
+`session.Redirect` now writes the header directly, and the p0-auth boundary
+tests were tightened from "the body does not look like JSON" to "the body is
+empty".
+
+(see § 0.1)
 **Goal: delete the `test.skip` in the c1 PHI-boundary test.**
 
 1. `internal/auth/valueholder` + `daoimpl`: load `login_user` by `login_name`;

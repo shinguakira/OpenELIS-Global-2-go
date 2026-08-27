@@ -34,12 +34,20 @@ func InContext(r *http.Request) bool {
 // Redirect sends the same 302 Java sends, resolved against whichever prefix the
 // request came in on. `target` is context-relative and starts with "/", e.g.
 // "/LoginPage".
+//
+// Deliberately NOT http.Redirect: for a GET whose client accepts HTML, that
+// helper appends a short `<a href="…">Found</a>.` body. Java sends
+// Content-Length: 0 on every one of these — measured on the anonymous-access
+// redirect, the csrf-less logout denial and the successful logout alike — and
+// on a PHI endpoint "the refusal carries no body" is worth being exact about.
+// Writing the header directly keeps the response byte-identical.
 func Redirect(w http.ResponseWriter, r *http.Request, target string) {
 	prefix := ""
 	if InContext(r) {
 		prefix = ContextPath
 	}
-	http.Redirect(w, r, prefix+target, http.StatusFound)
+	w.Header().Set("Location", prefix+target)
+	w.WriteHeader(http.StatusFound)
 }
 
 // SetCookie issues the session cookie.

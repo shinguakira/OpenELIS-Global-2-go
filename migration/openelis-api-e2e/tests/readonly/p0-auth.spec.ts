@@ -489,10 +489,15 @@ test.describe("p0-auth: default-deny boundary", () => {
         `anon ${path} redirect target`,
       ).toMatch(/\/LoginPage$/);
 
-      // Nothing resembling a payload may ride along on the redirect.
+      // Java sends Content-Length: 0 on this redirect — measured. Asserting
+      // "bodiless" rather than "doesn't look like JSON" matters: an earlier
+      // version of this check only rejected a JSON-shaped body, and so did not
+      // notice that Go's http.Redirect helper appends its own
+      // `<a href="…">Found</a>.` HTML. The stricter c1 PHI-boundary assertion
+      // caught it; this one is tightened to match so the gap cannot come back
+      // on a non-PHI endpoint.
       const body = await res.text();
-      expect(body, `anon ${path} leaks no JSON array`).not.toMatch(/^\s*\[/);
-      expect(body, `anon ${path} leaks no JSON object`).not.toMatch(/^\s*\{/);
+      expect(body, `anon ${path} redirect is bodiless`).toBe("");
 
       await ctx.dispose();
     });

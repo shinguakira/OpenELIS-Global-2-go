@@ -44,6 +44,11 @@ import (
 	paneldaoimpl "openelis-go/internal/panel/daoimpl"
 	panelservice "openelis-go/internal/panel/service"
 
+	// patient layers (c1)
+	patientrest "openelis-go/internal/patient/controller/rest"
+	patientdaoimpl "openelis-go/internal/patient/daoimpl"
+	patientservice "openelis-go/internal/patient/service"
+
 	// provider layers (b2)
 	providerrest "openelis-go/internal/provider/controller/rest"
 	providerdaoimpl "openelis-go/internal/provider/daoimpl"
@@ -186,9 +191,14 @@ func main() {
 
 	msgs := i18n.Messages()
 	statusDAO := &commondaoimpl.StatusDAOImpl{DB: gormDB}
-	if statusSvc, err := commonservices.NewStatusService(statusDAO, msgs); err != nil {
+	// Hoisted out of the if/else below because c1's merge/details also needs it
+	// (to resolve the analysis statuses excluded from totalResults). Stays nil
+	// if construction fails, and every consumer must handle that.
+	var statusSvc *commonservices.StatusService
+	if svc, err := commonservices.NewStatusService(statusDAO, msgs); err != nil {
 		log.Printf("WARN: status service init failed (%v); status-type routes disabled", err)
 	} else {
+		statusSvc = svc
 		commonrest.StatusRoutes(mux, statusSvc)
 		log.Printf("DB-backed routes enabled (status-types)")
 	}
@@ -254,6 +264,51 @@ func main() {
 	providerrest.Routes(mux, &providerrest.ProviderRestController{Service: providerSvc})
 
 	log.Printf("DB-backed routes enabled (b2: organization, provider)")
+
+	// -----------------------------------------------------------------------
+	// c1: patient reads — the first wave that serves PHI (names, birth dates,
+	// national IDs, addresses, phones, email).
+	//
+	// These are protected by construction: every route below goes through
+	// web.Register, which is DEFAULT-DENY since P0 auth landed, so an
+	// unauthenticated caller gets Java's 302 to /LoginPage and no data. The
+	// additional "Reception" role gate Java applies to merge/details is
+	// declared at the route itself — see internal/patient/controller/rest.
+	//
+	// The service nonetheless stays bound to loopback in docker-compose.go.yml:
+	// that is now about session sharing during strangler coexistence
+	// (auth-adoption-plan.md §8.1 — Java and Go do not share sessions), not
+	// about the absence of an auth layer.
+	// -----------------------------------------------------------------------
+	patientDAO := &patientdaoimpl.PatientDAOImpl{DB: gormDB}
+	patientSvc := &patientservice.PatientService{DAO: patientDAO}
+	// merge/details needs the status service to resolve which analysis
+	// statuses are excluded from dataSummary.totalResults, exactly as Java's
+	// countResultsForPatient does via IStatusService. Without it the count
+	// includes every analysis and diverges from Java — measured at 28 vs 0 on
+	// the dev dataset, because every analysis there is "Not Tested", an
+	// excluded status.
+	//
+	// FATAL, not a warning. An earlier revision logged and carried on with a
+	// nil resolver, which meant a transient failure reading status_of_sample
+	// turned into a 200 carrying a knowingly WRONG patient summary — for as
+	// long as the process lived, with nothing but a startup log line to say so.
+	// Wrong clinical data served confidently is worse than an outage, and it is
+	// the same fail-closed rule the rest of this service already follows
+	// (web.Register refuses without a Protector; startup refuses an unsupported
+	// permissions.agent). Java has no degraded mode here either: its
+	// IStatusService is a Spring bean, so a failure to build it fails the whole
+	// context.
+	if statusSvc == nil {
+		log.Fatalf("status service unavailable; refusing to serve c1 merge/details," +
+			" whose totalResults depends on it (see the WARN above for the cause)")
+	}
+	patientMergeSvc := &patientservice.PatientMergeService{DAO: patientDAO, Status: statusSvc}
+	patientrest.Routes(mux, &patientrest.PatientRestController{
+		Service:      patientSvc,
+		MergeService: patientMergeSvc,
+	})
+	log.Printf("DB-backed routes enabled (c1: patient reads — PHI, authenticated; merge/details additionally requires the Reception role)")
 
 	srv := &http.Server{Addr: addr, Handler: mux}
 	log.Printf("openelis-go listening on %s", addr)
