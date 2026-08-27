@@ -75,7 +75,28 @@ VALUES
   -- session TTL is observable and cannot be confused with the 20-minute default
   -- (CustomFormAuthenticationSuccessHandler.DEFAULT_SESSION_TIMEOUT_IN_MINUTES).
   (9907, 'e2e_longtimeout', '$2a$12$fXxEjo/QbHU7NVgpjrwfLOJFtBtJoF7tZ3xsv580buiMg5OaDkjpG',
-   DATE '2031-07-10', 'N', 'N', 'N', '999');
+   DATE '2031-07-10', 'N', 'N', 'N', '999'),
+  -- Holds the 'Test Management' role, which grants the TestCatalog MODULE but
+  -- is NOT 'Global Administrator' and has is_admin='N'. This user separates the
+  -- two independent gates on rest/TestCatalog: ModuleAuthenticationInterceptor
+  -- (module set, bypassed only by is_admin='Y') passes, while
+  -- @PreAuthorize("hasRole('ADMIN')") (is_admin='Y' OR the Global Administrator
+  -- role) fails. Without this row a port could collapse the two into one check
+  -- and still pass every other test.
+  (9908, 'e2e_testmgmt',   '$2a$12$fXxEjo/QbHU7NVgpjrwfLOJFtBtJoF7tZ3xsv580buiMg5OaDkjpG',
+   DATE '2031-07-10', 'N', 'N', 'N', '20'),
+  -- Holds the Global Administrator ROLE but is_admin='N'. Spring's
+  -- hasRole('ADMIN') is granted by EITHER, so @PreAuthorize passes for this
+  -- user. Without this row, a port that implemented the ADMIN gate as
+  -- "is_admin='Y'" alone would still pass every other test, because the stock
+  -- `admin` account happens to have both.
+  (9909, 'e2e_globaladmin', '$2a$12$fXxEjo/QbHU7NVgpjrwfLOJFtBtJoF7tZ3xsv580buiMg5OaDkjpG',
+   DATE '2031-07-10', 'N', 'N', 'N', '20'),
+  -- The mirror image: is_admin='Y' with NO roles at all, so an empty permitted-
+  -- module set. It is the only user that proves the MODULE check's bypass is
+  -- is_admin — without that bypass it would be denied everything mapped.
+  (9910, 'e2e_isadmin',     '$2a$12$fXxEjo/QbHU7NVgpjrwfLOJFtBtJoF7tZ3xsv580buiMg5OaDkjpG',
+   DATE '2031-07-10', 'N', 'N', 'Y', '20');
 
 -- ---------------------------------------------------------------------------
 -- system_user — joined to login_user by login_name STRING (not a FK), and only
@@ -90,7 +111,10 @@ VALUES
   (9904, 'e2e_disabled',    'E2E', 'Disabled',  'Y', 'Y'),
   (9905, 'e2e_expired',     'E2E', 'Expired',   'Y', 'Y'),
   (9906, 'e2e_noouser',     'E2E', 'NoOeUser',  'N', 'Y'),
-  (9907, 'e2e_longtimeout', 'E2E', 'LongTimeout', 'Y', 'Y');
+  (9907, 'e2e_longtimeout', 'E2E', 'LongTimeout', 'Y', 'Y'),
+  (9908, 'e2e_testmgmt',    'E2E', 'TestMgmt',    'Y', 'Y'),
+  (9909, 'e2e_globaladmin', 'E2E', 'GlobalAdmin', 'Y', 'Y'),
+  (9910, 'e2e_isadmin',     'E2E', 'IsAdmin',     'Y', 'Y');
 
 -- ---------------------------------------------------------------------------
 -- system_user_role — role 4 is 'Reception' (system_role.name is character(30),
@@ -102,7 +126,12 @@ INSERT INTO system_user_role (system_user_id, role_id) VALUES
   (9903, 4),
   (9904, 4),
   (9905, 4),
-  (9907, 4);
+  (9907, 4),
+  -- role 12 = 'Test Management': grants the TestCatalog module (system_role_module),
+  -- but is not the Global Administrator role.
+  (9908, 12),
+  -- role 1 = 'Global Administrator'. e2e_isadmin (9910) deliberately gets NO row.
+  (9909, 1);
 
 -- Verification (visible in the loader output).
 SELECT lu.login_name, lu.account_locked, lu.account_disabled, lu.is_admin,

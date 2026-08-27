@@ -63,3 +63,17 @@ export const E2E_USERS = {
 /** A login name guaranteed absent from login_user — for the unknown-user branch. */
 export const E2E_UNKNOWN_USER =
   process.env.OE_E2E_UNKNOWN_USER || "e2e_no_such_user";
+
+// ── Authorization matrix users (Phase 2) ────────────────────────────────────
+// Java gates a few ported b1 endpoints with TWO independent mechanisms that use
+// DIFFERENT definitions of "admin". These four users pull them apart; with only
+// `admin` (which happens to hold both) a port could collapse them and still
+// pass. See tests/readonly/p0-authz.spec.ts.
+export const E2E_AUTHZ_USERS = {
+  /** Test Management role: HAS the TestCatalog module, is NOT an ADMIN. */
+  testMgmt: process.env.OE_E2E_USER_TESTMGMT || "e2e_testmgmt",
+  /** Global Administrator ROLE but login_user.is_admin='N'. */
+  globalAdmin: process.env.OE_E2E_USER_GLOBALADMIN || "e2e_globaladmin",
+  /** login_user.is_admin='Y' with ZERO roles (so an empty module set). */
+  isAdmin: process.env.OE_E2E_USER_ISADMIN || "e2e_isadmin",
+} as const;

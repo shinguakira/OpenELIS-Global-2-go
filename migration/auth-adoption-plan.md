@@ -1,9 +1,9 @@
 # Authentication & Authorization — Go Migration Plan
 
-Status: **Phase 1 (authentication) and Phase 3 (CSRF) implemented and
-live-verified on both stacks. Phase 2 (authorization) partially: role loading
-and a `RequireRole` helper ship; the module system is deferred — see § 0.1.**
-Branch `migration/p0-auth`, forked from `migration-base` (resolves § 9.5).
+Status: **All three phases implemented and live-verified on both stacks.**
+Phase 1 (authentication), Phase 2 (authorization — module system + the
+`hasRole('ADMIN')` gates), Phase 3 (CSRF). Branch `migration/p0-auth`, forked
+from `migration-base` (resolves § 9.5).
 Companion to [OpenELIS-Go-Migration-Plan.md](OpenELIS-Go-Migration-Plan.md),
 [tech-stack-diff.md](tech-stack-diff.md), [branch-naming.md](branch-naming.md).
 
@@ -18,25 +18,37 @@ rather than quietly editing the original.
 
 ## 0.1 What shipped, and how it was verified
 
-**Oracle:** `openelis-api-e2e/tests/readonly/p0-auth.spec.ts` — 34 tests, run
-against **both** targets from one file (`api-readonly` → Java,
-`go-parity` → Go). Nothing in it is target-specific except one explicitly
-skipped test for an endpoint that is not ported yet.
+**Oracles:** `openelis-api-e2e/tests/readonly/p0-auth.spec.ts` (authentication,
+34 tests) and `p0-authz.spec.ts` (authorization, 19 tests). Each runs against
+**both** targets from one file (`api-readonly` → Java, `go-parity` → Go).
+Nothing in either is target-specific except one explicitly skipped test for an
+endpoint that is not ported yet.
 
 | Run | Result |
 | --- | --- |
 | Java (`api-readonly`, p0-auth) | **34 passed** |
+| Java (`api-readonly`, p0-authz) | **19 passed** |
 | Go (`go-parity`, p0-auth) | **33 passed, 1 skipped** (`rest/open-configuration-properties` is not ported — deferred to the config branch) |
-| Go (`go-parity`, ALL ported units a1/a2/b1/b2 + p0-auth) | **58 passed, 2 skipped** |
-| Java (`api-readonly`, full suite incl. the 500-endpoint auth sweep) | **514 passed** |
-| **Inversion** — p0-auth against the pre-auth Go binary built from `migration-base` | **27 of 33 failed** |
+| Go (`go-parity`, p0-authz) | **19 passed** |
+| Go (`go-parity`, ALL ported units a1/a2/b1/b2 + p0) | **76 passed, 2 skipped** |
+| Java (`api-readonly`, full suite incl. the 500-endpoint auth sweep) | **532 passed** |
+| **Inversion** — p0-auth against the pre-auth binary (`migration-base`) | **27 of 33 failed** |
+| **Inversion** — p0-authz against the Phase-1-only binary (`eebef8418`) | **7 of 19 failed** |
 
-The inversion run is the one that matters (Constitution V.6): 27 failed, 5
-passed, 1 skipped. The 5 that passed are exactly the ones that must pass on both
-sides by construction — `rest/supportedlocales/active` (legitimately anonymous)
-and the four *authenticated*-half boundary assertions, whose anonymous halves
-all failed. No test in this spec passes both before and after the port without a
-stated reason.
+The inversion runs are the ones that matter (Constitution V.6).
+
+For p0-auth: 27 failed, 5 passed, 1 skipped. The 5 that passed are exactly the
+ones that must pass on both sides by construction — `rest/supportedlocales/active`
+(legitimately anonymous) and the four *authenticated*-half boundary assertions,
+whose anonymous halves all failed.
+
+For p0-authz: **every test that asserts a DENIAL failed**, and only those. The 12
+that passed are two pure-DB premise checks plus ten allow-assertions — which
+cannot be inversion-sensitive, since a service with no authorization allows
+everything. One of them (`is_admin='Y' bypasses the module check`) passes on the
+Phase-1 binary for the *wrong reason*: there was no module check to bypass. It is
+meaningful only paired with the 401 test next to it, which does fail. Stated
+here rather than counted as coverage.
 
 **Fixture:** `src/test/resources/fixtures/auth-e2e.sql`, wired into
 `load-test-fixtures.sh` for both profiles. Reserved ids 9900–9999, real bcrypt
@@ -44,6 +56,15 @@ cost-12 `$2a$` hashes, one shared password held in `fixtures/env.ts`. It seeds
 the cast § 7 asked for — non-admin-with-one-role, no-roles, locked, disabled,
 expired, no-active-system-user, long-timeout — because the dev DB ships only
 `admin`, whose `is_admin='Y'` bypasses every module check.
+
+Phase 2 needed three more, and each closes a specific hole where a WRONG port
+would still have passed every other test:
+
+| user | `is_admin` | roles | closes |
+| --- | --- | --- | --- |
+| `e2e_testmgmt` | N | Test Management | separates the module check from the ADMIN gate — it HAS the `TestCatalog` module, so it gets past the interceptor and is refused by `@PreAuthorize` (500, not 401) |
+| `e2e_globaladmin` | N | Global Administrator | a port implementing the ADMIN gate as `is_admin='Y'` alone |
+| `e2e_isadmin` | Y | (none) | a port implementing it as "holds the Global Administrator role"; also the only user that proves the MODULE bypass is `is_admin` — with an empty module set, a mapped path would otherwise be 401 |
 
 **Go:** `internal/auth/{valueholder,daoimpl,service,session,csrf,middleware,form,controller/rest}`,
 laid out per § 3 and the constitution's five layers. Default-deny is enforced in
@@ -55,12 +76,18 @@ Decisions resolved:
 
 - **§ 9.1 session store** — in-memory, behind the `session.Store` interface, so
   a shared backend is a drop-in later. Go stays loopback-bound (§ 8 option (a)).
-- **§ 9.2 module system** — deferred, as § 9.2 itself allowed: no ported path has
-  a `system_module_url` row, so the auto-allow rule covers all of them. What did
-  ship is the part later waves need regardless: trimmed role loading and
-  `middleware.RequireRole`, which produces the bodiless 403 Java produces.
-- **§ 9.3 `/rest` stripping** — moot until the module system lands; nothing
-  strips a `/rest` prefix yet.
+- **§ 9.2 module system** — **PORTED.** The premise for deferring it was false:
+  § 9.2 assumed "none of a1–c3's endpoints are mapped in `system_module_url`",
+  but `/TestCatalog` **is** mapped (see § 0.2.9). Wired into
+  `middleware.Guard`, i.e. applied to every protected route the way Java
+  registers its interceptor on `/**` — so a future ported endpoint that has a
+  mapping is checked without anyone remembering to. Also shipped: trimmed role
+  loading and `middleware.RequireRole` (bodiless 403, for the c1 Reception gate)
+  and `middleware.RequireAdmin` (§ 0.2.10).
+- **§ 9.3 `/rest` stripping** — resolved as § 9.3 recommended: `TrimPrefix`, with
+  the divergence from Java's `split("/rest")[1]` documented at the call site.
+  Unreachable in practice — no ported or mapped `url_path` is exactly `/rest`
+  or contains `/rest` twice.
 - **§ 9.4 unported chains** — still unported, still out of scope.
 
 Not addressed here, and still open: § 8.1 (session sharing during strangler
@@ -132,6 +159,84 @@ the oracle. The original sections are left intact; read these as amendments.
    lastName, roles, csrf`. `userLabRolesMap` and `loginLabUnit` are dropped by
    `Include.NON_NULL`; the lab-unit-roles subsystem is not ported. A user with
    zero grants gets `"roles":[]` — an empty collection, not a dropped key.
+
+9. **§ 2.7's central claim is FALSE for the already-ported surface, and § 9.2's
+   own warning had already materialised.** § 2.7 concludes "for c1, the module
+   check is a no-op: authentication alone is the gate", and § 9.2 offers to defer
+   the module system because "none of a1–c3's endpoints are mapped in
+   `system_module_url`" — while noting that deferring "means Go is *more
+   permissive* than Java for any endpoint someone later adds a mapping for, and
+   nothing would flag that."
+
+   `/TestCatalog` **is** one of the 382 rows in `system_module_url`, mapped to
+   the `TestCatalog` module (held only by the Global Administrator and Test
+   Management roles). It has been ported since b1. **Verified live:** a non-admin
+   authenticated user gets `401 { "status": 401, "message": "Not Authorized" }`
+   from Java and, before this work, the full catalog from Go. The queries in
+   § 2.7 only covered `%patient%` paths, which is why it was missed.
+
+   Re-checked exhaustively this time: of the 21 ported a/b routes, `/TestCatalog`
+   is the only one with a mapping. All others fall to the auto-allow rule.
+
+10. **Three ported b1 controllers carry a class-level
+    `@PreAuthorize("hasRole('ADMIN')")`, and § 2.7(b) lists none of them.**
+    § 2.7(b) enumerates the programmatic role checks as `PatientMergeRestController`
+    (c1), `SampleEdit` and `StorageLocation` — all future waves. It misses the
+    three that are **already ported**:
+
+    | Java controller | ported route(s) |
+    | --- | --- |
+    | `DictionaryMenuRestController` | `rest/dictionary-categories` |
+    | `TestCatalogRestController` | `rest/TestCatalog` |
+    | `TestCatalogEditorRestController` | `rest/test-catalog/{lab-units,panels,sample-types}` |
+
+    `rest/dictionary-categories` in particular looks like ordinary reference
+    data and is admin-only in Java. Five ported endpoints were open to any
+    authenticated user in Go.
+
+11. **A `@PreAuthorize` denial is HTTP 500, not 403 — § 2.8's table has no row
+    for it.** Verified live and deterministic, body byte-identical apart from
+    the timestamp:
+
+    ```
+    HTTP/1.1 500   Content-Type: application/json;charset=UTF-8
+    {"timestamp":1787803536083,"status":500,"error":"Internal Server Error"}
+    ```
+
+    The `AccessDeniedException` raised by Spring's method security never reaches
+    `SecurityConfig`'s `accessDeniedHandler` (which is wired for the filter
+    chain), so it surfaces as an unhandled error. This is a genuine Java bug.
+    Reproduced rather than corrected, on the precedent § 2.8 sets explicitly for
+    the 401-vs-403 split ("Reproduce it; do not correct it") — a divergence here
+    would also change how a client that branches on 4xx-vs-5xx behaves. **Worth
+    raising with the maintainers separately**, alongside § 10's other findings.
+
+12. **"Admin" means two different things, and the difference is observable.**
+    - The MODULE check's bypass is `login_user.is_admin='Y'` **alone**
+      (`UserModuleServiceImpl.isUserAdmin`). The Global Administrator role does
+      not bypass it.
+    - Spring's `hasRole('ADMIN')` is granted by `is_admin='Y'` **OR** the Global
+      Administrator role (`CustomUserDetailsService.addAuthoritiesForRole`).
+
+    The stock `admin` account has both, so it cannot distinguish them — which is
+    why the fixture seeds `e2e_globaladmin` (role, `is_admin='N'`) and
+    `e2e_isadmin` (`is_admin='Y'`, zero roles). Three outcomes on ONE endpoint,
+    all verified on both stacks:
+
+    | user | has TestCatalog module | hasRole('ADMIN') | `rest/TestCatalog` |
+    | --- | --- | --- | --- |
+    | `e2e_reception` | no | no | **401** |
+    | `e2e_testmgmt` | yes | no | **500** |
+    | `e2e_isadmin` | bypassed | yes | **200** |
+
+13. **`isRestFullPath()` tests the UN-stripped path.** The interceptor keeps two
+    different forms of the path: the DB lookup uses the `/rest`-stripped one
+    (`URLUtil.getReourcePathFromRequest`), while `isRestFullPath()` reads the
+    interceptor's own `path` field, which `preHandle` set to
+    `requestURI - contextPath` with no stripping. Feeding it the stripped path
+    makes the auto-allow rule fail for every unmapped endpoint
+    (`/organization-list` does not start with `/rest`), denying the entire
+    ported surface. Caught here before it shipped.
 
 ---
 
@@ -508,8 +613,8 @@ Each phase is independently shippable and independently verifiable.
   no PHI.
 - a1/a2/b1/b2/c1 parity still green **through an authenticated session**.
 
-### Phase 2 — Authorization — **PARTIAL**: role loading + `RequireRole` shipped;
-module system deferred (§ 9.2)
+### Phase 2 — Authorization — **DONE** (see § 0.1; the module system was NOT
+deferrable after all — § 0.2.9)
 1. Role loading (`system_user_role` → `system_role`), trimmed.
 2. `RequireRole("Reception")` for `merge/details`, producing a **bodiless
    403** to match Java.

@@ -136,11 +136,18 @@ func main() {
 	// securityMatcher and ends in anyRequest().authenticated().
 	// -----------------------------------------------------------------------
 	sessionStore := authsession.NewMemoryStore()
+	authModuleDAO := &authdaoimpl.ModuleDAOImpl{DB: gormDB}
 	authSvc := &authservice.AuthService{
-		LoginDAO: &authdaoimpl.LoginDAOImpl{DB: gormDB},
-		RoleDAO:  &authdaoimpl.RoleDAOImpl{DB: gormDB},
+		LoginDAO:  &authdaoimpl.LoginDAOImpl{DB: gormDB},
+		RoleDAO:   &authdaoimpl.RoleDAOImpl{DB: gormDB},
+		ModuleDAO: authModuleDAO,
 	}
-	web.UseProtector(&authmiddleware.Guard{Store: sessionStore})
+	// AuthzService ports ModuleAuthenticationInterceptor. It is wired into the
+	// Guard rather than onto individual routes because Java registers that
+	// interceptor on /** — so a future ported endpoint that HAS a
+	// system_module_url row gets checked without anyone remembering to.
+	authzSvc := &authservice.AuthzService{ModuleDAO: authModuleDAO}
+	web.UseProtector(&authmiddleware.Guard{Store: sessionStore, Authz: authzSvc})
 	authrest.Routes(mux, &authrest.LoginRestController{
 		Service: authSvc,
 		Store:   sessionStore,

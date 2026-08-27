@@ -12,9 +12,13 @@ package middleware
 
 import (
 	"context"
+	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"openelis-go/internal/auth/csrf"
+	"openelis-go/internal/auth/service"
 	"openelis-go/internal/auth/session"
 	"openelis-go/internal/common/web"
 )
@@ -43,6 +47,10 @@ func WithPrincipal(ctx context.Context, p *session.Principal) context.Context {
 // A nil Guard or nil Store refuses everything: fail closed, never fail open.
 type Guard struct {
 	Store session.Store
+	// Authz ports ModuleAuthenticationInterceptor. A nil Authz refuses every
+	// protected request rather than skipping the module check — the same
+	// fail-closed rule as a nil Store.
+	Authz *service.AuthzService
 }
 
 // ServeProtected is the default-deny rule — Java's
@@ -71,12 +79,118 @@ func (g *Guard) ServeProtected(w http.ResponseWriter, r *http.Request, next http
 	// (which exempts GET/HEAD/OPTIONS/TRACE). The token arrives masked on
 	// X-CSRF-TOKEN — header lookup is case-insensitive in net/http — or as the
 	// `_csrf` form parameter; csrf.Valid un-masks before comparing.
+	//
+	// Ordered BEFORE the module check because Spring's CsrfFilter lives in the
+	// security filter chain, which runs entirely before the DispatcherServlet
+	// dispatches to a HandlerInterceptor.
 	if !isSafeMethod(r.Method) && !csrf.Valid(p.CSRFToken, submittedToken(r)) {
 		DenyAccess(w, r, "CSRF token missing or invalid")
 		return
 	}
 
+	// ModuleAuthenticationInterceptor, registered on /** in Java. Applying it
+	// here — to every protected route, not per-route — is what reproduces its
+	// structure: a future ported endpoint that HAS a system_module_url row is
+	// checked automatically, closing the gap auth-adoption-plan.md §9.2 warned
+	// about (Go silently more permissive than Java, with nothing to flag it).
+	if g.Authz == nil {
+		log.Printf("SECURITY: guard has no AuthzService; refusing %s %s", r.Method, r.URL.Path)
+		http.Error(w, "authorization is not configured", http.StatusInternalServerError)
+		return
+	}
+	contextPath := stripContextPath(r.URL.Path)
+	allowed, err := g.Authz.HasPermission(p, contextPath, r.URL.Query())
+	if err != nil {
+		log.Printf("auth: module permission check failed for %s: %v", r.URL.Path, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		DenyModule(w, r, contextPath)
+		return
+	}
+
 	next(w, r)
+}
+
+// DenyModule reproduces ModuleAuthenticationInterceptor.preHandle's refusal.
+//
+// The 401 is semantically wrong — this is an AUTHORIZATION failure, which HTTP
+// spells 403 — but it is the observable contract, verified live
+// (`GET rest/TestCatalog` as a user without the TestCatalog module). Migration
+// policy pins Java's behavior and raises bugs separately, so it is reproduced,
+// spacing included: Java writes the literal
+// `{ "status": 401, "message": "Not Authorized" }`.
+func DenyModule(w http.ResponseWriter, r *http.Request, contextPath string) {
+	if service.IsRestFullPath(contextPath) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Character-Encoding", "UTF-8")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{ "status": 401, "message": "Not Authorized" }`))
+		return
+	}
+	session.Redirect(w, r, "/Home?access=denied")
+}
+
+// RequireAdmin ports `@PreAuthorize("hasRole('ADMIN')")`, which several ported
+// b1 controllers carry at CLASS level: DictionaryMenuRestController,
+// TestCatalogRestController and TestCatalogEditorRestController.
+//
+// It runs AFTER the module check, matching Spring: method security is an AOP
+// advice around the controller method, so it fires only once the
+// HandlerInterceptor has let the request through. The order is observable —
+// `rest/TestCatalog` returns 401 for a user with no TestCatalog module but 500
+// for one who HAS the module and is not an admin. Both verified live.
+//
+// The 500 is Java's, not a mistake here: an AccessDeniedException raised by
+// method security never reaches SecurityConfig's accessDeniedHandler, so it
+// surfaces as an unhandled error. Reproduced per the same policy that pins the
+// 401 above; recorded as a finding in auth-adoption-plan.md.
+func RequireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, ok := FromContext(r.Context())
+		if !ok || !p.HasAdminAuthority() {
+			WriteAccessDeniedAsInternalError(w)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// springErrorBody is the default error payload Spring's error handling emits.
+// A struct rather than a map so the field ORDER matches Java's — Go sorts map
+// keys, which would emit error/status/timestamp instead.
+type springErrorBody struct {
+	Timestamp int64  `json:"timestamp"`
+	Status    int    `json:"status"`
+	Error     string `json:"error"`
+}
+
+// WriteAccessDeniedAsInternalError emits Spring's default error body for the
+// unhandled AccessDeniedException described on RequireAdmin. Verified live,
+// byte for byte apart from the timestamp:
+//
+//	{"timestamp":1787803536083,"status":500,"error":"Internal Server Error"}
+func WriteAccessDeniedAsInternalError(w http.ResponseWriter) {
+	web.WriteJSON(w, http.StatusInternalServerError, springErrorBody{
+		Timestamp: time.Now().UnixMilli(),
+		Status:    500,
+		Error:     "Internal Server Error",
+	})
+}
+
+// stripContextPath returns the request path relative to the servlet context,
+// which is what Java's interceptor works with
+// (`requestURI - request.getContextPath()`). The Go service answers on both the
+// proxied context prefix and the bare path, so only the former needs stripping.
+func stripContextPath(path string) string {
+	if strings.HasPrefix(path, session.ContextPath+"/") {
+		return strings.TrimPrefix(path, session.ContextPath)
+	}
+	if path == session.ContextPath {
+		return "/"
+	}
+	return path
 }
 
 // RequireRole wraps a handler with a programmatic role check, the analog of

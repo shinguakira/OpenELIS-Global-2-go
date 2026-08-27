@@ -57,7 +57,7 @@ export default defineConfig({
       // cannot live in tests/readonly/ — but the Go port still needs the
       // coverage (it pins the UTC-vs-host-local site-code date fix).
       testMatch:
-        /(readonly[\\/](p0-auth|a1-server-time|a2-static-reads|b2-organization|b2-provider)|mutating[\\/]b2-organization-sitecode)\.spec\.ts/,
+        /(readonly[\\/](p0-auth|p0-authz|a1-server-time|a2-static-reads|b2-organization|b2-provider)|mutating[\\/]b2-organization-sitecode)\.spec\.ts/,
       dependencies: ["setup-go"],
       use: {
         baseURL: GO_BASE_URL,

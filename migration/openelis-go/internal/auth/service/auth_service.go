@@ -55,8 +55,9 @@ var ErrNoOeUser = errors.New("no active system_user for login name")
 
 // AuthService ports the login decision.
 type AuthService struct {
-	LoginDAO *daoimpl.LoginDAOImpl
-	RoleDAO  *daoimpl.RoleDAOImpl
+	LoginDAO  *daoimpl.LoginDAOImpl
+	RoleDAO   *daoimpl.RoleDAOImpl
+	ModuleDAO *daoimpl.ModuleDAOImpl
 }
 
 // Authenticate reproduces Spring's credential check, INCLUDING ITS ORDER.
@@ -133,6 +134,19 @@ func (s *AuthService) Authenticate(loginName, password string) (*session.Princip
 		return nil, 0, err
 	}
 
+	// The permitted-module set is computed HERE, once, exactly as
+	// setupUserSession does before stashing it in the session as
+	// PERMITTED_ACTIONS_MAP. Computing it per request instead would be a
+	// behavior change: in Java a role granted mid-session has no effect until
+	// the user logs in again.
+	//
+	// Java only populates it when permissions.agent is Role — which it is (see
+	// AuthzService.PermissionsAgentRole); the other mode is not ported.
+	modules, err := s.ModuleDAO.PermittedModulesForUser(su.ID)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	token, err := csrf.NewToken()
 	if err != nil {
 		return nil, 0, err
@@ -145,6 +159,7 @@ func (s *AuthService) Authenticate(loginName, password string) (*session.Princip
 		LastName:     su.LastName,
 		IsAdmin:      strings.EqualFold(user.IsAdmin, valueholder.Yes),
 		Roles:        roles,
+		Modules:      modules,
 		CSRFToken:    token,
 	}
 	return p, sessionTTL(user.UserTimeOut), nil

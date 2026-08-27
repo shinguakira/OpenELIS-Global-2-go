@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"openelis-go/internal/auth/valueholder"
 )
 
 // Principal is the authenticated identity carried on context.Context, per
@@ -34,9 +36,18 @@ type Principal struct {
 	LoginName    string
 	FirstName    string
 	LastName     string
-	IsAdmin      bool
+	// IsAdmin is `login_user.is_admin = 'Y'` and NOTHING else. It is the
+	// module check's bypass (UserModuleServiceImpl.isUserAdmin) — which the
+	// Global Administrator role does NOT confer. For Spring's
+	// hasRole('ADMIN'), use HasAdminAuthority instead.
+	IsAdmin bool
 	// Roles holds TRIMMED role names (see auth/valueholder.Role).
 	Roles []string
+	// Modules is the permitted-module set, unioned across the user's roles at
+	// LOGIN — mirroring Java, which computes it once in the success handler and
+	// caches it in the session as PERMITTED_ACTIONS_MAP. A role granted
+	// mid-session therefore takes effect only at the next login, in both.
+	Modules map[string]bool
 	// CSRFToken is the RAW per-session token. It is never sent as-is — every
 	// value handed to a client goes through csrf.Mask.
 	CSRFToken string
@@ -52,6 +63,19 @@ func (p *Principal) HasRole(name string) bool {
 		}
 	}
 	return false
+}
+
+// HasAdminAuthority reproduces Spring's `hasRole('ADMIN')`, the expression
+// every `@PreAuthorize("hasRole('ADMIN')")` in the Java controllers uses.
+//
+// CustomUserDetailsService.getGrantedAuthorities adds the ROLE_ADMIN authority
+// in two independent cases: the user holds the Global Administrator role
+// (addAuthoritiesForRole special-cases it), or `login_user.is_admin='Y'` (which
+// synthesises that same role). Hence the OR — and hence why this is NOT the
+// same predicate as IsAdmin. The fixture user `e2e_testmgmt` exists precisely
+// to keep the two apart in the e2e oracle.
+func (p *Principal) HasAdminAuthority() bool {
+	return p.IsAdmin || p.HasRole(valueholder.RoleGlobalAdmin)
 }
 
 // Store is the session backend. Implementations must be safe for concurrent
