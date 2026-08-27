@@ -25,7 +25,12 @@
 --   psql -U clinlims -d clinlims -f patient-media-e2e.sql
 -- or, via the repo's loader (from repo root):
 --   ./src/test/resources/load-test-fixtures.sh --profile=core
---   (add this file to the loader's fixture list to include it automatically)
+--
+-- The loader runs this automatically, in load_profile_lane_fixtures() — i.e.
+-- AFTER the storage fixture, because the rows below attach to the first patient
+-- by id, which storage-e2e.xml provides (patient 1000). It is loaded for both
+-- profiles and is fatal on error: when it does not run, four c1 parity tests
+-- silently take their test.skip branch instead of failing.
 --
 -- =============================================================================
 -- IDEMPOTENT: safe to re-run. Rows are keyed on fixed ids in a reserved range
@@ -57,10 +62,18 @@ BEGIN
     END IF;
 
     -- ---------------------------------------------------------------------
-    -- Clean prior runs (reserved id range only — never touches real rows).
+    -- Clean prior runs — BOUNDED to the reserved block, not `>= 9900000`.
+    --
+    -- An open-ended cleanup was actively destructive here, because the same
+    -- block below advances both sequences to 9900100: after one fixture run
+    -- every ordinary application insert receives an id of 9900101 or higher,
+    -- which `>= 9900000` matches. Re-running test setup would then delete
+    -- real patient photos and ID documents created since the last run.
+    -- The reserved block is 9900000-9900099 and the sequences start above it,
+    -- so the two ranges cannot overlap.
     -- ---------------------------------------------------------------------
-    DELETE FROM clinlims.patient_photo        WHERE id >= 9900000;
-    DELETE FROM clinlims.patient_id_document  WHERE id >= 9900000;
+    DELETE FROM clinlims.patient_photo        WHERE id BETWEEN 9900000 AND 9900099;
+    DELETE FROM clinlims.patient_id_document  WHERE id BETWEEN 9900000 AND 9900099;
 
     -- ---------------------------------------------------------------------
     -- PHOTO — exactly one row (patient_id is UNIQUE on this table).
@@ -122,17 +135,25 @@ END $$;
 -- BASELINE does not track samples, and c1-patient-reads.spec.ts's
 -- anySampleAccession() helper INNER JOINs sample_human, so it can never pick
 -- this row for the happy-path tests.
+-- Keyed on the ACCESSION NUMBER, not a reserved id — unlike the media rows
+-- above, and deliberately so.
+--
+-- `sample` is a core clinical table, and the loader's normalize_sequences step
+-- runs `setval('sample_seq', MAX(id) + 1)` over it. A reserved id of 9900001
+-- therefore does not stay contained: it drags the whole sample sequence from
+-- ~1k to ~9.9M on every fixture load, permanently, for one throwaway row.
+--
+-- Letting the sequence assign the id and using the unique accession as the
+-- cleanup key avoids that entirely, and is the create-then-cleanup-by-marker
+-- pattern openelis-api-e2e.md §15 already prescribes for mutating fixtures.
 DO $$
 BEGIN
-    DELETE FROM clinlims.sample WHERE id = 9900001;
+    DELETE FROM clinlims.sample WHERE accession_number = 'E2E-NOPAT-01';
 
     INSERT INTO clinlims.sample
         (id, accession_number, entered_date, received_date, is_confirmation)
     VALUES
-        (9900001, 'E2E-NOPAT-01', now(), now(), false);
-
-    PERFORM setval('clinlims.sample_seq',
-                   GREATEST(9900100, (SELECT last_value FROM clinlims.sample_seq)), true);
+        (nextval('clinlims.sample_seq'), 'E2E-NOPAT-01', now(), now(), false);
 
     RAISE NOTICE 'patient-media-e2e: seeded patient-less sample E2E-NOPAT-01';
 END $$;

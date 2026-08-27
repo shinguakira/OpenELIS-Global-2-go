@@ -27,6 +27,7 @@ FILE_IMPORT_E2E_SQL="$SCRIPT_DIR/fixtures/file-import-e2e.sql"
 ANALYZER_HARNESS_LANE_SQL_FILE="$SCRIPT_DIR/fixtures/analyzer-harness-lane-data.sql"
 STORAGE_IN_PROGRESS_ORDER_SQL="$SCRIPT_DIR/fixtures/storage-in-progress-order.sql"
 AUTH_E2E_SQL="$SCRIPT_DIR/fixtures/auth-e2e.sql"
+PATIENT_MEDIA_E2E_SQL="$SCRIPT_DIR/fixtures/patient-media-e2e.sql"
 RESET_SCRIPT="$SCRIPT_DIR/reset-test-database.sh"
 
 RESET=false
@@ -374,6 +375,19 @@ load_profile_lane_fixtures() {
     if [ -f "$STORAGE_IN_PROGRESS_ORDER_SQL" ]; then
         load_sql_file "$STORAGE_IN_PROGRESS_ORDER_SQL" \
             "storage in-progress analysis (ORDERS_IN_PROGRESS seed)"
+    fi
+
+    # Patient media (photos + ID documents) and the patient-less sample.
+    # MUST run after storage: the fixture attaches to the first patient by id,
+    # which is patient 1000 from testdata/storage-e2e.xml.
+    #
+    # Profile-independent, and fatal on error. Without it the c1 parity tests
+    # for populated media, the soft-deleted filter, the cross-patient document
+    # lookup and patientByLabNumer's SECOND 404 path all take their test.skip
+    # branch — CI reports green while exercising none of them.
+    if [ -f "$PATIENT_MEDIA_E2E_SQL" ]; then
+        load_sql_file "$PATIENT_MEDIA_E2E_SQL" \
+            "patient-media-e2e.sql (photos, ID documents, patient-less sample)" "fatal"
     fi
 }
 

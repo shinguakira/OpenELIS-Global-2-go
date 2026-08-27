@@ -162,17 +162,23 @@ func Routes(mux *http.ServeMux, ctrl *PatientRestController) {
 	// GET rest/patient-photos/{id}/{isThumbnail} — mirrors getPhoto.
 	//
 	// isThumbnail is a primitive boolean in Java, so Spring rejects anything
-	// non-boolean at binding with a 400. Go's ParseBool is wired to answer 400
-	// too rather than defaulting — a silent default would turn a client bug
-	// into a wrong-image response.
+	// it cannot bind with a 400. This port answers 400 too rather than
+	// defaulting — a silent default would turn a client bug into a
+	// wrong-image response.
 	//
-	// Spring's boolean binding also accepts on/off/yes/1/0; ParseBool accepts
-	// 1/t/T/TRUE/true/True and their false counterparts. The overlap covers
-	// every value the real frontend sends (`true`/`false`), and the divergence
-	// on exotic spellings is noted rather than emulated.
+	// The accepted SET is Spring's, not Go's. strconv.ParseBool was used here
+	// first and diverges in BOTH directions; measured against live Java on
+	// eight inputs:
+	//
+	//	value              java   ParseBool
+	//	on off yes no      200    400        <- Spring binds these, Go does not
+	//	t f T F            400    200        <- Go binds these, Spring does not
+	//
+	// So parseSpringBoolean below implements StringToBooleanConverter's exact
+	// vocabulary (case-insensitive true/on/yes/1 and false/off/no/0) instead.
 	web.Register(mux, "GET", "rest/patient-photos/{id}/{isThumbnail}", func(w http.ResponseWriter, r *http.Request) {
-		isThumbnail, err := strconv.ParseBool(r.PathValue("isThumbnail"))
-		if err != nil {
+		isThumbnail, ok := parseSpringBoolean(r.PathValue("isThumbnail"))
+		if !ok {
 			http.Error(w, "invalid isThumbnail", http.StatusBadRequest)
 			return
 		}
@@ -183,4 +189,24 @@ func Routes(mux *http.ServeMux, ctrl *PatientRestController) {
 		}
 		web.WriteJSON(w, http.StatusOK, dto)
 	})
+}
+
+// parseSpringBoolean ports Spring's StringToBooleanConverter, which is what
+// binds a `boolean` path variable. Its vocabulary is fixed and case-insensitive:
+//
+//	true:  "true", "on", "yes", "1"
+//	false: "false", "off", "no", "0"
+//
+// Anything else — including Go's "t"/"f" shorthand — fails to bind and Spring
+// answers 400. An empty value is also a bind failure. Verified against the live
+// server on the full matrix; see the e2e spec's boolean-binding test.
+func parseSpringBoolean(raw string) (value bool, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "on", "yes", "1":
+		return true, true
+	case "false", "off", "no", "0":
+		return false, true
+	default:
+		return false, false
+	}
 }

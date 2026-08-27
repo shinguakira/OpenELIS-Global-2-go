@@ -3,6 +3,7 @@
 package service
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
@@ -111,15 +112,18 @@ func (s *PatientMergeService) excludedResultStatusIDs() []string {
 // GetMergeDetails backs GET rest/patient/merge/details/{patientId}.
 //
 // Error contract, reproducing Java exactly:
+//
 //   - non-numeric id      -> ErrMalformedID (controller answers 500, matching
 //     Java's NumberFormatException path)
+//
 //   - numeric but absent  -> (nil, nil) (controller answers 404)
 //
-// NOT reproduced: Java also gates this endpoint on the caller holding the
-// "Reception" role and returns a bodiless 403 otherwise. This port has no
-// session or RBAC layer at all, so that check CANNOT be implemented here. The
-// endpoint is therefore more permissive than Java — see the c1 migration doc;
-// it is why the Go service stays bound to loopback.
+//   - identity row with a NULL type -> ErrUnresolvableIdentityType (500, also
+//     matching Java — see that error's doc)
+//
+// The "Reception" role gate Java applies to this endpoint IS reproduced, but a
+// layer up: authmw.RequireRole wraps the route in the controller, which is
+// where Go can express what Java writes as an in-handler check.
 func (s *PatientMergeService) GetMergeDetails(patientID string) (*form.MergeDetailsDTO, error) {
 	if _, err := strconv.ParseInt(patientID, 10, 64); err != nil {
 		return nil, ErrMalformedID{ID: patientID}
@@ -140,11 +144,23 @@ func (s *PatientMergeService) GetMergeDetails(patientID string) (*form.MergeDeta
 	}
 	identifiers := make([]form.IdentifierDTO, 0, len(identities))
 	for _, row := range identities {
-		if internalIdentityTypes[strings.ToUpper(row.IdentityTypeName)] {
+		if row.IdentityTypeName == nil {
+			// identity_type_id is NULL. Java loads the row anyway and then
+			// calls patientIdentityTypeService.get(null) inside this same
+			// loop, which throws — the request ends as a 500. Measured live by
+			// seeding one such row.
+			//
+			// Returning an error here reproduces that. The alternatives are
+			// both wrong: skipping the row understates totalIdentifiers and
+			// answers 200 where Java errors, and inventing a placeholder type
+			// name invents data Java never emits.
+			return nil, ErrUnresolvableIdentityType
+		}
+		if internalIdentityTypes[strings.ToUpper(*row.IdentityTypeName)] {
 			continue // hidden from the list, but still counted below
 		}
 		identifiers = append(identifiers, form.IdentifierDTO{
-			IdentityType:  displayNameForIdentityType(row.IdentityTypeName),
+			IdentityType:  displayNameForIdentityType(*row.IdentityTypeName),
 			IdentityValue: row.IdentityData,
 		})
 	}
@@ -210,3 +226,17 @@ func (s *PatientMergeService) GetMergeDetails(patientID string) (*form.MergeDeta
 	// populating them would leak PHI this endpoint does not return.
 	return &dto, nil
 }
+
+// ErrUnresolvableIdentityType signals a patient_identity row whose
+// identity_type_id is NULL, so no type name can be resolved.
+//
+// Java does not guard this: getPatientIdentities loads every row with a plain
+// `SELECT *`, and the identifier loop then calls
+// patientIdentityTypeService.get(identity.getIdentityTypeId()) with null, which
+// throws and surfaces as HTTP 500. Verified by seeding one such row against the
+// live server.
+//
+// The controller maps this to 500 for that reason — pinning Java's behavior,
+// not choosing it. The column is nullable and carries a FK, so NULL is the only
+// way the type can fail to resolve; a dangling id cannot exist.
+var ErrUnresolvableIdentityType = errors.New("patient_identity.identity_type_id is null; no identity type to resolve")

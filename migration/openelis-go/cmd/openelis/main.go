@@ -285,16 +285,25 @@ func main() {
 	// merge/details needs the status service to resolve which analysis
 	// statuses are excluded from dataSummary.totalResults, exactly as Java's
 	// countResultsForPatient does via IStatusService. Without it the count
-	// includes every analysis and diverges from Java (measured: 28 vs 0 on the
-	// dev dataset, because every analysis there is "Not Tested" — an excluded
-	// status). statusSvc is a typed nil when construction failed, so pass it
-	// only when non-nil to keep the interface field genuinely nil.
-	patientMergeSvc := &patientservice.PatientMergeService{DAO: patientDAO}
-	if statusSvc != nil {
-		patientMergeSvc.Status = statusSvc
-	} else {
-		log.Printf("WARN: status service unavailable; c1 merge/details totalResults will NOT match Java")
+	// includes every analysis and diverges from Java — measured at 28 vs 0 on
+	// the dev dataset, because every analysis there is "Not Tested", an
+	// excluded status.
+	//
+	// FATAL, not a warning. An earlier revision logged and carried on with a
+	// nil resolver, which meant a transient failure reading status_of_sample
+	// turned into a 200 carrying a knowingly WRONG patient summary — for as
+	// long as the process lived, with nothing but a startup log line to say so.
+	// Wrong clinical data served confidently is worse than an outage, and it is
+	// the same fail-closed rule the rest of this service already follows
+	// (web.Register refuses without a Protector; startup refuses an unsupported
+	// permissions.agent). Java has no degraded mode here either: its
+	// IStatusService is a Spring bean, so a failure to build it fails the whole
+	// context.
+	if statusSvc == nil {
+		log.Fatalf("status service unavailable; refusing to serve c1 merge/details," +
+			" whose totalResults depends on it (see the WARN above for the cause)")
 	}
+	patientMergeSvc := &patientservice.PatientMergeService{DAO: patientDAO, Status: statusSvc}
 	patientrest.Routes(mux, &patientrest.PatientRestController{
 		Service:      patientSvc,
 		MergeService: patientMergeSvc,

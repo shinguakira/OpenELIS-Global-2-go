@@ -316,6 +316,41 @@ test.describe("c1 — patient reads", () => {
     expect(parsed.dataSummary.activeOrders, `${MERGE_DETAILS} activeOrders mirrors totalOrders (unfinished in Java)`).toBe(
       parsed.dataSummary.totalOrders,
     );
+
+    // totalResults is NOT a plain analysis count: countResultsForPatient asks
+    // IStatusService for the Canceled / SampleRejected / NotStarted ids and
+    // excludes them. Type-checking the field is not enough — the dev dataset's
+    // analyses are ALL "Not Tested", so Java reports 0 while an unfiltered
+    // count reports 28. A port that forgets the exclusion (or wires its status
+    // resolver as nil) lands on 28 and passes every other assertion here.
+    const expectedResults = Number(
+      query(
+        "SELECT count(*) FROM clinlims.analysis a" +
+          " WHERE a.sampitem_id IN (SELECT si.id FROM clinlims.sample_item si" +
+          `  WHERE si.samp_id IN (SELECT sh.samp_id FROM clinlims.sample_human sh WHERE sh.patient_id = ${patientId}))` +
+          "   AND a.status_id NOT IN (SELECT id FROM clinlims.status_of_sample" +
+          "     WHERE status_type = 'ANALYSIS'" +
+          "       AND name IN ('Test Canceled', 'Sample Rejected', 'Not Tested'))",
+      )[0][0],
+    );
+    expect(parsed.dataSummary.totalResults, `${MERGE_DETAILS} totalResults excludes the three statuses`).toBe(
+      expectedResults,
+    );
+
+    // Prove the exclusion is doing something for this patient — otherwise the
+    // assertion above is satisfied by any implementation whenever the filtered
+    // and unfiltered counts happen to coincide.
+    const unfiltered = Number(
+      query(
+        "SELECT count(*) FROM clinlims.analysis a" +
+          " WHERE a.sampitem_id IN (SELECT si.id FROM clinlims.sample_item si" +
+          `  WHERE si.samp_id IN (SELECT sh.samp_id FROM clinlims.sample_human sh WHERE sh.patient_id = ${patientId}))`,
+      )[0][0],
+    );
+    expect(
+      unfiltered,
+      "the chosen patient has analyses in an EXCLUDED status, so the filter is observable",
+    ).toBeGreaterThan(expectedResults);
   });
 
   test("merge/details: identifiers carry a resolved type NAME, not a numeric id", async ({ request }) => {
@@ -909,6 +944,51 @@ test.describe("c1 — patient reads", () => {
     const res = await request.get(`${ID_DOCUMENTS}/${patientId}/99999999/full`);
     expect(res.status(), "unknown documentId status").toBe(200);
     expect(await res.json(), "unknown documentId body").toEqual({ data: "" });
+  });
+
+  test("patient-photos: isThumbnail accepts Spring's boolean vocabulary, not Go's", async ({ request }) => {
+    // `boolean isThumbnail` is bound by Spring's StringToBooleanConverter,
+    // whose vocabulary is fixed and case-insensitive:
+    //   true:  true / on / yes / 1        false: false / off / no / 0
+    // Everything else fails to bind and Spring answers 400.
+    //
+    // Go's strconv.ParseBool is a DIFFERENT set, and the two diverge in BOTH
+    // directions — which is exactly what the earlier port did, and what the
+    // /^data:.../ shape tests above could never notice. Every value below was
+    // measured against the live Java server, including the eight that used to
+    // disagree.
+    const patientId = query("SELECT id FROM clinlims.patient ORDER BY id LIMIT 1")[0][0];
+
+    const ACCEPTED = ["true", "false", "True", "FALSE", "TRUE", "on", "off", "yes", "no", "1", "0"];
+    // "t"/"f" are ParseBool shorthand that Spring rejects — the direction a
+    // port is most likely to get wrong, because Go accepts them silently.
+    const REJECTED = ["t", "f", "T", "F", "bogus", "2", "onn"];
+
+    for (const v of ACCEPTED) {
+      const res = await request.get(`${PATIENT_PHOTOS}/${patientId}/${v}`);
+      expect(res.status(), `isThumbnail="${v}" must bind (Spring accepts it)`).toBe(200);
+      expect(Object.keys(await res.json()), `isThumbnail="${v}" envelope`).toEqual(["data"]);
+    }
+    for (const v of REJECTED) {
+      const res = await request.get(`${PATIENT_PHOTOS}/${patientId}/${v}`);
+      expect(res.status(), `isThumbnail="${v}" must NOT bind (Spring rejects it)`).toBe(400);
+    }
+
+    // The vocabulary is not just accept/reject — the two groups must map to
+    // the two DIFFERENT branches. "on"/"yes"/"1" have to behave like "true"
+    // (bare base64) and "off"/"no"/"0" like "false" (a data: URI), or a port
+    // could pass the status checks above while treating every accepted value
+    // as false.
+    const dataFor = async (v: string) =>
+      (await (await request.get(`${PATIENT_PHOTOS}/${patientId}/${v}`)).json()).data;
+    const [t, on, yes, one] = [await dataFor("true"), await dataFor("on"), await dataFor("yes"), await dataFor("1")];
+    const [f, off, no, zero] = [await dataFor("false"), await dataFor("off"), await dataFor("no"), await dataFor("0")];
+    for (const [label, v] of [["on", on], ["yes", yes], ["1", one]] as const) {
+      expect(v, `"${label}" must behave like "true"`).toBe(t);
+    }
+    for (const [label, v] of [["off", off], ["no", no], ["0", zero]] as const) {
+      expect(v, `"${label}" must behave like "false"`).toBe(f);
+    }
   });
 });
 

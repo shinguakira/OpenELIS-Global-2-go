@@ -2,14 +2,17 @@
 // GET rest/patient/merge/details/{patientId}.
 package daoimpl
 
-// PatientIdentityRow is a scan target for a patient_identity row joined to its
-// type name. Java resolves the type via patientIdentityTypeService.get(); this
-// port joins instead, which avoids that call's ObjectNotFoundException-on-miss
-// behavior (a real Java 500 path) while producing the same data for every row
-// whose type actually exists.
+// PatientIdentityRow is a scan target for a patient_identity row LEFT-joined to
+// its type name.
+//
+// IdentityTypeName is a POINTER because the join is outer: nil means the row's
+// identity_type_id is NULL and no type could be resolved. Java reaches that
+// state too — it loads the row and then throws inside
+// patientIdentityTypeService.get(null) — so nil must become a 500, not a
+// dropped row. See GetPatientIdentities.
 type PatientIdentityRow struct {
-	IdentityTypeName string `gorm:"column:identity_type"`
-	IdentityData     string `gorm:"column:identity_data"`
+	IdentityTypeName *string `gorm:"column:identity_type"`
+	IdentityData     string  `gorm:"column:identity_data"`
 }
 
 // GetPatientIdentities mirrors PatientMergeServiceImpl.getPatientIdentities:
@@ -20,11 +23,26 @@ type PatientIdentityRow struct {
 // counts the unfiltered list for totalIdentifiers while listing the filtered
 // one. Filtering here would make that documented mismatch impossible to
 // reproduce.
+//
+// LEFT JOIN, not an inner one. patient_identity.identity_type_id is NULLABLE,
+// and Java's query is `SELECT * FROM patient_identity WHERE patient_id = ?` —
+// no join at all — so a row with a null type is still LOADED and still counted
+// in totalIdentifiers. An inner join silently drops it, which understates
+// totalIdentifiers and turns Java's error into a 200.
+//
+// Measured live by seeding one such row: Java answers 500 (its
+// patientIdentityTypeService.get(null) throws inside the identifier loop),
+// while the inner-join version of this query answered 200 with the row simply
+// missing. IdentityType is therefore a *string: nil means "the row exists but
+// its type is unresolvable", which the service turns back into Java's 500.
+//
+// A dangling (non-null but absent) type id cannot occur — patient_identity has
+// a FK to patient_identity_type — so nil is unambiguously the null case.
 func (d *PatientDAOImpl) GetPatientIdentities(patientID string) ([]PatientIdentityRow, error) {
 	rows := []PatientIdentityRow{}
 	err := d.DB.Table("clinlims.patient_identity AS pi").
 		Select("pit.identity_type, pi.identity_data").
-		Joins("JOIN clinlims.patient_identity_type pit ON pit.id = pi.identity_type_id").
+		Joins("LEFT JOIN clinlims.patient_identity_type pit ON pit.id = pi.identity_type_id").
 		Where("pi.patient_id = ?", patientID).
 		Order("pi.id ASC").
 		Scan(&rows).Error
