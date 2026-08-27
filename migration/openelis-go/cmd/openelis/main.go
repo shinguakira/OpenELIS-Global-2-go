@@ -11,6 +11,13 @@ import (
 
 	"gorm.io/gorm"
 
+	// auth layers (P0 Foundations)
+	authrest "openelis-go/internal/auth/controller/rest"
+	authdaoimpl "openelis-go/internal/auth/daoimpl"
+	authmiddleware "openelis-go/internal/auth/middleware"
+	authservice "openelis-go/internal/auth/service"
+	authsession "openelis-go/internal/auth/session"
+
 	commondaoimpl "openelis-go/internal/common/daoimpl"
 	"openelis-go/internal/common/db"
 	"openelis-go/internal/common/i18n"
@@ -79,6 +86,10 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	// ANONYMOUS by Java's rule: "/health/**" is listed in
+	// SecurityConfig.OPEN_PAGES. Registered straight on the mux (not through
+	// web.Register) because it is not a /rest path and needs no context-path
+	// alias.
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		web.WriteJSON(w, http.StatusOK, map[string]string{"status": "UP"})
 	})
@@ -109,6 +120,62 @@ func main() {
 		log.Printf("DB not ready (attempt %d/%d): %v — retrying in %s", i, maxAttempts, err, retryDelay)
 		time.Sleep(retryDelay)
 	}
+
+	// -----------------------------------------------------------------------
+	// P0 Foundations: authentication.
+	//
+	// This block must run before the service starts listening, and its failure
+	// must be fatal: web.Register is DEFAULT-DENY and refuses every protected
+	// route until a Protector is installed, so a process that reached
+	// ListenAndServe without this would serve nothing but 500s. Failing loudly
+	// here is the point — the alternative (degrading to anonymous access) is
+	// how PHI leaks.
+	//
+	// See migration/auth-adoption-plan.md. Java's equivalent is
+	// SecurityConfig.defaultSecurityConfigurationFilterChain, which has no
+	// securityMatcher and ends in anyRequest().authenticated().
+	// -----------------------------------------------------------------------
+	sessionStore := authsession.NewMemoryStore()
+	// Expire sessions on a timer, independently of any request. GET /session is
+	// public and creates a session on every cookie-less call, so without this an
+	// anonymous caller grows the store without bound. Tomcat does the same via
+	// its container background process; the port is not free to skip it.
+	stopReaper := sessionStore.StartReaper(authsession.DefaultReapInterval)
+	defer stopReaper()
+
+	authModuleDAO := &authdaoimpl.ModuleDAOImpl{DB: gormDB}
+	authSvc := &authservice.AuthService{
+		LoginDAO:  &authdaoimpl.LoginDAOImpl{DB: gormDB},
+		RoleDAO:   &authdaoimpl.RoleDAOImpl{DB: gormDB},
+		ModuleDAO: authModuleDAO,
+	}
+
+	// Refuse to start under an authorization model this service does not
+	// implement, rather than silently applying the Role rules to a deployment
+	// Java would evaluate differently. See EffectivePermissionsAgent for the
+	// resolution order and for why the DB row alone is not a complete check.
+	agentOverride, _, err := authModuleDAO.PermissionsAgentOverride()
+	if err != nil {
+		log.Fatalf("cannot read the permissions.agent configuration: %v", err)
+	}
+	agent, err := authservice.EffectivePermissionsAgent(os.Getenv("OE_PERMISSIONS_AGENT"), agentOverride)
+	if err != nil {
+		log.Fatalf("SECURITY: %v", err)
+	}
+	log.Printf("authorization model: permissions.agent=%s", agent)
+
+	// AuthzService ports ModuleAuthenticationInterceptor. It is wired into the
+	// Guard rather than onto individual routes because Java registers that
+	// interceptor on /** — so a future ported endpoint that HAS a
+	// system_module_url row gets checked without anyone remembering to.
+	authzSvc := &authservice.AuthzService{ModuleDAO: authModuleDAO}
+	web.UseProtector(&authmiddleware.Guard{Store: sessionStore, Authz: authzSvc})
+	authrest.Routes(mux, &authrest.LoginRestController{
+		Service: authSvc,
+		Store:   sessionStore,
+	})
+	log.Printf("auth enabled: default-deny on every registered route " +
+		"(POST ValidateLogin, GET session, POST Logout are open per Java LOGIN_PAGES)")
 
 	// a2: rest/supportedlocales{,/active,/fallback}
 	svc := &localizationservice.SupportedLocaleService{

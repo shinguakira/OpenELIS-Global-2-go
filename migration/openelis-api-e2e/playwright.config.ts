@@ -1,5 +1,5 @@
 import { defineConfig } from "@playwright/test";
-import { BASE_URL, GO_BASE_URL, AUTH_STATE } from "./fixtures/env";
+import { BASE_URL, GO_BASE_URL, AUTH_STATE, GO_AUTH_STATE } from "./fixtures/env";
 
 // API-only parity suite for OpenELIS — no browser is launched; every test uses
 // the `request` (APIRequestContext) fixture against the live REST/FHIR surface.
@@ -29,11 +29,27 @@ export default defineConfig({
       use: { storageState: AUTH_STATE },
       workers: 1,
     },
+    // Login handshake against the Go port. Runs the SAME tests/auth.setup.ts as
+    // `setup` — only the target and the output jar differ. Its existence is the
+    // point: if the Go port ever needed a different login flow, this project
+    // would not be able to reuse that file.
+    {
+      name: "setup-go",
+      testMatch: /auth\.setup\.ts/,
+      use: {
+        baseURL: GO_BASE_URL,
+        ignoreHTTPSErrors: true,
+        storageState: { cookies: [], origins: [] },
+      },
+    },
     // Go port, side-by-side parity: the SAME assertions from the ported migration
-    // units run against the Go service. No auth setup (Go needs none), anon cookie
-    // jar. Only ported units are listed in testMatch — add each unit here as it
-    // passes against Go. Run with:
+    // units run against the Go service. Only ported units are listed in
+    // testMatch — add each unit here as it passes against Go. Run with:
     //   npx playwright test --project=go-parity   (requires the Go service up)
+    //
+    // Since P0 auth landed, the Go service is default-deny like Java, so this
+    // project authenticates first (setup-go) and carries the resulting cookie
+    // jar. p0-auth.spec.ts drives its own anonymous contexts and ignores it.
     {
       name: "go-parity",
       // Includes one mutating spec on purpose: b2-organization-sitecode
@@ -41,11 +57,12 @@ export default defineConfig({
       // cannot live in tests/readonly/ — but the Go port still needs the
       // coverage (it pins the UTC-vs-host-local site-code date fix).
       testMatch:
-        /(readonly[\\/](a1-server-time|a2-static-reads|b2-organization|b2-provider)|mutating[\\/]b2-organization-sitecode)\.spec\.ts/,
+        /(readonly[\\/](p0-auth|p0-authz|a1-server-time|a2-static-reads|b2-organization|b2-provider)|mutating[\\/]b2-organization-sitecode)\.spec\.ts/,
+      dependencies: ["setup-go"],
       use: {
         baseURL: GO_BASE_URL,
         ignoreHTTPSErrors: true,
-        storageState: { cookies: [], origins: [] },
+        storageState: GO_AUTH_STATE,
       },
     },
   ],

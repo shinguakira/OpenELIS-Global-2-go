@@ -260,14 +260,29 @@ version with the incident that motivated it:**
   has actually been run and passed there, not merely written.
 - Target both the **FHIR R4 API** and the React-facing **REST controllers**
   (`/api/OpenELIS-Global`).
-- **Port high-value unit tests.** Result validation, reference-range limits,
-  accession formatting, identifier rules translate to Go table tests — cheap and
-  they encode the rules.
+- **NO GO UNIT TESTS. Every test in this migration is an e2e test.** This
+  supersedes an earlier version of this bullet, which said to "port high-value
+  unit tests … to Go table tests." That was wrong and it has already misled
+  work: `migration/openelis-go` contains **zero** `*_test.go` files, and that is
+  the intended state, not a gap to fill.
+
+  **Why:** a Go unit test asserts what the person writing it *believes* Java
+  does. It has no oracle. The entire value of this migration's test suite is
+  that **Java and Go are checked against each other**, on the same live request,
+  in the same run — which only an e2e test in
+  `migration/openelis-api-e2e/` can do. A green Go unit test proves the port
+  matches its author's assumption; it proves nothing about parity, and it makes
+  a wrong assumption look verified. That is worse than no test.
+
+  Consequence to accept, not work around: **a behavior with no Java-observable
+  counterpart gets no test.** Internal-only concerns (memory reclamation,
+  startup configuration refusal) are fixed and *documented as untested*, never
+  given a Go unit test to make the change feel covered.
 - **Keep the existing Playwright suite** (42 specs in `frontend/playwright`)
   running against the strangler proxy as a full-stack regression net during
   coexistence.
-- Wire CI (`e2e-playwright.yml`) to run parity + Go unit tests per context as it
-  lands.
+- Wire CI (`e2e-playwright.yml`) to run the parity projects per context as it
+  lands — `api-readonly` (Java) and `go-parity` (Go) over the same specs.
 
 ---
 
