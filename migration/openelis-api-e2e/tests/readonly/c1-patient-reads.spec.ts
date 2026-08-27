@@ -741,6 +741,175 @@ test.describe("c1 — patient reads", () => {
       await ctx.dispose();
     });
   });
+
+  // ── Deeper Java-implementation coverage ─────────────────────────────────
+  // Added after re-reading the Java methods line by line. Each of these is a
+  // branch or a transformation the tests above pass over, and each is one a
+  // port can get wrong while still going green.
+
+  test("patientByLabNumer: a sample with NO patient is the SECOND 404 path", async ({ request }) => {
+    // getPatientByLabNumber has TWO independent 404 returns:
+    //
+    //   Sample sample = getSample(accessionNumber);
+    //   if (sample == null)  return notFound();     <- unknown accession
+    //   Patient patient = sampleHumanService.getPatientForSample(sample);
+    //   if (patient == null) return notFound();     <- THIS one
+    //
+    // A port that implements only the first — the obvious one — answers this
+    // request with 200 and a null/empty patient, or 500 on a nil dereference.
+    // Either way every other test in this file still passes, because the stock
+    // dataset has no patient-less sample. patient-media-e2e.sql seeds one.
+    const NO_PATIENT_ACCESSION = "E2E-NOPAT-01";
+    const exists = query(
+      `SELECT count(*) FROM clinlims.sample WHERE accession_number = '${NO_PATIENT_ACCESSION}'`,
+    )[0][0];
+    test.skip(
+      exists === "0",
+      "patient-less sample not seeded — load src/test/resources/fixtures/patient-media-e2e.sql",
+    );
+
+    // The premise, from the DB: the accession RESOLVES to a sample, and that
+    // sample has no patient. Without this the test could pass for the boring
+    // reason of the accession simply not existing.
+    const linked = query(
+      "SELECT count(*) FROM clinlims.sample_human sh JOIN clinlims.sample s ON s.id = sh.samp_id" +
+        ` WHERE s.accession_number = '${NO_PATIENT_ACCESSION}'`,
+    )[0][0];
+    expect(linked, "the seeded sample deliberately has no sample_human row").toBe("0");
+
+    const res = await request.get(
+      `${BY_LAB_NUMBER}?accessionNumber=${encodeURIComponent(NO_PATIENT_ACCESSION)}`,
+    );
+    expect(res.status(), "sample exists but has no patient -> 404").toBe(404);
+    expect(await res.text(), "404 is bodiless").toBe("");
+
+    // Same status as the unknown-accession case — the two branches are
+    // indistinguishable to a client, which is itself the contract.
+    const unknown = await request.get(`${BY_LAB_NUMBER}?accessionNumber=NO-SUCH-ACCESSION-0001`);
+    expect(unknown.status(), "unknown accession -> 404 as well").toBe(404);
+  });
+
+  test("merge/details: identityType is the MAPPED display name, not the DB code", async ({ request }) => {
+    // PatientMergeServiceImpl.getDisplayNameForIdentityType is a switch on the
+    // UPPERCASED patient_identity_type.identity_type:
+    //   NATIONAL -> "National ID"   SUBJECT -> "Subject Number"
+    //   ST -> "ST Number"           INSURANCE -> "Insurance ID"   ...
+    //   null -> "Unknown"           default -> the input, unchanged
+    //
+    // The "not a numeric id" test above passes for a port that returns the raw
+    // code ("NATIONAL"). This asserts the actual mapping, for every identity
+    // type present in the data, cross-checked against the DB rather than
+    // pinned to one patient.
+    const DISPLAY_NAMES: Record<string, string> = {
+      NATIONAL: "National ID",
+      SUBJECT: "Subject Number",
+      ST: "ST Number",
+      INSURANCE: "Insurance ID",
+      OCCUPATION: "Occupation",
+      ORG_SITE: "Organization Site",
+      EDUCATION: "Education",
+      MARITIAL: "Marital Status",
+      NATIONALITY: "Nationality",
+      "OTHER NATIONALITY": "Other Nationality",
+      "HEALTH DISTRICT": "Health District",
+      "HEALTH REGION": "Health Region",
+      OB_NUMBER: "OB Number",
+      PC_NUMBER: "PC Number",
+    };
+
+    // One patient per identity type actually present, so this scales with the
+    // dataset instead of hardcoding an id.
+    const samples = query(
+      "SELECT DISTINCT ON (t.identity_type) t.identity_type, pi.patient_id" +
+        " FROM clinlims.patient_identity pi" +
+        " JOIN clinlims.patient_identity_type t ON t.id = pi.identity_type_id" +
+        " ORDER BY t.identity_type, pi.patient_id",
+    );
+    expect(samples.length, "the dataset has identities to check").toBeGreaterThan(0);
+
+    let checked = 0;
+    for (const [rawType, patientId] of samples) {
+      // These four are filtered out of identifiers[] entirely (asserted
+      // separately), so they cannot be checked here.
+      if (["GUID", "AKA", "MOTHER", "MOTHERS_INITIAL"].includes(rawType)) continue;
+
+      const parsed = await readJson(
+        await request.get(`${MERGE_DETAILS}/${patientId}`),
+        `${MERGE_DETAILS}/${patientId}`,
+      );
+      const types = parsed.identifiers.map((i: any) => i.identityType);
+      // Java's `default:` returns the input unchanged, so an unmapped type is
+      // expected back as the raw code — pinning that branch too.
+      const expected = DISPLAY_NAMES[rawType.toUpperCase()] ?? rawType;
+      expect(types, `${rawType} maps to "${expected}" for patient ${patientId}`).toContain(expected);
+      if (expected !== rawType) {
+        expect(types, `the raw code "${rawType}" must NOT be returned`).not.toContain(rawType);
+      }
+      checked++;
+    }
+    expect(checked, "at least one non-internal identity type was checked").toBeGreaterThan(0);
+  });
+
+  test("patient-id-documents: the data URI is built from document_type + the RIGHT column", async ({
+    request,
+  }) => {
+    // Both endpoints build their payload by raw string concatenation:
+    //   list:  "data:" + doc.getDocumentType() + ";base64," + doc.getThumbnailData()
+    //   /full: "data:" + doc.getDocumentType() + ";base64," + doc.getDocumentData()
+    //
+    // Two mistakes a port makes easily, neither caught by the
+    // /^data:[^;]*;base64,/ shape check the tests above use:
+    //   1. hardcoding the media type — image/jpeg is the obvious guess, and
+    //      the seeded rows are image/png;
+    //   2. reading the same column for both, so the list silently serves the
+    //      FULL image as a thumbnail.
+    // Exact equality against the stored columns closes both.
+    const rows = query(
+      "SELECT id, document_type, thumbnail_data, document_data FROM clinlims.patient_id_document" +
+        " WHERE deleted = false ORDER BY id",
+    );
+    test.skip(rows.length === 0, "no patient_id_document rows — load patient-media-e2e.sql");
+
+    for (const [docId, docType, thumbData, fullData] of rows) {
+      // The premise for mistake 2: the two columns genuinely differ here, so
+      // "same value for both" is a detectable error rather than a coincidence.
+      expect(thumbData, `doc ${docId}: thumbnail_data differs from document_data`).not.toBe(fullData);
+
+      const patientId = query(
+        `SELECT patient_id FROM clinlims.patient_id_document WHERE id = ${docId}`,
+      )[0][0];
+
+      const list = await readJson(await request.get(`${ID_DOCUMENTS}/${patientId}`), ID_DOCUMENTS);
+      const item = list.find((d: any) => String(d.id) === String(docId));
+      expect(item, `doc ${docId} appears in the list for patient ${patientId}`).toBeTruthy();
+      expect(
+        item.thumbnail,
+        `doc ${docId}: list thumbnail is data:<document_type>;base64,<thumbnail_data>`,
+      ).toBe(`data:${docType};base64,${thumbData}`);
+
+      const full = await readJson(
+        await request.get(`${ID_DOCUMENTS}/${patientId}/${docId}/full`),
+        `${ID_DOCUMENTS}/full`,
+      );
+      expect(full.data, `doc ${docId}: /full is data:<document_type>;base64,<document_data>`).toBe(
+        `data:${docType};base64,${fullData}`,
+      );
+    }
+  });
+
+  test("patient-id-documents: an unknown documentId is 200 with empty data, never 404", async ({
+    request,
+  }) => {
+    // getIdDocumentFull loads the patient's documents and scans for the id in
+    // Java; falling off the end returns Map.of("data", "") with a 200. NOT a
+    // 404 and not an error — the same shape a patient with no documents at all
+    // produces, so a client cannot distinguish "no such document" from
+    // "the document is empty". Pinned because 404 is the tempting improvement.
+    const patientId = query("SELECT id FROM clinlims.patient ORDER BY id LIMIT 1")[0][0];
+    const res = await request.get(`${ID_DOCUMENTS}/${patientId}/99999999/full`);
+    expect(res.status(), "unknown documentId status").toBe(200);
+    expect(await res.json(), "unknown documentId body").toEqual({ data: "" });
+  });
 });
 
 // ── WHAT IS ACTUALLY VERIFIED AGAINST REAL DATA ─────────────────────────────

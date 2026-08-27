@@ -102,3 +102,37 @@ BEGIN
 
     RAISE NOTICE 'patient-media-e2e: seeded photo + documents for patient %', target_patient;
 END $$;
+
+-- =============================================================================
+-- A sample with NO patient — the second, distinct 404 on patientByLabNumer
+-- =============================================================================
+-- SampleEditRestController.getPatientByLabNumber has TWO independent 404 paths:
+--
+--   Sample sample = getSample(accessionNumber);
+--   if (sample == null)  return notFound();            <- unknown accession
+--   Patient patient = sampleHumanService.getPatientForSample(sample);
+--   if (patient == null) return notFound();            <- THIS one
+--
+-- The stock dataset has no sample without a sample_human row, so the second
+-- branch is unreachable and a port implementing only the first passes every
+-- test. This seeds one: a real sample row, deliberately with no sample_human,
+-- so the accession RESOLVES but the patient lookup comes back empty.
+--
+-- Safe to add: no spec asserts a clinlims.sample row count, fixtures/db.ts's
+-- BASELINE does not track samples, and c1-patient-reads.spec.ts's
+-- anySampleAccession() helper INNER JOINs sample_human, so it can never pick
+-- this row for the happy-path tests.
+DO $$
+BEGIN
+    DELETE FROM clinlims.sample WHERE id = 9900001;
+
+    INSERT INTO clinlims.sample
+        (id, accession_number, entered_date, received_date, is_confirmation)
+    VALUES
+        (9900001, 'E2E-NOPAT-01', now(), now(), false);
+
+    PERFORM setval('clinlims.sample_seq',
+                   GREATEST(9900100, (SELECT last_value FROM clinlims.sample_seq)), true);
+
+    RAISE NOTICE 'patient-media-e2e: seeded patient-less sample E2E-NOPAT-01';
+END $$;
