@@ -19,7 +19,7 @@ type TestCatalog struct {
 	Orderable           string
 	Loinc               *string
 	Uom                 string
-	SignificantDigits    string
+	SignificantDigits   string
 	HasLimitValues      bool
 	HasDictionaryValues bool
 	// Sort key used internally by TestCatalogRestController.createTestList();

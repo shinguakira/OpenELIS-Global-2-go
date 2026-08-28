@@ -150,10 +150,15 @@ DO $$
 BEGIN
     DELETE FROM clinlims.sample WHERE accession_number = 'E2E-NOPAT-01';
 
+    -- lastupdated MUST be non-null. Hibernate optimistic-locks Sample on that
+    -- column, so a row with lastupdated NULL makes any dirty-check flush issue
+    -- `update SAMPLE ... where ID=? and LASTUPDATED=?`, match zero rows and
+    -- throw StaleStateException — taking rest/order/dashboard from 200 to 500
+    -- for the whole table, not just for this row.
     INSERT INTO clinlims.sample
-        (id, accession_number, entered_date, received_date, is_confirmation)
+        (id, accession_number, entered_date, received_date, lastupdated, is_confirmation)
     VALUES
-        (nextval('clinlims.sample_seq'), 'E2E-NOPAT-01', now(), now(), false);
+        (nextval('clinlims.sample_seq'), 'E2E-NOPAT-01', now(), now(), now(), false);
 
     RAISE NOTICE 'patient-media-e2e: seeded patient-less sample E2E-NOPAT-01';
 END $$;

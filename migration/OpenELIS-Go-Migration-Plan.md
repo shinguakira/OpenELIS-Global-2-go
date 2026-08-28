@@ -278,6 +278,141 @@ version with the incident that motivated it:**
   counterpart gets no test.** Internal-only concerns (memory reclamation,
   startup configuration refusal) are fixed and *documented as untested*, never
   given a Go unit test to make the change feel covered.
+- **Missing data is not a scope boundary — SEED IT. Writing the fixture is part
+  of porting the endpoint, not a follow-up.** If an endpoint cannot be verified
+  because the table it reads is empty, the work is not "blocked on data" and it
+  is not done: the fixture is written, loaded, and wired into
+  `src/test/resources/load-test-fixtures.sh` in the *same* unit of work as the
+  port. Do not report an endpoint as ported, do not list the gap as a known
+  limitation, and do not ask which gap to close first.
+
+  **Why:** an empty table makes a test that cannot fail. `expect(Array.isArray(body))`
+  passes on `[]` forever, so the row shape — the only part that carries the
+  parity risk — is never compared against Java at all. Every such gap found so
+  far was closed by seeding, and every one of them was hiding a real defect:
+
+  - `patient-media-e2e.sql` (c1) — `patient_photo` / `patient_id_document` /
+    `image` were all empty. Seeding them exposed that
+    `/rest/patient-photos/{id}/false` returns a full `data:` URI while
+    `/true` returns BARE base64.
+  - `order-search-e2e.sql` (c2) — every `sample_item` in the dataset had
+    `voided = FALSE`, so deleting `voided = false` from the Go DAO left the
+    suite green. Seeding one voided row killed that mutant *and* exposed two
+    further divergences: `patient/merge/details` counted voided items in both
+    `totalSamples` and `totalResults`, in the port and in the c1 DB oracle
+    alike.
+
+  The corollary: when a spec has to fall back to envelope-only assertions,
+  that is a **bug report against the fixtures**, not a documented limitation.
+  `test.skip` on an empty collection is the same failure mode wearing a
+  different hat — it turns "never verified" into a green run.
+  - `order-search-full-e2e.sql` (c2) — no sample in the dataset carried a
+    provider, a requester organization, a program or any observation history,
+    so `buildSampleOrderItems` returned six of its ~25 keys and a port that
+    built exactly those six passed. Seeding three orders that trip every
+    branch exposed four divergences at once: the whole conditional half of the
+    map, `quantity`'s three shapes, the program resolution described below,
+    and a `samples[]` ORDER that no existing assertion looked at because it
+    sorted both sides first.
+
+- **A DAO method that orders is not evidence the endpoint orders. Read the
+  method the CONTROLLER calls.** `SampleItemDAOImpl.getSampleItemsBySampleId`
+  ends `order by sampleItem.sortOrder`.
+  `SampleItemServiceImpl.getSampleItemsBySampleId` — same name, and the one
+  the controller actually calls — ignores it entirely and runs an unordered
+  `getAllMatching`. Porting from the DAO gives `ORDER BY sort_order`, which
+  reverses the array on the stock dataset.
+
+  Where Java issues no `ORDER BY`, the faithful port is `ORDER BY ctid`, not
+  `ORDER BY id`. `id` is an ordering the original does not have; ctid
+  reproduces the scan order Postgres actually returns, which is what the Java
+  response contains. This also applies where the Go query adds JOINs that Java
+  resolves lazily per row — the extra joins let the planner reorder, so an
+  unordered Go query is not equivalent to an unordered Java one.
+
+- **A JSON-level diff cannot certify byte parity, because it decodes both
+  sides first.** Anything that survives a round trip is invisible to it, and
+  two such differences shipped through a suite that reported "完全一致" on
+  every endpoint:
+
+  - `json.Encoder.Encode` appends a trailing newline; Jackson does not. Every
+    response was one byte longer than Java's, with a different
+    `Content-Length`.
+  - Go renders a `float64` 5.0 as `5`; Jackson renders the same
+    `java.lang.Double` as `5.0`. `5 === 5.0` after parsing, so a field-by-field
+    comparison reports parity.
+
+  Compare the RAW bytes and the status code as well as the decoded values.
+  Key ORDER is the one difference to tolerate — several of these responses are
+  built from a `HashMap`, whose iteration order is a function of the JVM string
+  hash — so normalise key order and compare everything else exactly.
+
+- **A Java lookup keyed on a NAME may not read the table the name implies.**
+  `getProgrammeSampleBySample` picks a JPA entity CLASS from the program name,
+  and those classes are `TABLE_PER_CLASS` — so naming a subclass sends the
+  query to a different TABLE, it finds nothing, and the controller silently
+  falls back to a name lookup that ignores the row the sample actually points
+  at. Three branches, one of which contradicts the database. A port that reads
+  the obvious column agrees on the common case and is wrong on the other two,
+  and only a fixture whose two sources DISAGREE can tell them apart.
+- **Finish the endpoint before it enters the gate, and never commit the gate
+  red.** `go-parity`'s `testMatch` is the ledger of what is ported AND verified.
+  A spec joins it when the Go side passes — not earlier.
+
+  Committing with it red breaks the branch for everyone and writes a false entry
+  in the ledger. There is no version of this that is acceptable: not
+  "temporarily", not to checkpoint progress, and specifically not on the
+  argument that visible failures make the remaining work transparent. That
+  argument has been made here and it was wrong — it is an unfinished deliverable
+  with a justification attached. Finish the work, or leave the spec out of
+  `testMatch` and say plainly the endpoint is not ported.
+- **Never bend the implementation to make a test pass.** When a parity test
+  fails, exactly one of two things is true:
+
+  | Cause | Fix |
+  |---|---|
+  | The port does not match Java | Fix the port |
+  | The test asserts something Java does not do | Re-measure live Java, then fix the test |
+
+  There is no third option. Do not special-case an input, hardcode the value the
+  test checks, weaken an assertion, or drop a filter until the counts agree. A
+  green run obtained that way certifies a parity that does not exist, which is
+  strictly worse than a red one. "What should this return?" is answered by
+  measuring the running Java server — never by reading the Java source alone,
+  and never by asking what would make the test pass.
+- **The port REPRODUCES Java's bugs. It never fixes them.** This is a migration,
+  not a bug-fix pass. Where Java returns the wrong status, an empty body, a
+  hardcoded counter, paging that does not page, or two endpoints that do "the
+  same thing" inconsistently, the Go implementation does exactly the same.
+
+  **Why:** the entire value of this work is that Go and Java answer the same live
+  request identically. A port that quietly corrects a defect makes the two
+  disagree in production — the one outcome this migration must not produce.
+  Whether the Java behavior should change is the maintainers' decision, on their
+  schedule, not something that rides in on a port.
+
+  **How:** pin the behavior in the e2e spec with a comment saying it is pinned
+  and not fixed, implement it in Go, and record it in
+  [java-defects-found.md](java-defects-found.md) so it can be raised separately.
+  Record the symptom and how to reproduce it — do NOT write a proposed fix for
+  the Java side, which is outside this migration's scope.
+
+  Two cases look alike and are not:
+
+  | Situation | Correct action |
+  |---|---|
+  | Java is wrong, Go matches Java | Keep it. That is the job. |
+  | Go is wrong, Go is changed to match Java | Also correct — that is not "fixing Java" |
+
+  The second row covers things like the Go session cookie emitting
+  `SameSite=Lax` where Tomcat sends no SameSite attribute: removing it is
+  matching Java, not repairing a Java defect.
+
+  Examples currently pinned rather than fixed: `unassigned-by-accession` (500 on
+  every input, invalid HQL), `unassigned-sample/items` and `GenericSampleOrder`
+  (500 as soon as anything matches), `order/dashboard` (request pageSize never
+  bounds the result), and the attachment split where a soft-deleted id is 404
+  while a missing one is 500.
 - **Keep the existing Playwright suite** (42 specs in `frontend/playwright`)
   running against the strangler proxy as a full-stack regression net during
   coexistence.

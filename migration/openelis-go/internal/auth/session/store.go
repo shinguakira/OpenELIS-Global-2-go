@@ -94,6 +94,15 @@ type entry struct {
 	principal *Principal
 	ttl       time.Duration
 	expires   time.Time
+	// attributes is the analogue of Java's HttpSession attributes — the
+	// arbitrary per-session values controllers stash with
+	// request.getSession().setAttribute(). SampleEdit uses one
+	// (SampleEditWritable) to remember that a form was opened read-write.
+	//
+	// Kept on the entry rather than on Principal so every read and write goes
+	// through the store's mutex: Get hands out a *Principal that callers may
+	// hold, and a map hanging off it would be a data race.
+	attributes map[string]string
 }
 
 // MemoryStore is the in-memory Store, standing in for the servlet container's
@@ -102,6 +111,45 @@ type MemoryStore struct {
 	mu       sync.Mutex
 	sessions map[string]*entry
 }
+
+// SetAttribute stores a session attribute, mirroring
+// HttpSession.setAttribute. A no-op when the session is unknown or expired, so
+// an attribute never resurrects a dead session.
+func (s *MemoryStore) SetAttribute(id, key, value string) {
+	if id == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.sessions[id]
+	if !ok || time.Now().After(e.expires) {
+		return
+	}
+	if e.attributes == nil {
+		e.attributes = map[string]string{}
+	}
+	e.attributes[key] = value
+}
+
+// Attribute reads a session attribute, mirroring HttpSession.getAttribute.
+// Returns "" when the session or the key is absent.
+func (s *MemoryStore) Attribute(id, key string) string {
+	if id == "" {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.sessions[id]
+	if !ok || time.Now().After(e.expires) {
+		return ""
+	}
+	return e.attributes[key]
+}
+
+// SampleEditWritable is Java's SAMPLE_EDIT_WRITABLE session attribute. Holding
+// the literal here keeps the two sides of the contract — the controller that
+// writes it and the one that reads it — naming the same key.
+const SampleEditWritable = "SampleEditWritable"
 
 // NewMemoryStore returns an empty store.
 func NewMemoryStore() *MemoryStore {

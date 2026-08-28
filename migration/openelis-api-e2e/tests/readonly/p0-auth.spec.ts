@@ -122,7 +122,11 @@ test.describe("p0-auth: anonymous session bootstrap", () => {
 
   test("anonymous sessionId matches the JSESSIONID cookie the server issued", async () => {
     const ctx = await anonCtx();
-    const body = await readJson(await ctx.get(SESSION_PATH), "anon /session");
+    // Held onto because the Set-Cookie header is asserted below: the server
+    // issues it only on the FIRST touch, so a second GET returns no header at
+    // all once the context is carrying the session.
+    const res = await ctx.get(SESSION_PATH);
+    const body = await readJson(res, "anon /session");
     const cookie = await sessionCookie(ctx);
 
     expect(cookie, "JSESSIONID issued on first touch").toBeTruthy();
@@ -132,6 +136,31 @@ test.describe("p0-auth: anonymous session bootstrap", () => {
     // web.xml <cookie-config>: http-only=true, secure=true — unconditional.
     expect(cookie!.httpOnly, "JSESSIONID HttpOnly").toBe(true);
     expect(cookie!.secure, "JSESSIONID Secure").toBe(true);
+
+    // Path is the APP ROOT, which differs by deployment: Tomcat scopes the
+    // cookie to the servlet context (/api/OpenELIS-Global), the Go service is
+    // served at /. Derived from the base URL so the same assertion stays exact
+    // on both targets instead of being softened to "some path".
+    const root = new URL(test.info().project.use.baseURL!).pathname.replace(/\/$/, "");
+    expect(cookie!.path, "JSESSIONID Path is the app root").toBe(root === "" ? "/" : root);
+
+    // Tomcat sends NO SameSite attribute, and that absence is asserted on the
+    // RAW Set-Cookie header rather than on the parsed cookie: Playwright's
+    // storageState normalises a missing attribute to "Lax", so the parsed view
+    // literally cannot tell "absent" from an explicit `SameSite=Lax` and would
+    // pass either way.
+    //
+    // Worth pinning because adding the attribute is a divergence, not
+    // hardening: only Chromium applies Lax-by-default when it is missing, so an
+    // explicit Lax changes what Firefox and Safari do with a cross-site
+    // request. The Go port emitted Lax until this test was written.
+    const raw = res
+      .headersArray()
+      .filter((h) => h.name.toLowerCase() === "set-cookie")
+      .map((h) => h.value)
+      .find((v) => v.startsWith("JSESSIONID="));
+    expect(raw, "a JSESSIONID Set-Cookie header was sent").toBeTruthy();
+    expect(raw!.toLowerCase(), "JSESSIONID sends no SameSite attribute").not.toContain("samesite");
 
     await ctx.dispose();
   });

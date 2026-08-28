@@ -59,9 +59,11 @@ func Redirect(w http.ResponseWriter, r *http.Request, target string) {
 // treat http://localhost as a trustworthy origin, so the loopback parity runs
 // still receive it.
 //
-// SameSite=Lax is an addition, not a divergence in observable behavior: Tomcat
-// sets no SameSite attribute, so browsers apply their own Lax default anyway.
-// Stating it explicitly removes the dependency on that default.
+// SameSite is deliberately NOT set. Tomcat sends no SameSite attribute here,
+// and adding one is a divergence rather than a hardening: only Chromium applies
+// Lax-by-default in its absence, so an explicit Lax changes what Firefox and
+// Safari do with a cross-site request. Pinning Java means emitting the same
+// attribute set Java emits — p0-auth asserts it.
 func SetCookie(w http.ResponseWriter, r *http.Request, id string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieName,
@@ -69,7 +71,6 @@ func SetCookie(w http.ResponseWriter, r *http.Request, id string) {
 		Path:     CookiePath(r),
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
 	})
 }
 

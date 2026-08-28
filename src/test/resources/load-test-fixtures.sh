@@ -28,6 +28,10 @@ ANALYZER_HARNESS_LANE_SQL_FILE="$SCRIPT_DIR/fixtures/analyzer-harness-lane-data.
 STORAGE_IN_PROGRESS_ORDER_SQL="$SCRIPT_DIR/fixtures/storage-in-progress-order.sql"
 AUTH_E2E_SQL="$SCRIPT_DIR/fixtures/auth-e2e.sql"
 PATIENT_MEDIA_E2E_SQL="$SCRIPT_DIR/fixtures/patient-media-e2e.sql"
+ORDER_SEARCH_E2E_SQL="$SCRIPT_DIR/fixtures/order-search-e2e.sql"
+SHIPMENT_ATTACHMENT_E2E_SQL="$SCRIPT_DIR/fixtures/shipment-attachment-e2e.sql"
+SAMPLE_EDIT_E2E_SQL="$SCRIPT_DIR/fixtures/sample-edit-e2e.sql"
+ORDER_SEARCH_FULL_E2E_SQL="$SCRIPT_DIR/fixtures/order-search-full-e2e.sql"
 RESET_SCRIPT="$SCRIPT_DIR/reset-test-database.sh"
 
 RESET=false
@@ -388,6 +392,59 @@ load_profile_lane_fixtures() {
     if [ -f "$PATIENT_MEDIA_E2E_SQL" ]; then
         load_sql_file "$PATIENT_MEDIA_E2E_SQL" \
             "patient-media-e2e.sql (photos, ID documents, patient-less sample)" "fatal"
+    fi
+
+    # A sample carrying a VOIDED sample item. MUST run after storage: it links
+    # to the first patient by id, which is patient 1000 from
+    # testdata/storage-e2e.xml.
+    #
+    # Profile-independent and fatal on error. Every sample_item elsewhere in the
+    # dataset has voided = FALSE, so without this row the `voided = false`
+    # filter that rest/order/search depends on is unobservable — mutation
+    # testing confirmed a port can drop the predicate entirely and stay green.
+    if [ -f "$ORDER_SEARCH_E2E_SQL" ]; then
+        load_sql_file "$ORDER_SEARCH_E2E_SQL" \
+            "order-search-e2e.sql (voided sample item)" "fatal"
+    fi
+
+    # Referral rows for the unassigned-sample endpoints and attachment rows for
+    # rest/order/{accession}/attachments. MUST run after storage: the samples
+    # link to the first patient by id, which is patient 1000 from
+    # testdata/storage-e2e.xml.
+    #
+    # Profile-independent and fatal on error. clinlims.referral and
+    # clinlims.order_attachment are BOTH empty in the stock dataset, which left
+    # six c2 endpoints asserted only down to `Array.isArray(body)` — a check
+    # that passes on [] forever. Loading this file is what makes those row
+    # shapes comparable against Java at all; it also surfaced a Java 500 on
+    # /items that an empty table had been hiding.
+    if [ -f "$SHIPMENT_ATTACHMENT_E2E_SQL" ]; then
+        load_sql_file "$SHIPMENT_ATTACHMENT_E2E_SQL" \
+            "shipment-attachment-e2e.sql (referrals + order attachments)" "fatal"
+    fi
+
+    # Sample items in SampleEntered status, for the SampleEdit form load. MUST
+    # run after storage: the samples link to the first patient by id.
+    #
+    # Profile-independent and fatal on error. Not one sample_item in the stock
+    # dataset carries that status, so SampleEdit's existingTests, possibleTests
+    # and the real maxAccessionNumber branch were all unreachable — the response
+    # was pinned to its fallbacks no matter what the server did.
+    if [ -f "$SAMPLE_EDIT_E2E_SQL" ]; then
+        load_sql_file "$SAMPLE_EDIT_E2E_SQL" \
+            "sample-edit-e2e.sql (SampleEntered sample items)" "fatal"
+    fi
+
+    # A single order carrying every conditional branch of
+    # buildSampleOrderItems: a provider, a referring site AND department, a
+    # program, and one observation per emitted key.
+    #
+    # MUST run after storage for the same reason as above (it links to the
+    # first patient by id). Fatal: without it rest/order/search returns a
+    # six-key object, and a port that builds only those six keys passes.
+    if [ -f "$ORDER_SEARCH_FULL_E2E_SQL" ]; then
+        load_sql_file "$ORDER_SEARCH_FULL_E2E_SQL" \
+            "order-search-full-e2e.sql (fully-populated order)" "fatal"
     fi
 }
 

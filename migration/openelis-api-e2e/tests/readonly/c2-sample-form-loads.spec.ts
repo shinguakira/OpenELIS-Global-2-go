@@ -1,0 +1,1074 @@
+// §6 — c2 (continued): the Wave 4 form-load endpoints, 4.5–4.8.
+//
+// These four are in Wave 4's list exactly like the rest of c2
+// (migration/endpoint-migration-order.md). An earlier pass excluded them as
+// "their own unit of work", which is not a reason — it is scope narrowing. They
+// live in their own file only because c2-sample-order-reads.spec.ts is already
+// long, and they are wired into the same `go-parity` project.
+//
+//   4.5  rest/GenericSampleOrder      (GET, requires accessionNumber)
+//   4.6  rest/SamplePatientEntry
+//   4.7  rest/SampleEdit
+//   4.8  rest/SampleBatchEntrySetup
+//
+// ── MIGRATION POLICY ───────────────────────────────────────────────────────
+// This is a migration, not a bug-fix pass. Where Java is broken, these tests
+// PIN the broken behavior so the port reproduces it knowingly; the defects are
+// listed in migration/java-defects-found.md to be raised separately.
+//
+// ── WHY THE FIXTURES MATTER HERE ───────────────────────────────────────────
+// SampleEdit filters its sample items by SampleStatus.Entered, and not one row
+// in the stock dataset carries that status — so existingTests, possibleTests
+// and the real maxAccessionNumber branch were all unreachable and the response
+// was pinned to its fallbacks whatever the server did.
+// src/test/resources/fixtures/sample-edit-e2e.sql seeds both an accession whose
+// items are all Entered and one whose LAST item is not, which is what makes the
+// filter observable rather than merely present.
+import { test, expect } from "@playwright/test";
+import { readJson, expectKeysWithin, expectNonEmptyString } from "../../fixtures/assert";
+import { query } from "../../fixtures/db";
+
+const GENERIC_SAMPLE_ORDER = "rest/GenericSampleOrder";
+const SAMPLE_PATIENT_ENTRY = "rest/SamplePatientEntry";
+const SAMPLE_EDIT = "rest/SampleEdit";
+const BATCH_ENTRY_SETUP = "rest/SampleBatchEntrySetup";
+
+/** dd/MM/yyyy, the format DateUtil.getCurrentDateAsText produces. */
+function todayDDMMYYYY(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+/** Every {id,value} row, sorted, for order-independent comparison. */
+function idValuePairs(rows: any[]): string[] {
+  return rows.map((r) => `${r.id} | ${r.value}`).sort();
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// 4.5 — rest/GenericSampleOrder
+// ───────────────────────────────────────────────────────────────────────────
+test.describe("c2 form loads — GenericSampleOrder", () => {
+  test("GenericSampleOrder: 400 without the param, 404 for an unknown accession", async ({
+    request,
+  }) => {
+    // accessionNumber is @RequestParam(required = true), so Spring rejects a
+    // missing one at binding with its ProblemDetail envelope — five keys, not
+    // the {error} shape the handler itself produces.
+    const missing = await request.get(GENERIC_SAMPLE_ORDER);
+    expect(missing.status(), `${GENERIC_SAMPLE_ORDER} without accessionNumber`).toBe(400);
+    const problem = await missing.json();
+    expectKeysWithin(
+      problem,
+      ["type", "title", "status", "detail", "instance"],
+      ["type", "title", "status", "detail", "instance"],
+      `${GENERIC_SAMPLE_ORDER} 400 ProblemDetail`,
+    );
+    expect(problem.status, "ProblemDetail.status mirrors the HTTP status").toBe(400);
+    // Spring emits the UNRESOLVED message keys here — the ProblemDetail
+    // message source is not wired — so these are literal
+    // "problemDetail.*" strings rather than English sentences.
+    expect(problem.type, "ProblemDetail.type is an unresolved message key").toContain(
+      "MissingServletRequestParameterException",
+    );
+    expect(problem.instance, "ProblemDetail.instance is the request path").toContain(
+      "/rest/GenericSampleOrder",
+    );
+
+    // An accession with no sample takes the handler's OWN not-found branch,
+    // which is a different envelope: Map.of("error", "..."), one key, and the
+    // message interpolates the value the caller sent.
+    const unknown = await request.get(`${GENERIC_SAMPLE_ORDER}?accessionNumber=NOPE_XYZ`);
+    expect(unknown.status(), `${GENERIC_SAMPLE_ORDER} unknown accession`).toBe(404);
+    expect(await unknown.json(), `${GENERIC_SAMPLE_ORDER} 404 envelope`).toEqual({
+      error: "No sample found with accession number: NOPE_XYZ",
+    });
+  });
+
+  test("GenericSampleOrder: 500 for every accession that EXISTS — a Java defect", async ({
+    request,
+  }) => {
+    // MIGRATION POLICY: pinned, not fixed. Same root cause as
+    // unassigned-sample/items — a numeric id bound to a String-mapped
+    // property:
+    //
+    //   Failed to retrieve notebook sample for accession: E2E001
+    //   Parameter value [10002] did not match expected type [java.lang.String]
+    //
+    // The exception marks the transaction rollback-only, the commit at the
+    // @Transactional boundary throws, and the handler's catch-all wraps the
+    // resulting message into its {error} envelope with a 500.
+    //
+    // So this endpoint has an inverted success contract: a NONEXISTENT
+    // accession is the only input that produces a clean answer (404), and
+    // every real one fails. Verified across three different real accessions
+    // rather than one, so it reads as structural rather than as one bad row.
+    const accessions = query(
+      "SELECT accession_number FROM clinlims.sample WHERE accession_number IS NOT NULL" +
+        " ORDER BY id LIMIT 3",
+    ).map((r) => r[0]);
+    expect(accessions.length, "the dataset has samples to try").toBeGreaterThan(0);
+
+    for (const accession of accessions) {
+      const res = await request.get(
+        `${GENERIC_SAMPLE_ORDER}?accessionNumber=${encodeURIComponent(accession)}`,
+      );
+      expect(res.status(), `${GENERIC_SAMPLE_ORDER}?accessionNumber=${accession}`).toBe(500);
+      const body = await res.json();
+      expect(Object.keys(body), `${GENERIC_SAMPLE_ORDER} 500 envelope`).toEqual(["error"]);
+      // The prefix is the handler's; the tail is the propagated Spring
+      // message. Pinning the prefix alone would let a port emit any failure
+      // text, so the rollback wording is pinned too — it is what identifies
+      // WHICH failure this is.
+      expect(body.error, `${GENERIC_SAMPLE_ORDER} 500 message`).toBe(
+        "Failed to retrieve generic sample order: Transaction silently rolled back" +
+          " because it has been marked as rollback-only",
+      );
+    }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 4.6 — rest/SamplePatientEntry
+// ───────────────────────────────────────────────────────────────────────────
+test.describe("c2 form loads — SamplePatientEntry", () => {
+  test("SamplePatientEntry: the form envelope and its literals", async ({ request }) => {
+    const body = await readJson(await request.get(SAMPLE_PATIENT_ENTRY), SAMPLE_PATIENT_ENTRY);
+
+    expectKeysWithin(
+      body,
+      ["cancelAction", "cancelMethod", "currentDate", "customNotificationLogic", "formMethod",
+       "formName", "initialSampleConditionList", "orderEntryOnly", "patientProperties",
+       "patientSearch", "patientUpdateStatus", "projects", "referralOrganizations",
+       "referralReasons", "rejectReasonList", "sampleOrderItems", "sampleTypes", "sampleXML",
+       "submitOnCancel", "testSectionList", "useReferral", "warning"],
+      ["cancelAction", "cancelMethod", "currentDate", "formMethod", "formName",
+       "patientProperties", "patientSearch", "patientUpdateStatus", "projects",
+       "sampleOrderItems", "sampleTypes", "testSectionList"],
+      `${SAMPLE_PATIENT_ENTRY} envelope`,
+    );
+
+    // Form metadata is hardcoded in the controller. formName differs per
+    // endpoint and is the cheapest way to catch a port that serves one form
+    // builder for all three loads.
+    expect(body.formName, "formName").toBe("samplePatientEntryForm");
+    expect(body.formMethod, "formMethod").toBe("POST");
+    expect(body.cancelAction, "cancelAction").toBe("Home");
+    expect(body.cancelMethod, "cancelMethod").toBe("POST");
+    expect(body.patientUpdateStatus, "patientUpdateStatus is the literal ADD").toBe("ADD");
+    // sampleXML is initialised to "" and never populated on the GET path.
+    expect(body.sampleXML, "sampleXML is empty on load").toBe("");
+
+    // DateUtil.getCurrentDateAsText() — dd/MM/yyyy, not ISO.
+    expect(body.currentDate, "currentDate is today in dd/MM/yyyy").toBe(todayDDMMYYYY());
+
+    // Primitive booleans on the form object, so all five always serialize.
+    for (const k of ["customNotificationLogic", "orderEntryOnly", "submitOnCancel", "useReferral", "warning"]) {
+      expect(typeof body[k], `${k} is a boolean`).toBe("boolean");
+    }
+    // warning is FALSE here and TRUE on SampleEdit — same key, opposite
+    // literal, set by two different controllers.
+    expect(body.warning, "SamplePatientEntry sets warning false").toBe(false);
+  });
+
+  test("SamplePatientEntry: reference lists come from the DB, not from a stub", async ({
+    request,
+  }) => {
+    const body = await readJson(await request.get(SAMPLE_PATIENT_ENTRY), SAMPLE_PATIENT_ENTRY);
+
+    // testSectionList is ListType.TEST_SECTION_ACTIVE — every ACTIVE test
+    // section, and only those. Compared as a set against the DB so a port that
+    // returns all sections (active or not) fails.
+    const dbSections = query(
+      "SELECT id, name FROM clinlims.test_section WHERE is_active = 'Y'",
+    );
+    expect(body.testSectionList.length, "testSectionList is the active test sections").toBe(
+      dbSections.length,
+    );
+    expect(
+      body.testSectionList.map((r: any) => r.id).sort(),
+      "testSectionList ids match the active test sections",
+    ).toEqual(dbSections.map((r) => r[0]).sort());
+
+    // projects is EVERY project row, and unlike the {id,value} lists it is the
+    // full entity — a port emitting {id,value} here would be a different
+    // response even though the ids match.
+    const dbProjects = query("SELECT id FROM clinlims.project");
+    expect(body.projects.length, "projects is every project").toBe(dbProjects.length);
+    expect(body.projects.map((p: any) => p.id).sort(), "project ids").toEqual(
+      dbProjects.map((r) => r[0]).sort(),
+    );
+    for (const p of body.projects) {
+      expectKeysWithin(
+        p,
+        // programCode is present on SOME rows only (nullable column), so it
+        // belongs in the allowed set but not the required one.
+        ["lastupdated", "id", "projectName", "description", "isActive", "programCode",
+         "concatProjNameDesc", "organizations"],
+        ["id", "projectName", "isActive", "concatProjNameDesc", "organizations"],
+        "project row",
+      );
+      // concatProjNameDesc is DERIVED — name + "+" + description — not a
+      // column. It is the field most likely to be dropped by a port that maps
+      // the table straight through.
+      const expected =
+        p.description === undefined || p.description === null
+          ? p.projectName
+          : `${p.projectName}+${p.description}`;
+      expect(p.concatProjNameDesc, `project ${p.id} concatProjNameDesc is derived`).toBe(expected);
+      expect(Array.isArray(p.organizations), `project ${p.id} organizations is an array`).toBe(true);
+    }
+
+    // The dictionary-backed {id,value} lists. Non-empty is asserted explicitly:
+    // every one of them would serialize as [] on a port that never wired the
+    // list service, and [] passes any shape-only check.
+    for (const k of ["initialSampleConditionList", "rejectReasonList", "referralReasons", "sampleTypes"]) {
+      expect(Array.isArray(body[k]), `${k} is an array`).toBe(true);
+      expect(body[k].length, `${k} is populated, not an empty stub`).toBeGreaterThan(0);
+      for (const row of body[k]) {
+        expectKeysWithin(row, ["id", "value"], ["id", "value"], `${k} row`);
+        expectNonEmptyString(row.value, `${k} row value`);
+      }
+    }
+  });
+
+  test("SamplePatientEntry: sampleTypes is ROLE-FILTERED, unlike SampleBatchEntrySetup", async ({
+    request,
+  }) => {
+    // The sharpest discriminator in this group. Both endpoints emit a
+    // `sampleTypes` key of {id,value} rows, but they come from different
+    // sources:
+    //
+    //   SamplePatientEntry     userService.getUserSampleTypes(user, ROLE_RECEPTION)
+    //   SampleBatchEntrySetup  every ACTIVE type_of_sample
+    //
+    // On this dataset that is 12 vs 14. A port that builds one list and reuses
+    // it for both passes every other assertion in this file.
+    const entry = await readJson(await request.get(SAMPLE_PATIENT_ENTRY), SAMPLE_PATIENT_ENTRY);
+    const batch = await readJson(await request.get(BATCH_ENTRY_SETUP), BATCH_ENTRY_SETUP);
+
+    const allActive = query("SELECT id FROM clinlims.type_of_sample WHERE is_active = 'Y'").map(
+      (r) => r[0],
+    );
+    expect(
+      batch.sampleTypes.map((t: any) => t.id).sort(),
+      "SampleBatchEntrySetup lists every active type_of_sample",
+    ).toEqual([...allActive].sort());
+
+    const entryIds = entry.sampleTypes.map((t: any) => t.id);
+    // A strict, non-empty subset: proves the filter runs AND that it is not
+    // filtering everything away.
+    expect(entryIds.length, "SamplePatientEntry sampleTypes is non-empty").toBeGreaterThan(0);
+    expect(
+      entryIds.length,
+      "SamplePatientEntry sampleTypes is a STRICT subset of the active types",
+    ).toBeLessThan(allActive.length);
+    for (const id of entryIds) {
+      expect(allActive, `sample type ${id} is an active type_of_sample`).toContain(id);
+    }
+  });
+
+  test("SamplePatientEntry: patientProperties and patientSearch sub-forms", async ({ request }) => {
+    const body = await readJson(await request.get(SAMPLE_PATIENT_ENTRY), SAMPLE_PATIENT_ENTRY);
+
+    // patientProperties on THIS path is the blank-form variant: the lists a
+    // new-patient form needs, with no patient loaded. Contrast with
+    // order/search's patientProperties, which is the POPULATED bean and shares
+    // almost none of these keys — same key name, two different objects.
+    expectKeysWithin(
+      body.patientProperties,
+      ["addressDepartments", "addressHierarchy", "birthDateForDisplay", "educationList",
+       "genders", "healthDistricts", "healthRegions", "idDocuments", "maritialList",
+       "nationalityList", "patientType", "patientTypes", "readOnly"],
+      ["addressHierarchy", "birthDateForDisplay", "genders", "maritialList", "nationalityList",
+       "patientType", "patientTypes", "readOnly"],
+      `${SAMPLE_PATIENT_ENTRY} patientProperties`,
+    );
+    expect(body.patientProperties.birthDateForDisplay, "no patient loaded, so no birth date").toBe("");
+    expect(body.patientProperties.patientType, "no patient loaded, so no patient type").toBe("");
+    expect(body.patientProperties.readOnly, "readOnly is a primitive boolean").toBe(false);
+    expect(body.patientProperties.addressHierarchy, "addressHierarchy is an empty map").toEqual({});
+    expect(Array.isArray(body.patientProperties.idDocuments), "idDocuments is an array").toBe(true);
+
+    // patientTypes is the full entity, not {id,value} — a different shape from
+    // the sibling lists in the same object.
+    expect(body.patientTypes, "patientTypes is not hoisted to the top level").toBeUndefined();
+    for (const pt of body.patientProperties.patientTypes) {
+      expectKeysWithin(
+        pt,
+        ["lastupdated", "isActive", "id", "type", "description"],
+        ["id", "type", "description"],
+        "patientType row",
+      );
+    }
+    const dbPatientTypes = query("SELECT id FROM clinlims.patient_type");
+    expect(
+      body.patientProperties.patientTypes.map((p: any) => p.id).sort(),
+      "patientTypes comes from patient_type",
+    ).toEqual(dbPatientTypes.map((r) => r[0]).sort());
+
+    // genders appears in BOTH patientProperties and patientSearch and must be
+    // the same list — they are built from the same source.
+    expectKeysWithin(
+      body.patientSearch,
+      ["defaultHeader", "genders", "loadFromServerWithPatient", "searchCriteria"],
+      ["defaultHeader", "genders", "loadFromServerWithPatient", "searchCriteria"],
+      `${SAMPLE_PATIENT_ENTRY} patientSearch`,
+    );
+    expect(
+      idValuePairs(body.patientSearch.genders),
+      "patientSearch.genders equals patientProperties.genders",
+    ).toEqual(idValuePairs(body.patientProperties.genders));
+    // SamplePatientEntry does NOT set loadFromServerWithPatient; SampleEdit
+    // does. Pinned so a port does not share one PatientSearch builder.
+    expect(body.patientSearch.loadFromServerWithPatient, "false on this form").toBe(false);
+    expect(body.patientSearch.searchCriteria.length, "searchCriteria is populated").toBeGreaterThan(0);
+  });
+
+  test("SamplePatientEntry: sampleOrderItems is the FORM variant, not order/search's", async ({
+    request,
+  }) => {
+    // Third distinct object under a key this migration has now seen three
+    // times. order/search's sampleOrderItems carries labNo / collectionDate /
+    // priority; this one carries the LISTS a blank order form needs, plus a
+    // request date and a received date/time stamped at load.
+    const body = await readJson(await request.get(SAMPLE_PATIENT_ENTRY), SAMPLE_PATIENT_ENTRY);
+    const s = body.sampleOrderItems;
+
+    expectKeysWithin(
+      s,
+      ["environmentalFields", "isEQASample", "modified", "paymentOptions", "priorityList",
+       "programList", "providersList", "readOnly", "receivedDateForDisplay", "receivedTime",
+       "referringSiteList", "requestDate", "testLocationCodeList"],
+      ["environmentalFields", "isEQASample", "modified", "paymentOptions", "priorityList",
+       "readOnly", "receivedDateForDisplay", "receivedTime", "requestDate"],
+      `${SAMPLE_PATIENT_ENTRY} sampleOrderItems`,
+    );
+    // No labNo here — there is no sample yet. Asserting the ABSENCE stops a
+    // port from reusing order/search's builder.
+    for (const absent of ["labNo", "sampleId", "collectionDate", "priority"]) {
+      expect(absent in s, `sampleOrderItems omits ${absent} on the blank form`).toBe(false);
+    }
+
+    expect(s.requestDate, "requestDate is today").toBe(todayDDMMYYYY());
+    expect(s.receivedDateForDisplay, "receivedDateForDisplay is today").toBe(todayDDMMYYYY());
+    expect(s.receivedTime, "receivedTime is HH:mm").toMatch(/^\d{2}:\d{2}$/);
+    expect(s.environmentalFields, "environmentalFields is an empty map on load").toEqual({});
+    for (const k of ["isEQASample", "modified", "readOnly"]) {
+      expect(typeof s[k], `sampleOrderItems.${k} is a boolean`).toBe("boolean");
+    }
+
+    // paymentOptions is dictionary-backed; cross-checked against the DB the
+    // same way the order/search spec does it.
+    expect(s.paymentOptions.length, "paymentOptions is populated").toBeGreaterThan(0);
+    for (const row of s.paymentOptions) {
+      const hits = query(
+        `SELECT dict_entry FROM clinlims.dictionary WHERE id = '${row.id}'`,
+      );
+      expect(hits.length, `paymentOption ${row.id} is a real dictionary row`).toBe(1);
+      expect(row.value, `paymentOption ${row.id} value comes from dict_entry`).toBe(hits[0][0]);
+    }
+
+    // priorityList is an ENUM, not a table: its ids are names, not numbers.
+    expect(s.priorityList.length, "priorityList is populated").toBeGreaterThan(0);
+    for (const row of s.priorityList) {
+      expect(row.id, `priority ${row.id} is a non-numeric enum name`).toMatch(/^[A-Z_]+$/);
+    }
+  });
+
+  test("SamplePatientEntry: list ORDER, not just membership", async ({ request }) => {
+    // Added after a Java-vs-Go response diff showed 179 differences on this
+    // endpoint while every existing test here passed. Almost all of them were
+    // ORDERING and the is_active filter — things a set comparison cannot see.
+    // Each assertion below encodes the rule Java actually uses.
+    const body = await readJson(await request.get(SAMPLE_PATIENT_ENTRY), SAMPLE_PATIENT_ENTRY);
+
+    // rejectReasonList is ordered by dictionary.sort_order, NOT by id. They
+    // usually agree, but 1160/1161 carry sort orders that place them between
+    // 1152 and 1153, so an id sort puts them at the end.
+    const rejectBySort = query(
+      "SELECT d.id FROM clinlims.dictionary d" +
+        " JOIN clinlims.dictionary_category c ON c.id = d.dictionary_category_id" +
+        " WHERE c.name = 'resultRejectionReasons' AND d.is_active = 'Y'" +
+        " ORDER BY d.sort_order",
+    ).map((r) => r[0]);
+    expect(body.rejectReasonList.map((r: any) => r.id), "rejectReasonList is sort_order order").toEqual(
+      rejectBySort,
+    );
+    // Non-vacuous: prove the two orders really differ on this data, so the
+    // assertion is testing something.
+    const rejectById = [...rejectBySort].sort((a, b) => Number(a) - Number(b));
+    expect(rejectBySort, "sort_order and id order genuinely differ here").not.toEqual(rejectById);
+
+    // initialSampleConditionList is re-sorted by the LOCALIZED NAME, in BYTE
+    // order — Java uses String.compareTo, so uppercase sorts before lowercase.
+    // Postgres' default collation is case-insensitive and would interleave
+    // them, which is why the oracle pins COLLATE "C".
+    const conditionsByName = query(
+      "SELECT d.id FROM clinlims.dictionary d" +
+        " JOIN clinlims.dictionary_category c ON c.id = d.dictionary_category_id" +
+        " LEFT JOIN clinlims.localization_value lv" +
+        "   ON lv.localization_id = d.name_localization_id AND lv.locale = 'en'" +
+        " WHERE c.name = 'specimen reception condition' AND d.is_active = 'Y'" +
+        ` ORDER BY COALESCE(NULLIF(lv.value, ''), d.dict_entry) COLLATE "C"`,
+    ).map((r) => r[0]);
+    expect(
+      body.initialSampleConditionList.map((r: any) => r.id),
+      "initialSampleConditionList is localized-name order, byte-wise",
+    ).toEqual(conditionsByName);
+
+    // patientTypes is ordered by the TYPE CODE (E, H, P, R, U), not by id.
+    const typesByCode = query("SELECT id FROM clinlims.patient_type ORDER BY type").map((r) => r[0]);
+    expect(
+      body.patientProperties.patientTypes.map((p: any) => p.id),
+      "patientTypes is type-code order",
+    ).toEqual(typesByCode);
+    expect(typesByCode, "type-code order differs from id order here").not.toEqual(
+      [...typesByCode].sort((a, b) => Number(a) - Number(b)),
+    );
+
+    // genders uses the CONTEXTUAL message: the bundle ships gender.male ("Male")
+    // AND gender.male.CI ("1 = Male"), and site_information.stringContext picks
+    // the second. A port resolving the bare key returns "Male".
+    for (const g of body.patientProperties.genders) {
+      expect(g.value, `gender ${g.id} uses the contextual label`).toMatch(/^\d+ = /);
+    }
+
+    // A missing message key resolves to the KEY ITSELF, not to invented English
+    // — Spring's MessageSource behaviour, visible in the live response.
+    const lastFirst = body.patientSearch.searchCriteria.find((c: any) => c.id === "3");
+    expect(lastFirst.value, "an absent key renders as the key").toBe(
+      "3. label.select.last.first.name",
+    );
+    // And a value that CONTINUES ACROSS LINES in the .properties file must be
+    // joined, not truncated at the backslash.
+    const patientID = body.patientSearch.searchCriteria.find((c: any) => c.id === "4");
+    expect(patientID.value, "a continued property value is joined").toBe(
+      "4. Patient identification code",
+    );
+  });
+
+  test("SampleBatchEntrySetup: sampleTypes order survives the tie-heavy sort", async ({
+    request,
+  }) => {
+    // type_of_sample.sort_order has three rows at 0 and seven at
+    // Integer.MAX_VALUE, so most of this list is ties — and Java's HQL does NOT
+    // filter is_active in SQL, it filters in Java afterwards. Putting the
+    // predicate in the SQL changes the plan and therefore the tie order.
+    // Measured: SQL-filtered yields 30,32,31,…; Java yields 31,32,30,….
+    const body = await readJson(await request.get(BATCH_ENTRY_SETUP), BATCH_ENTRY_SETUP);
+    const expected = query(
+      "SELECT id, is_active FROM clinlims.type_of_sample WHERE domain = 'H' ORDER BY sort_order",
+    )
+      .filter((r) => r[1] === "t" || r[1] === "true")
+      .map((r) => r[0]);
+    expect(body.sampleTypes.map((t: any) => t.id), "batch sampleTypes order").toEqual(expected);
+  });
+
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 4.7 — rest/SampleEdit
+// ───────────────────────────────────────────────────────────────────────────
+test.describe("c2 form loads — SampleEdit", () => {
+  test("SampleEdit: no accession loads a blank form, an unknown one reports noSampleFound", async ({
+    request,
+  }) => {
+    // Three states, all 200 — this endpoint never 404s. A port that answered
+    // 404 for an unknown accession would be a different API.
+    const blank = await readJson(await request.get(SAMPLE_EDIT), SAMPLE_EDIT);
+    expect(blank.searchFinished, "no accession -> searchFinished false").toBe(false);
+    expect(blank.noSampleFound, "no accession -> noSampleFound false, NOT true").toBe(false);
+    // accessionNumber is never set on this branch, so NON_NULL drops it.
+    expect("accessionNumber" in blank, "blank form omits accessionNumber").toBe(false);
+
+    const unknown = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=NOPE_XYZ`),
+      SAMPLE_EDIT,
+    );
+    expect(unknown.searchFinished, "unknown accession -> searchFinished TRUE").toBe(true);
+    expect(unknown.noSampleFound, "unknown accession -> noSampleFound true").toBe(true);
+    // The searched-for value is echoed back even though nothing matched.
+    expect(unknown.accessionNumber, "unknown accession is echoed").toBe("NOPE_XYZ");
+
+    // The patient block splits two ways on this branch, and the split is the
+    // point: the scalar fields are initialised to "" on the form object, so
+    // they are PRESENT AND EMPTY, while the two LISTS are left null and
+    // dropped by Include.NON_NULL. A port that emitted nulls for the scalars,
+    // or [] for the lists, would be wrong in opposite directions.
+    for (const k of ["patientName", "dob", "gender", "nationalId", "patientId",
+                     "subjectNumber", "maxAccessionNumber"]) {
+      expect(k in unknown, `unknown accession keeps ${k}`).toBe(true);
+      expect(unknown[k], `unknown accession leaves ${k} empty`).toBe("");
+    }
+    for (const k of ["existingTests", "possibleTests"]) {
+      expect(k in unknown, `unknown accession drops ${k} entirely`).toBe(false);
+    }
+    // Primitive booleans, so they survive as false rather than disappearing.
+    expect(unknown.ableToCancelResults, "ableToCancelResults is false").toBe(false);
+    expect(unknown.isConfirmationSample, "isConfirmationSample is false").toBe(false);
+  });
+
+  test("SampleEdit: accession-format scalars and form literals", async ({ request }) => {
+    const body = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-EDIT-01`),
+      SAMPLE_EDIT,
+    );
+
+    expect(body.formName, "formName").toBe("SampleEditForm");
+    expect(body.formAction, "formAction is set on this form only").toBe("SampleEdit");
+    expect(body.formMethod, "formMethod").toBe("POST");
+    expect(body.cancelAction, "cancelAction").toBe("Home");
+    // warning is TRUE here and FALSE on SamplePatientEntry.
+    expect(body.warning, "SampleEdit sets warning true").toBe(true);
+    expect(body.currentDate, "currentDate is today in dd/MM/yyyy").toBe(todayDDMMYYYY());
+    expect(body.sampleXML, "sampleXML is empty on load").toBe("");
+    expect(body.newAccessionNumber, "newAccessionNumber is empty on load").toBe("");
+
+    // Accession-format configuration, read from the configured generator.
+    // NUMBERS, not strings — a port emitting "15" is a different response.
+    expect(body.accessionFormat, "accessionFormat").toBe("SITEYEARNUM");
+    expect(body.idSeparator, "idSeparator").toBe(";");
+    expect(typeof body.maxAccessionLength, "maxAccessionLength is a number").toBe("number");
+    expect(typeof body.editableAccession, "editableAccession is a number").toBe("number");
+    expect(typeof body.nonEditableAccession, "nonEditableAccession is a number").toBe("number");
+    // The split is a partition of the total, which is what makes these three
+    // consistent rather than three independent constants.
+    expect(
+      body.editableAccession + body.nonEditableAccession,
+      "editable + nonEditable is the accession length",
+    ).toBe(body.maxAccessionLength);
+
+    // isEditable comes from a SESSION attribute or ?type=readwrite, so a plain
+    // GET is read-only. Pinned because it is the only stateful input on this
+    // read path.
+    expect(body.isEditable, "a plain GET is not editable").toBe(false);
+  });
+
+  test("SampleEdit: sample items are filtered by SampleEntered status", async ({ request }) => {
+    // The behaviour sample-edit-e2e.sql exists for. getSampleItems calls
+    // getSampleItemsBySampleIdAndStatus(id, {SampleStatus.Entered}), and no row
+    // in the stock dataset has that status — so before the fixture, every
+    // accession returned existingTests [], possibleTests [] and
+    // maxAccessionNumber "<accession>-0", and a port that dropped the filter
+    // produced exactly the same thing.
+    const enteredStatus = query(
+      "SELECT id FROM clinlims.status_of_sample" +
+        " WHERE status_type = 'SAMPLE' AND name = 'SampleEntered'",
+    );
+    expect(enteredStatus.length, "the SampleEntered status exists").toBe(1);
+    const enteredId = enteredStatus[0][0];
+
+    for (const accession of ["E2E-EDIT-01", "E2E-EDIT-02"]) {
+      const rows = query(
+        "SELECT si.sort_order, si.status_id FROM clinlims.sample_item si" +
+          " JOIN clinlims.sample s ON s.id = si.samp_id" +
+          ` WHERE s.accession_number = '${accession}' ORDER BY si.sort_order::numeric`,
+      );
+      // Not a skip: the loader marks the fixture fatal.
+      expect(rows.length, `${accession} fixture is loaded`).toBe(2);
+      const entered = rows.filter((r) => r[1] === enteredId);
+
+      const body = await readJson(
+        await request.get(`${SAMPLE_EDIT}?accessionNumber=${accession}`),
+        SAMPLE_EDIT,
+      );
+      expect(body.searchFinished, `${accession} searchFinished`).toBe(true);
+      expect(body.noSampleFound, `${accession} noSampleFound`).toBe(false);
+
+      // maxAccessionNumber appends the sort order of the LAST item in the
+      // FILTERED list. E2E-EDIT-02's last item is excluded by status, so it
+      // ends "-1" while its highest sort order is 2 — that gap is what a port
+      // ignoring the filter gets wrong.
+      const lastSortOrder = entered[entered.length - 1][0];
+      expect(body.maxAccessionNumber, `${accession} maxAccessionNumber`).toBe(
+        `${accession}-${lastSortOrder}`,
+      );
+
+      // One existingTests row per non-canceled analysis on a FILTERED item.
+      const expectedTests = Number(
+        query(
+          "SELECT count(*) FROM clinlims.analysis a" +
+            " JOIN clinlims.sample_item si ON si.id = a.sampitem_id" +
+            " JOIN clinlims.sample s ON s.id = si.samp_id" +
+            ` WHERE s.accession_number = '${accession}' AND si.status_id = ${enteredId}` +
+            "   AND a.status_id <> (SELECT id FROM clinlims.status_of_sample" +
+            "       WHERE status_type = 'ANALYSIS' AND name = 'Test Canceled')",
+        )[0][0],
+      );
+      expect(body.existingTests.length, `${accession} existingTests`).toBe(expectedTests);
+      expect(expectedTests, `${accession} really has tests, so this is not a vacuous check`)
+        .toBeGreaterThan(0);
+
+      // Header fields are set ONCE PER SAMPLE ITEM — on the first row of that
+      // item's group after the sort — and left null on the rest, where
+      // Include.NON_NULL drops them. So the number of rows carrying an
+      // accessionNumber is the number of FILTERED sample items, not the number
+      // of analyses.
+      //
+      // sample-edit-e2e.sql gives one item TWO analyses precisely so this is
+      // observable: with one analysis per item every row is a "first", the rule
+      // is invisible, and a port that sets the headers on every row passes. An
+      // earlier version of this test asserted accessionNumber on EVERY row and
+      // was green for exactly that reason.
+      const existingHeaders = body.existingTests.filter((t: any) => "accessionNumber" in t);
+      expect(existingHeaders.length, `${accession} one existingTests header per sample item`).toBe(
+        entered.length,
+      );
+
+      for (const item of body.existingTests) {
+        expectKeysWithin(
+          item,
+          ["accessionNumber", "add", "analysisId", "canCancel", "canRemoveSample", "canceled",
+           "collectionDate", "collectionTime", "hasResults", "id", "removeSample",
+           "sampleItemChanged", "sampleItemId", "sampleType", "sortOrder", "status", "testId",
+           "testName"],
+          ["add", "analysisId", "canCancel", "canRemoveSample", "canceled", "hasResults",
+           "id", "removeSample", "sampleItemChanged", "sampleItemId", "sortOrder", "status",
+           "testId", "testName"],
+          "existingTests row",
+        );
+        expect(item.id, "id duplicates testId").toBe(item.testId);
+        // canRemoveSample is a primitive boolean, so unlike the four header
+        // fields it stays PRESENT (false) on non-first rows instead of
+        // disappearing — same "only set on the first row" logic, opposite
+        // serialization outcome.
+        expect(typeof item.canRemoveSample, "canRemoveSample always serializes").toBe("boolean");
+
+        if ("accessionNumber" in item) {
+          // A header row's accessionNumber is SUFFIXED with the item's sort
+          // order, unlike the top-level one.
+          expect(item.accessionNumber, "a header row's accession carries the item suffix").toMatch(
+            new RegExp(`^${accession}-\\d+$`),
+          );
+          expectNonEmptyString(item.sampleType, "a header row carries sampleType");
+        } else {
+          for (const k of ["sampleType", "collectionDate", "collectionTime"]) {
+            expect(k in item, `a non-header existingTests row drops ${k}`).toBe(false);
+          }
+        }
+      }
+
+      // possibleTests are the ADDABLE tests for the filtered items' sample
+      // types. Only the FIRST row of each sample item carries accessionNumber
+      // and sampleType — addPossibleTestsToList sets them once per item and
+      // leaves them null on the rest, where Include.NON_NULL drops them. The
+      // frontend reads them as group headers.
+      //
+      // So the count of rows carrying an accessionNumber equals the number of
+      // FILTERED sample items, not the number of tests. A port that set the
+      // header fields on every row would look more consistent and be wrong.
+      expect(body.possibleTests.length, `${accession} possibleTests is populated`).toBeGreaterThan(0);
+      const headers = body.possibleTests.filter((t: any) => "accessionNumber" in t);
+      expect(headers.length, `${accession} one possibleTests header per filtered sample item`).toBe(
+        entered.length,
+      );
+      expect(
+        headers.length,
+        `${accession} not every row is a header, so the pattern is observable`,
+      ).toBeLessThan(body.possibleTests.length);
+
+      for (const item of body.possibleTests) {
+        expect(item.id, "possibleTests id duplicates testId").toBe(item.testId);
+        expect(item.canceled, "an addable test is not canceled").toBe(false);
+        expect(item.hasResults, "an addable test has no results").toBe(false);
+        // sampleItemId is on EVERY row — it is the header fields specifically
+        // that are once-per-item.
+        expectNonEmptyString(item.sampleItemId, "possibleTests sampleItemId");
+        if ("accessionNumber" in item) {
+          expect(item.accessionNumber, "a header row's accession is suffixed").toMatch(
+            new RegExp(`^${accession}-\\d+$`),
+          );
+          expectNonEmptyString(item.sampleType, "a header row carries sampleType");
+        } else {
+          expect("sampleType" in item, "a non-header row drops sampleType too").toBe(false);
+        }
+      }
+    }
+  });
+
+  test("SampleEdit: patient block comes from the linked patient", async ({ request }) => {
+    const body = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-EDIT-01`),
+      SAMPLE_EDIT,
+    );
+
+    const [[patientId, firstName, lastName, dob, gender, nationalId]] = query(
+      "SELECT p.id, pe.first_name, pe.last_name, COALESCE(p.entered_birth_date,'')," +
+        " COALESCE(p.gender,''), COALESCE(p.national_id,'')" +
+        " FROM clinlims.patient p" +
+        " JOIN clinlims.person pe ON pe.id = p.person_id" +
+        " JOIN clinlims.sample_human sh ON sh.patient_id = p.id" +
+        " JOIN clinlims.sample s ON s.id = sh.samp_id" +
+        " WHERE s.accession_number = 'E2E-EDIT-01'",
+    );
+
+    expect(body.patientId, "patientId").toBe(patientId);
+    // getLastFirstName: "Last, First" — comma AND space, in that order.
+    expect(body.patientName, "patientName is 'Last, First'").toBe(`${lastName}, ${firstName}`);
+    expect(body.gender, "gender is the raw column").toBe(gender);
+    expect(body.nationalId, "nationalId is the raw column").toBe(nationalId);
+    // dob is the STORED entered_birth_date, emitted RAW — the same value
+    // order/search reformats through DateUtil.formatStringDate. Two endpoints,
+    // one column, two renderings.
+    expect(body.dob, "dob is the stored entered_birth_date, unreformatted").toBe(dob);
+  });
+
+  test("SampleEdit: sampleOrderItems is the CLOCK item overwritten by the sample", async ({ request }) => {
+    // getBaseSampleOrderItem stamps receivedDateForDisplay, receivedTime and
+    // requestDate from the clock and attaches the reference lists. Then, if the
+    // accession resolves, `if (sample != null)` OVERWRITES both dates from
+    // sample.received_date and fills in ~15 further fields.
+    //
+    // A port that stopped at the base item is correct only for a form with no
+    // sample behind it — and that was not detectable here, because no sample in
+    // the dataset carried a provider, a requester, a program or an observation.
+    // E2E-FULL-01 carries all four.
+    const body = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-01`),
+      `${SAMPLE_EDIT} E2E-FULL-01`,
+    );
+    const soi = body.sampleOrderItems;
+
+    // ── the dates are the SAMPLE's, not today's ───────────────────────────
+    const [received] = query(
+      `SELECT to_char(received_date, 'DD/MM/YYYY'), to_char(received_date, 'HH24:MI')
+         FROM clinlims.sample WHERE accession_number = 'E2E-FULL-01'`,
+    );
+    expect(soi.receivedDateForDisplay, "receivedDateForDisplay is sample.received_date").toBe(received[0]);
+    expect(soi.receivedTime, "receivedTime is sample.received_date, NOT the clock").toBe(received[1]);
+    // The fixture receives the sample in 2025 while the form is loaded today,
+    // so a port that left the clock value in place cannot coincidentally pass.
+    const todayDMY = query(`SELECT to_char(now(), 'DD/MM/YYYY')`)[0][0];
+    expect(soi.receivedDateForDisplay, "and it is not today's date").not.toBe(todayDMY);
+
+    // ── observations: two readers over one table ──────────────────────────
+    // getRawValueForSample returns observation_history.value as stored.
+    // getValueForSample returns it only when value_type is LITERAL and
+    // otherwise treats the value as a DICTIONARY ID, rendering its localized
+    // name. Java picks between them per field, so one reader for everything is
+    // right for whichever half it happens to match.
+    const obs = new Map(
+      query(
+        `SELECT t.type_name, oh.value
+           FROM clinlims.sample s
+           JOIN clinlims.observation_history oh ON oh.sample_id = s.id
+           JOIN clinlims.observation_history_type t ON t.id = oh.observation_history_type_id
+          WHERE s.accession_number = 'E2E-FULL-01'`,
+      ).map((r) => [r[0], r[1]]),
+    );
+    for (const [key, typeName] of [
+      ["requestDate", "requestDate"],
+      ["nextVisitDate", "nextVisitDate"],
+      ["billingReferenceNumber", "billingRefNumber"],
+      ["provisionalClinicalDiagnosis", "provisionalClinicalDiagnosis"],
+      ["paymentOptionSelection", "paymentStatus"],
+      ["program", "program"],
+    ] as const) {
+      expect(obs.has(typeName), `E2E-FULL-01 seeds the ${typeName} observation`).toBe(true);
+      expect(soi[key], `${key} == observation ${typeName}`).toBe(obs.get(typeName));
+    }
+
+    // ── provider: the PERSON requester, a different table from order/search ─
+    // getPersonRequester compares requester_type_id against the type NAMED
+    // "provider" and then reads requester_id as a PERSON id. order/search
+    // instead reads sample_human.provider_id. Same six keys, two sources.
+    const [prov] = query(
+      `SELECT pe.id, pe.first_name, pe.last_name, pe.work_phone, pe.fax, pe.email, pr.id
+         FROM clinlims.sample s
+         JOIN clinlims.sample_requester sr ON sr.sample_id = s.id
+         JOIN clinlims.requester_type rt ON rt.id = sr.requester_type_id
+         JOIN clinlims.person pe ON pe.id = sr.requester_id
+         LEFT JOIN clinlims.provider pr ON pr.person_id = pe.id
+        WHERE s.accession_number = 'E2E-FULL-01' AND rt.requester_type = 'provider'`,
+    );
+    expect(soi.providerPersonId, "providerPersonId is the sample_requester PERSON").toBe(prov[0]);
+    expect(soi.providerFirstName, "providerFirstName == person.first_name").toBe(prov[1]);
+    expect(soi.providerLastName, "providerLastName == person.last_name").toBe(prov[2]);
+    expect(soi.providerWorkPhone, "providerWorkPhone == person.work_phone").toBe(prov[3]);
+    expect(soi.providerFax, "providerFax == person.fax").toBe(prov[4]);
+    expect(soi.providerEmail, "providerEmail == person.email").toBe(prov[5]);
+    // providerId is a SEPARATE lookup: getProviderByPerson on the person above.
+    expect(soi.providerId, "providerId is the provider that person maps to").toBe(prov[6]);
+
+    // ── referringSiteCode reads organization.CODE here ────────────────────
+    // order/search emits getShortName() under the same key. On this deployment
+    // the referring clinic has short_name '279' and a NULL code, so the two
+    // endpoints disagree: order/search emits "279" and SampleEdit emits no key
+    // at all. Pinning that keeps a port from sharing one builder.
+    const [site] = query(
+      `SELECT o.id, o.name, coalesce(o.short_name, ''), coalesce(o.code, '')
+         FROM clinlims.sample s
+         JOIN clinlims.sample_requester sr ON sr.sample_id = s.id
+         JOIN clinlims.organization o ON o.id = sr.requester_id
+         JOIN clinlims.organization_organization_type oot ON oot.org_id = o.id
+         JOIN clinlims.organization_type t ON t.id = oot.org_type_id
+        WHERE s.accession_number = 'E2E-FULL-01' AND t.short_name = 'referring clinic'`,
+    );
+    expect(soi.referringSiteId, "referringSiteId == the referring-clinic org").toBe(site[0]);
+    expect(soi.referringSiteName, "referringSiteName == organization.name").toBe(site[1]);
+    if (site[3] === "") {
+      expect("referringSiteCode" in soi, "a NULL organization.code drops referringSiteCode").toBe(false);
+      expect(site[2], "...even though short_name is populated, which order/search uses").not.toBe("");
+    } else {
+      expect(soi.referringSiteCode, "referringSiteCode == organization.CODE, not short_name").toBe(site[3]);
+    }
+
+    // referringSiteDepartmentId is emitted; the department NAME is not — this
+    // endpoint only carries the id, while order/search carries both.
+    const [dept] = query(
+      `SELECT o.id FROM clinlims.sample s
+         JOIN clinlims.sample_requester sr ON sr.sample_id = s.id
+         JOIN clinlims.organization o ON o.id = sr.requester_id
+         JOIN clinlims.organization_organization_type oot ON oot.org_id = o.id
+         JOIN clinlims.organization_type t ON t.id = oot.org_type_id
+        WHERE s.accession_number = 'E2E-FULL-01' AND t.short_name = 'dept'`,
+    );
+    expect(soi.referringSiteDepartmentId, "departmentId == the dept-typed org").toBe(dept[0]);
+    expect("referringSiteDepartmentName" in soi, "SampleEdit carries no department NAME").toBe(false);
+  });
+
+  test("SampleEdit: the dictionary-valued observation is RESOLVED, not echoed", async ({ request }) => {
+    // observation_history.value_type decides how getValueForSample renders the
+    // row: 'L' returns the value verbatim, anything else treats it as a
+    // DICTIONARY ID and returns that row's localized name. Every observation in
+    // the stock dataset is LITERAL, so a port that returned the raw value for
+    // both passed — it would have echoed a numeric id to the user.
+    const [dict] = query(
+      `SELECT oh.value, d.dict_entry
+         FROM clinlims.sample s
+         JOIN clinlims.observation_history oh ON oh.sample_id = s.id
+         JOIN clinlims.dictionary d ON d.id::text = oh.value
+        WHERE s.accession_number = 'E2E-FULL-02' AND oh.value_type <> 'L'`,
+    );
+    expect(dict, "E2E-FULL-02 seeds a non-LITERAL observation").toBeTruthy();
+    const body = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-02`),
+      `${SAMPLE_EDIT} E2E-FULL-02`,
+    );
+    expect(
+      body.sampleOrderItems.provisionalClinicalDiagnosis,
+      "a value_type<>'L' observation renders the dictionary NAME",
+    ).toBe(dict[1]);
+    expect(
+      body.sampleOrderItems.provisionalClinicalDiagnosis,
+      "...and not the raw dictionary id it stores",
+    ).not.toBe(dict[0]);
+  });
+
+  test("SampleEdit: programId resolves differently from order/search", async ({ request }) => {
+    // Both endpoints call getProgrammeSampleBySample, which routes by program
+    // NAME to a TABLE_PER_CLASS subclass table. order/search wraps it in a
+    // fallback that resolves the id by name when that table has no row;
+    // SampleOrderService has no fallback. So on E2E-FULL-02 — whose observation
+    // names "Cytology" while its program_sample row points elsewhere —
+    // order/search emits a programId and SampleEdit emits none, from the same
+    // two rows.
+    const edit = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-02`),
+      `${SAMPLE_EDIT} E2E-FULL-02`,
+    );
+    const search = await readJson(
+      await request.get(`rest/order/search?labNumber=E2E-FULL-02`),
+      "order/search E2E-FULL-02",
+    );
+    expect(edit.sampleOrderItems.program, "both endpoints agree on the program NAME").toBe(
+      search.sampleOrderItems.program,
+    );
+    expect("programId" in edit.sampleOrderItems, "SampleEdit has no name fallback, so no programId").toBe(false);
+    expect(search.sampleOrderItems.programId, "order/search falls back and resolves one").toBeTruthy();
+
+    // And the lookup is UNCONDITIONAL: E2E-FULL-03 has a program_sample row but
+    // no program observation, so the name is null, no subclass is selected, the
+    // base table is queried and programId appears with NO program beside it.
+    // Guarding the lookup on "there is a program name" drops it.
+    const noObs = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-03`),
+      `${SAMPLE_EDIT} E2E-FULL-03`,
+    );
+    const psProgram = query(
+      `SELECT ps.program_id FROM clinlims.sample s
+         JOIN clinlims.program_sample ps ON ps.sample_id = s.id
+        WHERE s.accession_number = 'E2E-FULL-03'`,
+    )[0][0];
+    expect("program" in noObs.sampleOrderItems, "no program observation, so no program name").toBe(false);
+    expect(noObs.sampleOrderItems.programId, "programId is still resolved from program_sample").toBe(psProgram);
+  });
+
+  test("SampleEdit: priority is dropped only by an explicit NULL", async ({ request }) => {
+    // getBaseSampleOrderItem never sets priority; the sample branch does
+    // setPriority(sample.getPriority()), so a NULL column leaves the bean field
+    // null and NON_NULL drops the key. sample.order_priority is nullable but
+    // DEFAULTs to 'ROUTINE', so ordinary rows always carry a value and a port
+    // that defaulted to "ROUTINE" looked correct everywhere except here.
+    const withPriority = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-01`),
+      `${SAMPLE_EDIT} E2E-FULL-01`,
+    );
+    expect(withPriority.sampleOrderItems.priority, "a set priority is emitted raw").toBe(
+      query(`SELECT order_priority FROM clinlims.sample WHERE accession_number = 'E2E-FULL-01'`)[0][0],
+    );
+
+    expect(
+      query(`SELECT order_priority IS NULL FROM clinlims.sample WHERE accession_number = 'E2E-FULL-03'`)[0][0],
+      "E2E-FULL-03 really has a NULL order_priority",
+    ).toBe("t");
+    const nulled = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-03`),
+      `${SAMPLE_EDIT} E2E-FULL-03`,
+    );
+    expect("priority" in nulled.sampleOrderItems, "a NULL order_priority drops the key entirely").toBe(false);
+  });
+
+  test("SampleEdit: existingTests is [] for a resolved sample, absent for an unresolved one", async ({
+    request,
+  }) => {
+    // setExistingTests / setAddableTestInfo run only inside
+    // `if (sample != null)`, so a resolved accession emits [] even with no
+    // analyses while an unresolved one leaves the field null and NON_NULL drops
+    // the key. In Go these are the same `omitempty` case, which silently lost
+    // both keys for a sample that had no tests — and E2E-FULL-01 is the first
+    // seeded sample with sample items but no analyses.
+    const analyses = query(
+      `SELECT count(*) FROM clinlims.analysis a
+         JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+         JOIN clinlims.sample s ON s.id = si.samp_id
+        WHERE s.accession_number = 'E2E-FULL-01'`,
+    )[0][0];
+    expect(analyses, "E2E-FULL-01 has no analyses, so existingTests is empty").toBe("0");
+
+    const resolved = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-01`),
+      `${SAMPLE_EDIT} E2E-FULL-01`,
+    );
+    expect("existingTests" in resolved, "a resolved sample always carries the key").toBe(true);
+    expect(resolved.existingTests, "...as an EMPTY array, not an absent key").toEqual([]);
+    expect(Array.isArray(resolved.possibleTests), "possibleTests is present too").toBe(true);
+
+    const unresolved = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=NO_SUCH_ACCESSION_XYZ`),
+      `${SAMPLE_EDIT} unresolved`,
+    );
+    expect("existingTests" in unresolved, "an unresolved accession drops the key").toBe(false);
+    expect("possibleTests" in unresolved, "and drops possibleTests with it").toBe(false);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 4.8 — rest/SampleBatchEntrySetup
+// ───────────────────────────────────────────────────────────────────────────
+test.describe("c2 form loads — SampleBatchEntrySetup", () => {
+  test("SampleBatchEntrySetup: envelope, literals and the two project-data blocks", async ({
+    request,
+  }) => {
+    const body = await readJson(await request.get(BATCH_ENTRY_SETUP), BATCH_ENTRY_SETUP);
+
+    expectKeysWithin(
+      body,
+      ["cancelAction", "cancelMethod", "currentDate", "currentTime", "customNotificationLogic",
+       "facilityIDCheck", "formMethod", "formName", "initialSampleConditionList", "localDBOnly",
+       "orderEntryOnly", "patientInfoCheck", "patientUpdateStatus", "project", "projectDataEID",
+       "projectDataVL", "projects", "sampleOrderItems", "sampleTypes", "sampleXML",
+       "submitOnCancel", "testSectionList", "useReferral", "warning"],
+      ["cancelAction", "cancelMethod", "currentDate", "currentTime", "formMethod", "formName",
+       "patientUpdateStatus", "project", "projectDataEID", "projectDataVL", "projects",
+       "sampleOrderItems", "sampleTypes", "testSectionList"],
+      `${BATCH_ENTRY_SETUP} envelope`,
+    );
+
+    expect(body.formName, "formName").toBe("sampleBatchEntryForm");
+    expect(body.formMethod, "formMethod").toBe("POST");
+    expect(body.cancelAction, "cancelAction").toBe("Home");
+    expect(body.patientUpdateStatus, "patientUpdateStatus").toBe("ADD");
+    expect(body.project, "project is empty on load").toBe("");
+    expect(body.sampleXML, "sampleXML is empty on load").toBe("");
+    expect(body.currentDate, "currentDate is today in dd/MM/yyyy").toBe(todayDDMMYYYY());
+    // currentTime is exclusive to this form — SamplePatientEntry has no such
+    // key, though its sampleOrderItems carries a receivedTime.
+    expect(body.currentTime, "currentTime is HH:mm").toMatch(/^\d{2}:\d{2}$/);
+
+    for (const k of ["customNotificationLogic", "facilityIDCheck", "localDBOnly", "orderEntryOnly",
+                     "patientInfoCheck", "submitOnCancel", "useReferral", "warning"]) {
+      expect(typeof body[k], `${k} is a boolean`).toBe("boolean");
+    }
+
+    // projectDataEID and projectDataVL are two SEPARATE objects of the same
+    // large shape — one per project flavour. A port that emitted one and
+    // aliased the other would pass a key-count check but not this equality of
+    // key SETS combined with their independence.
+    const eidKeys = Object.keys(body.projectDataEID).sort();
+    const vlKeys = Object.keys(body.projectDataVL).sort();
+    expect(eidKeys.length, "projectDataEID is fully populated").toBeGreaterThan(50);
+    expect(vlKeys, "projectDataVL has the same key set as projectDataEID").toEqual(eidKeys);
+    // The list-valued members must be real lists, not nulls dropped by
+    // NON_NULL — these are what the form's dropdowns bind to.
+    for (const k of ["eidWhichPCRList", "eidSecondPCRReasonList", "hivStatusList", "isUnderInvestigationList"]) {
+      expect(Array.isArray(body.projectDataEID[k]), `projectDataEID.${k} is an array`).toBe(true);
+    }
+  });
+
+  test("SampleBatchEntrySetup: shares list builders with SamplePatientEntry where Java does", async ({
+    request,
+  }) => {
+    // Three lists are built from the same source on both endpoints, and one is
+    // not (sampleTypes — see the role-filter test). Asserting the shared ones
+    // are IDENTICAL and that sampleTypes is not, together, pins which builder
+    // each key uses. Either half alone would be satisfied by a port that
+    // shared everything, or by one that shared nothing.
+    const entry = await readJson(await request.get(SAMPLE_PATIENT_ENTRY), SAMPLE_PATIENT_ENTRY);
+    const batch = await readJson(await request.get(BATCH_ENTRY_SETUP), BATCH_ENTRY_SETUP);
+
+    for (const k of ["testSectionList", "initialSampleConditionList"]) {
+      expect(idValuePairs(batch[k]), `${k} is identical on both form loads`).toEqual(
+        idValuePairs(entry[k]),
+      );
+    }
+    expect(
+      batch.projects.map((p: any) => p.id).sort(),
+      "projects is identical on both form loads",
+    ).toEqual(entry.projects.map((p: any) => p.id).sort());
+
+    expect(
+      idValuePairs(batch.sampleTypes),
+      "sampleTypes is NOT shared — batch is unfiltered, entry is role-filtered",
+    ).not.toEqual(idValuePairs(entry.sampleTypes));
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Auth boundary
+// ───────────────────────────────────────────────────────────────────────────
+test.describe("c2 form loads — auth", () => {
+  test("form-load endpoints refuse anonymous access", async ({ playwright }) => {
+    // Same default-deny boundary the rest of c2 asserts. These four assemble
+    // patient names, national ids and provider lists, so an anonymous 200 here
+    // would be a PHI leak, not just a missing redirect.
+    // storageState MUST be passed explicitly. Without it the context inherits
+    // the project's authenticated cookie jar, every request comes back 200, and
+    // this test reports a passing auth boundary while asserting nothing — which
+    // is exactly what it did on its first run.
+    const anon = await playwright.request.newContext({
+      baseURL: test.info().project.use.baseURL,
+      ignoreHTTPSErrors: true,
+      storageState: { cookies: [], origins: [] },
+    });
+    try {
+      for (const path of [
+        `${GENERIC_SAMPLE_ORDER}?accessionNumber=E2E001`,
+        SAMPLE_PATIENT_ENTRY,
+        `${SAMPLE_EDIT}?accessionNumber=E2E-EDIT-01`,
+        BATCH_ENTRY_SETUP,
+      ]) {
+        const res = await anon.get(path, { maxRedirects: 0 });
+        expect(res.status(), `anonymous ${path} must not succeed`).not.toBe(200);
+        const text = await res.text();
+        expect(text, `anonymous ${path} must not leak a patient name`).not.toContain(
+          `"patientName"`,
+        );
+        expect(text, `anonymous ${path} must not leak a national id`).not.toContain(`"nationalId"`);
+      }
+    } finally {
+      await anon.dispose();
+    }
+  });
+});

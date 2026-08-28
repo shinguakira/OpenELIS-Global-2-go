@@ -35,6 +35,17 @@ func parseProperties(src string) map[string]string {
 		if line == "" || line[0] == '#' || line[0] == '!' {
 			continue
 		}
+
+		// LINE CONTINUATIONS. java.util.Properties treats a trailing backslash
+		// as "this value continues on the next line", joining them and dropping
+		// the continuation's leading whitespace. Without this,
+		// label.select.patient.ID reads "Patient identification \" instead of
+		// "Patient identification code" — the value is silently truncated at the
+		// backslash and the label reaches the UI mangled.
+		for strings.HasSuffix(line, `\`) && scanner.Scan() {
+			line = strings.TrimSuffix(line, `\`) + strings.TrimSpace(scanner.Text())
+		}
+
 		idx := strings.IndexByte(line, '=')
 		if idx < 0 {
 			continue

@@ -4,6 +4,7 @@
 package web
 
 import (
+	"bytes"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -21,15 +22,29 @@ const ContentTypeJSON = "application/json;charset=UTF-8"
 // WriteJSON writes v as a JSON response — the analog of Spring returning
 // ResponseEntity with produces=APPLICATION_JSON_VALUE.
 //
-// SetEscapeHTML(false) matches Jackson, which does NOT HTML-escape: Java emits
-// ">=", "<=", "&&" literally, whereas Go's encoder defaults to ">=" etc.
-// Disabling it keeps the response bytes identical to the Java baseline.
+// Two Go-vs-Jackson byte differences are corrected here, both invisible to any
+// comparison that parses the JSON first:
+//
+//   - SetEscapeHTML(false) matches Jackson, which does NOT HTML-escape: Java
+//     emits ">=", "<=", "&&" literally, whereas Go's encoder escapes them.
+//   - Encode appends a trailing newline and Jackson does not, so every
+//     response was one byte longer than the Java baseline with a different
+//     Content-Length. Encoding into a buffer and trimming it is the only way
+//     to keep SetEscapeHTML (json.Marshal has no equivalent switch).
+//
+// See util.JavaDouble for the third: Go renders a float64 5.0 as `5`.
 func WriteJSON(w http.ResponseWriter, status int, v any) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		log.Printf("WriteJSON: encode failed: %v", err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", ContentTypeJSON)
 	w.WriteHeader(status)
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(v)
+	_, _ = w.Write(bytes.TrimSuffix(buf.Bytes(), []byte{0x0a}))
 }
 
 // ── Default-deny wiring ─────────────────────────────────────────────────────

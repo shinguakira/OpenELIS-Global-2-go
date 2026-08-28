@@ -91,6 +91,38 @@ OpenELIS analog of `e2e.md` (the OpenMRS plan).
     no Java-observable counterpart (internal memory reclamation, a startup
     config refusal), it gets **fixed and documented as untested**, never given a
     unit test to make the change feel covered.
+  - **An empty table is a fixture bug, not a scope boundary — SEED IT, in the
+    same unit of work.** If a collection is empty in this dataset, the row shape
+    never gets compared against Java, and `expect(Array.isArray(body)).toBe(true)`
+    passes on `[]` forever. Writing the fixture, loading it, and wiring it into
+    `src/test/resources/load-test-fixtures.sh` is part of covering the endpoint —
+    not a follow-up, not a documented limitation, and not a question to ask
+    before doing it. The same applies to `test.skip` on an empty collection: it
+    converts "never verified" into a green run.
+
+    Every gap closed this way so far was hiding a real defect.
+    `patient-media-e2e.sql` exposed that `/rest/patient-photos/{id}/false`
+    returns a `data:` URI while `/true` returns bare base64.
+    `order-search-e2e.sql` seeded the dataset's only `voided` sample item —
+    without it, deleting the `voided = false` predicate from the Go DAO left the
+    whole suite green, and two further divergences in `patient/merge/details`
+    stayed invisible.
+
+    Practical rule: after writing a spec, mutate the Go implementation to break
+    the behavior it claims to pin. If the suite stays green, the data is
+    missing — go seed it.
+  - **Pin Java's bugs; never fix them in the port.** Where Java is wrong, the
+    spec asserts the WRONG behavior — with a comment saying so — and the Go
+    implementation reproduces it. A test that asserts what Java *should* do
+    fails against the baseline it exists to protect, and a port that "improves"
+    a defect makes Go and Java disagree on a live request, which is the one
+    outcome this suite exists to prevent. Defects go in
+    [java-defects-found.md](java-defects-found.md) to be raised separately, as
+    symptom + reproduction only — proposing the Java-side fix is out of scope.
+
+    Distinguish: Java wrong + Go matching Java is CORRECT and stays. Go wrong +
+    Go changed to match Java is also correct, and is not "fixing Java" (the Go
+    cookie that emitted `SameSite=Lax` where Tomcat sends none is that case).
   - **No mocking, ever.** Every assertion in this suite runs against the real,
     live Java webapp (authenticated the same way a real client is) and the
     real, live Postgres it's connected to — never a stub, never a fixture
