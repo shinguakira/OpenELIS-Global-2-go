@@ -362,17 +362,17 @@ func main() {
 		// the DB rather than hardcoded: it selects which of the two label
 		// variants the message bundle ships for a key.
 		StringContext: siteStringContext(gormDB),
+		DefaultLocale: siteDefaultLocale(gormDB),
 	}
 	samplerest.SampleEditRoutes(mux, &samplerest.SampleEditRestController{
 		Service: &sampleservice.SampleEditService{
-			DAO:       &sampledaoimpl.SampleEditDAOImpl{DB: gormDB},
-			Lists:     displayLists,
-			SysUserID: "1",
-			Status:    statusSvc,
+			DAO:    &sampledaoimpl.SampleEditDAOImpl{DB: gormDB},
+			Lists:  displayLists,
+			Status: statusSvc,
 		},
 	})
 	samplerest.SamplePatientEntryRoutes(mux, &samplerest.SamplePatientEntryRestController{
-		Service: &sampleservice.SamplePatientEntryService{Lists: displayLists, SysUserID: "1"},
+		Service: &sampleservice.SamplePatientEntryService{Lists: displayLists},
 	})
 	batchentryrest.Routes(mux, &batchentryrest.BatchEntrySetupRestController{
 		Service: &batchentryservice.BatchEntrySetupService{Lists: displayLists, Zone: sampleservice.DisplayZone()},
@@ -399,6 +399,25 @@ func siteStringContext(db *gorm.DB) string {
 		Scan(&value).Error; err != nil {
 		log.Printf("WARN: could not read site_information.stringContext (%v); contextual labels fall back", err)
 		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+// siteDefaultLocale reads site_information."default language locale" and keeps
+// the language subtag: the row holds "en-US" while localization_value is keyed
+// by "en". Empty when the row is absent, which makes the caller fall back.
+func siteDefaultLocale(db *gorm.DB) string {
+	var value string
+	if err := db.Table("clinlims.site_information").
+		Select("value").
+		Where("name = ?", "default language locale").
+		Limit(1).
+		Scan(&value).Error; err != nil {
+		log.Printf("WARN: could not read the default locale (%v); falling back", err)
+		return ""
+	}
+	if i := strings.IndexAny(value, "-_"); i > 0 {
+		return strings.TrimSpace(value[:i])
 	}
 	return strings.TrimSpace(value)
 }

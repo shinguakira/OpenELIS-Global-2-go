@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 
+	"openelis-go/internal/auth/middleware"
 	"openelis-go/internal/common/web"
 	"openelis-go/internal/sample/daoimpl"
 	"openelis-go/internal/sample/form"
@@ -386,7 +387,14 @@ type SampleEditRestController struct {
 // 200 — this endpoint never 404s, even for an accession that matches nothing.
 func SampleEditRoutes(mux *http.ServeMux, ctrl *SampleEditRestController) {
 	web.Register(mux, "GET", "rest/SampleEdit", func(w http.ResponseWriter, r *http.Request) {
-		dto, err := ctrl.Service.GetSampleEdit(r.URL.Query().Get("accessionNumber"))
+		dto, err := ctrl.Service.GetSampleEdit(service.SampleEditRequest{
+			AccessionNumber: r.URL.Query().Get("accessionNumber"),
+			SysUserID:       sysUserID(r),
+			// The session half of Java's check needs a writable session this
+			// read-only port does not have; the ?type half is honoured.
+			Editable:           r.URL.Query().Get("type") == "readwrite",
+			AllowedToCancelAll: allowedToCancelAll(r),
+		})
 		if err != nil {
 			log.Printf("c2: SampleEdit failed: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -406,7 +414,7 @@ type SamplePatientEntryRestController struct {
 // SamplePatientEntryRoutes registers GET rest/SamplePatientEntry. No params.
 func SamplePatientEntryRoutes(mux *http.ServeMux, ctrl *SamplePatientEntryRestController) {
 	web.Register(mux, "GET", "rest/SamplePatientEntry", func(w http.ResponseWriter, r *http.Request) {
-		dto, err := ctrl.Service.GetForm()
+		dto, err := ctrl.Service.GetForm(sysUserID(r))
 		if err != nil {
 			log.Printf("c2: SamplePatientEntry failed: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -414,4 +422,40 @@ func SamplePatientEntryRoutes(mux *http.ServeMux, ctrl *SamplePatientEntryRestCo
 		}
 		web.WriteJSON(w, http.StatusOK, dto)
 	})
+}
+
+// sysUserID is Java's BaseController.getSysUserId(request): the id of the
+// authenticated user, which the role-filtered sampleTypes list depends on.
+//
+// Returns "" when there is no principal. That cannot happen on these routes —
+// web.Register is default-deny — but returning "" rather than a fallback id
+// keeps a future open route from silently serving another user's list.
+func sysUserID(r *http.Request) string {
+	if p, ok := middleware.FromContext(r.Context()); ok {
+		return strconv.FormatInt(p.SystemUserID, 10)
+	}
+	return ""
+}
+
+// allowedToCancelAll ports SampleEditRestController's
+//
+//	userModuleService.isUserAdmin(request)
+//	  || userRoleService.userInRole(getSysUserId(request), ABLE_TO_CANCEL_ROLE_NAMES)
+//
+// isUserAdmin is login_user.is_admin = 'Y' alone, which is exactly what
+// Principal.IsAdmin holds — NOT the Global Administrator role.
+func allowedToCancelAll(r *http.Request) bool {
+	p, ok := middleware.FromContext(r.Context())
+	if !ok {
+		return false
+	}
+	if p.IsAdmin {
+		return true
+	}
+	for _, role := range service.AbleToCancelRoles {
+		if p.HasRole(role) {
+			return true
+		}
+	}
+	return false
 }

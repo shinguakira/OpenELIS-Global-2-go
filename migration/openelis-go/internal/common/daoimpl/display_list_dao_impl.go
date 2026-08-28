@@ -446,3 +446,21 @@ func (d *DisplayListDAOImpl) OrganizationsByTypeName(typeName string) ([]util.Id
 	}
 	return toPairs(rows), nil
 }
+
+// SiteInformation reads one clinlims.site_information value, or "" when the row
+// is absent. Java reaches these through ConfigurationProperties, whose Property
+// enum maps a code name to the row name — and the mapping is not always the
+// obvious one: Property.AccessionFormat is stored under `acessionFormat`, with
+// the typo, so looking up "accessionFormat" finds nothing.
+func (d *DisplayListDAOImpl) SiteInformation(name string) (string, error) {
+	var value string
+	err := d.DB.Table("clinlims.site_information").
+		Select("value").
+		Where("name = ?", name).
+		Limit(1).
+		Scan(&value).Error
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}

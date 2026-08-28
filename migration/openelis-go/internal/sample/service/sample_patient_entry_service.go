@@ -16,13 +16,11 @@ const addressDepartmentsCategory = "haitDepartments"
 // SamplePatientEntryService backs GET rest/SamplePatientEntry (Wave 4.6).
 type SamplePatientEntryService struct {
 	Lists *commonservices.DisplayListService
-	// SysUserID decides the role-filtered sampleTypes list.
-	SysUserID string
 }
 
 // GetForm builds the blank order-entry form. The endpoint takes no parameters
 // and reads no sample.
-func (s *SamplePatientEntryService) GetForm() (*form.SamplePatientEntryDTO, error) {
+func (s *SamplePatientEntryService) GetForm(sysUserID string) (*form.SamplePatientEntryDTO, error) {
 	now := time.Now().In(displayZone())
 	today := now.Format("02/01/2006")
 
@@ -43,7 +41,8 @@ func (s *SamplePatientEntryService) GetForm() (*form.SamplePatientEntryDTO, erro
 		return nil, err
 	}
 	// ROLE-FILTERED, unlike SampleBatchEntrySetup's every-active-type list.
-	sampleTypes, err := s.Lists.UserSampleTypes(s.SysUserID)
+	// The AUTHENTICATED user — see SampleEditService.GetSampleEdit.
+	sampleTypes, err := s.Lists.UserSampleTypes(sysUserID)
 	if err != nil {
 		return nil, err
 	}

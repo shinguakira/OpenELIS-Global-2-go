@@ -11,28 +11,32 @@ import (
 	"openelis-go/internal/sample/form"
 )
 
-// Accession-number configuration.
+// AbleToCancelRoles is ABLE_TO_CANCEL_ROLE_NAMES from SampleEditRestController.
+// The controller resolves the flag from the principal; the list lives here so
+// the rule sits next to the code that consumes it.
+var AbleToCancelRoles = []string{"Validator", "Validation", "Biologist"}
+
+// SampleEditRequest carries the per-request inputs the form depends on.
 //
-// These live in the Java container's properties, not in the database — the same
-// situation as page.defaultPageSize behind order/dashboard. Mirrored as
-// constants because the Go service cannot read that file; if a deployment
-// changes them, these must change with it. Values measured on the running Java
-// server, where editable + nonEditable == maxLength.
-const (
-	accessionFormat      = "SITEYEARNUM"
-	accessionIDSeparator = ";"
-	maxAccessionLength   = 20
-	editableAccession    = 15
-	nonEditableAccession = 5
-)
+// They are parameters rather than service fields because all three vary per
+// CALLER, and an earlier version of this port pinned each of them to whatever
+// the e2e admin happened to produce.
+type SampleEditRequest struct {
+	AccessionNumber string
+	// SysUserID is the AUTHENTICATED user; the role-filtered sampleTypes list
+	// depends on their lab-unit roles.
+	SysUserID string
+	// Editable mirrors isEditable: "readwrite" on the session attribute or on
+	// the ?type parameter.
+	Editable bool
+	// AllowedToCancelAll is isUserAdmin(request) || userInRole(AbleToCancelRoles).
+	AllowedToCancelAll bool
+}
 
 // SampleEditService backs GET rest/SampleEdit (Wave 4.7).
 type SampleEditService struct {
 	DAO   *daoimpl.SampleEditDAOImpl
 	Lists *commonservices.DisplayListService
-	// SysUserID is the authenticated user whose lab-unit roles decide the
-	// role-filtered sampleTypes list.
-	SysUserID string
 	// Status resolves an analysis status id to its DISPLAYED name.
 	Status StatusResolver
 }
@@ -45,7 +49,8 @@ type SampleEditService struct {
 //   - unknown accession    -> searchFinished true, noSampleFound TRUE, the
 //     value echoed back, patient scalars present and empty
 //   - found                -> the full form
-func (s *SampleEditService) GetSampleEdit(accessionNumber string) (*form.SampleEditDTO, error) {
+func (s *SampleEditService) GetSampleEdit(req SampleEditRequest) (*form.SampleEditDTO, error) {
+	accessionNumber, sysUserID, editable := req.AccessionNumber, req.SysUserID, req.Editable
 	dto := &form.SampleEditDTO{
 		FormName:   "SampleEditForm",
 		FormAction: "SampleEdit",
@@ -58,16 +63,24 @@ func (s *SampleEditService) GetSampleEdit(accessionNumber string) (*form.SampleE
 		// Hardcoded true on this form; SamplePatientEntry sets it false.
 		Warning: true,
 
-		AccessionFormat:      accessionFormat,
-		IDSeparator:          accessionIDSeparator,
-		MaxAccessionLength:   maxAccessionLength,
-		EditableAccession:    editableAccession,
-		NonEditableAccession: nonEditableAccession,
-
-		// isEditable comes from a session attribute or ?type=readwrite, so a
-		// plain GET is always read-only.
-		IsEditable: false,
+		// isEditable is 'readwrite' on the session attribute OR on the ?type
+		// parameter. The session half needs write access this read-only port does
+		// not have; the parameter half is honoured.
+		IsEditable: editable,
 	}
+
+	// Read from site_information rather than hardcoded: the three lengths are
+	// derived from the accession prefix, so a deployment with a different prefix
+	// reports different numbers.
+	acc, err := s.Lists.AccessionConfiguration()
+	if err != nil {
+		return nil, err
+	}
+	dto.AccessionFormat = acc.Format
+	dto.IDSeparator = acc.IDSeparator
+	dto.MaxAccessionLength = acc.MaxAccessionLength
+	dto.EditableAccession = acc.EditableAccession
+	dto.NonEditableAccession = acc.NonEditableAccession
 
 	conditions, err := s.Lists.InitialSampleConditionList()
 	if err != nil {
@@ -115,7 +128,7 @@ func (s *SampleEditService) GetSampleEdit(accessionNumber string) (*form.SampleE
 		return nil, err
 	}
 
-	existing, err := s.buildExistingTests(items, accessionNumber)
+	existing, err := s.buildExistingTests(items, accessionNumber, req.AllowedToCancelAll)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +140,10 @@ func (s *SampleEditService) GetSampleEdit(accessionNumber string) (*form.SampleE
 	}
 	dto.PossibleTests = possible
 
-	sampleTypes, err := s.Lists.UserSampleTypes(s.SysUserID)
+	// The AUTHENTICATED user, not a fixed id: Java passes getSysUserId(request),
+	// and the list is filtered by that user's lab-unit roles. Hardcoding one id
+	// would serve every caller the admin's sample types.
+	sampleTypes, err := s.Lists.UserSampleTypes(sysUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -150,13 +166,15 @@ func (s *SampleEditService) GetSampleEdit(accessionNumber string) (*form.SampleE
 	}
 
 	dto.IsConfirmationSample = sample.IsConfirmation != nil && *sample.IsConfirmation
-	dto.AbleToCancelResults = hasCancellableResults(existing)
+	// hasResults returns FALSE outright when the caller may not cancel — the
+	// flag gates the whole check, it is not just an extra condition.
+	dto.AbleToCancelResults = req.AllowedToCancelAll && hasCancellableResults(existing)
 
 	return dto, nil
 }
 
 // buildExistingTests ports getCurrentTestInfo + addCurrentTestsToList.
-func (s *SampleEditService) buildExistingTests(items []daoimpl.SampleEditItemRow, accessionNumber string) ([]form.SampleEditItemDTO, error) {
+func (s *SampleEditService) buildExistingTests(items []daoimpl.SampleEditItemRow, accessionNumber string, allowedToCancelAll bool) ([]form.SampleEditItemDTO, error) {
 	out := []form.SampleEditItemDTO{}
 	for _, item := range items {
 		analyses, err := s.DAO.AnalysesForItem(item.ID)
@@ -172,12 +190,18 @@ func (s *SampleEditService) buildExistingTests(items []daoimpl.SampleEditItemRow
 		group := make([]form.SampleEditItemDTO, 0, len(analyses))
 		canRemove := true
 		for _, a := range analyses {
-			// allowedToCancelAll is true for an admin, and the e2e user is one.
-			// The non-admin branch ORs in "status is NotStarted and not
-			// Canceled"; both reduce to true here, so canCancel is true and
-			// canRemove stays true. Kept as an explicit expression rather than
-			// a literal so the rule is visible.
-			canCancel := true
+			// canCancel = allowedToCancelAll
+			//             || (status is NOT Canceled AND status IS NotStarted)
+			//
+			// An earlier version of this port hardcoded it to true "because the
+			// e2e user is an admin". That is a test-shaped shortcut: a
+			// non-admin without the cancel roles gets a status-dependent answer
+			// in Java and got an unconditional true here.
+			//
+			// The Canceled half is already guaranteed — AnalysesForItem excludes
+			// that status — so what remains is the NotStarted check.
+			canCancel := allowedToCancelAll ||
+				strings.EqualFold(a.StatusName, analysisStatusNotStarted)
 			if !canCancel {
 				canRemove = false
 			}

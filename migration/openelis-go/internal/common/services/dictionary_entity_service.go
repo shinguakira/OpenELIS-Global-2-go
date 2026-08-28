@@ -7,10 +7,10 @@ import (
 	"openelis-go/internal/common/form"
 )
 
-// activeLocale is the locale the form loads render in. Java resolves it from
-// the request; every response measured here is English, and the suite logs in
-// with the English default.
-const activeLocale = "en"
+// defaultLocaleFallback is used only when site_information carries no default.
+// Java would fall back to the JVM locale here; "en" is this deployment's
+// configured default and the only locale with values in the dev dataset.
+const defaultLocaleFallback = "en"
 
 // millis renders a timestamp the way Jackson writes java.sql.Timestamp: epoch
 // milliseconds, not ISO-8601. 0 for a null column.
@@ -19,6 +19,18 @@ func millis(t *time.Time) int64 {
 		return 0
 	}
 	return t.UnixMilli()
+}
+
+// activeLocale is the locale getLocalizedName resolves against. Java takes it
+// from the request via LocaleContextHolder, falling back to the configured
+// default; this port reads site_information."default language locale" and
+// keeps only the language subtag ("en-US" -> "en"), which is how the
+// localization_value rows are keyed.
+func (s *DisplayListService) activeLocale() string {
+	if s.DefaultLocale != "" {
+		return s.DefaultLocale
+	}
+	return defaultLocaleFallback
 }
 
 // DictionaryEntities builds the FULL entity form of a dictionary category —
@@ -70,7 +82,7 @@ func (s *DisplayListService) DictionaryEntities(categoryName string) ([]form.Dic
 
 		if r.LocalizationID != nil {
 			loc := locs[*r.LocalizationID]
-			dto.LocalizedDictionaryName = buildLocalization(loc, vals[*r.LocalizationID], locales)
+			dto.LocalizedDictionaryName = buildLocalization(loc, vals[*r.LocalizationID], locales, s.activeLocale())
 		}
 
 		// getLocalizedName falls back to dict_entry when the locale has no
@@ -88,7 +100,7 @@ func (s *DisplayListService) DictionaryEntities(categoryName string) ([]form.Dic
 // Only id, description and lastupdated are stored; the rest are getters, and
 // Jackson serializes getters, so all of them reach the wire.
 func buildLocalization(loc daoimpl.LocalizationRow, values []daoimpl.LocalizationValueRow,
-	locales []daoimpl.SupportedLocaleRow) form.LocalizationDTO {
+	locales []daoimpl.SupportedLocaleRow, activeLocale string) form.LocalizationDTO {
 
 	byLocale := map[string]daoimpl.LocalizationValueRow{}
 	for _, v := range values {

@@ -22,6 +22,9 @@ type DisplayListService struct {
 	// Messages is the message bundle (message_en.properties), used wherever
 	// Java resolves a label through MessageUtil rather than a column.
 	Messages map[string]string
+	// DefaultLocale is site_information."default language locale", language
+	// subtag only ("en-US" -> "en"). Empty falls back to "en".
+	DefaultLocale string
 	// StringContext is site_information.stringContext (here: "CI").
 	// MessageUtil.getContextualMessage appends "." + this to the key and uses
 	// the result WHEN THAT KEY EXISTS, falling back to the bare key otherwise.
