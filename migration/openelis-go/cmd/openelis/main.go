@@ -93,6 +93,12 @@ import (
 	referralrest "openelis-go/internal/referral/controller/rest"
 	referraldaoimpl "openelis-go/internal/referral/daoimpl"
 	referralservice "openelis-go/internal/referral/service"
+	resultrest "openelis-go/internal/result/controller/rest"
+	resultdaoimpl "openelis-go/internal/result/daoimpl"
+	resultservice "openelis-go/internal/result/service"
+	validationrest "openelis-go/internal/resultvalidation/controller/rest"
+	validationdaoimpl "openelis-go/internal/resultvalidation/daoimpl"
+	validationservice "openelis-go/internal/resultvalidation/service"
 	uomrest "openelis-go/internal/unitofmeasure/controller/rest"
 	uomdaoimpl "openelis-go/internal/unitofmeasure/daoimpl"
 	uomservice "openelis-go/internal/unitofmeasure/service"
@@ -388,6 +394,17 @@ func main() {
 		},
 	})
 	log.Printf("DB-backed routes enabled (c3: WorkPlanBy* — clinical)")
+	resultrest.Routes(mux, &resultrest.ResultRestController{
+		Service: &resultservice.ResultService{
+			DAO: &resultdaoimpl.ResultDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		},
+	})
+	validationrest.Routes(mux, &validationrest.AccessionValidationRestController{
+		Service: &validationservice.ResultValidationService{
+			DAO:      &validationdaoimpl.ResultValidationDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+			Sections: &referraldaoimpl.ReferralDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		},
+	})
 	referralrest.Routes(mux, &referralrest.ReferredOutTestsRestController{
 		Service: &referralservice.ReferredOutTestsService{
 			DAO:   &referraldaoimpl.ReferralDAOImpl{DB: gormDB, ActiveLocale: activeLocale},

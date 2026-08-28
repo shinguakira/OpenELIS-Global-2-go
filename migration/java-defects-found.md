@@ -213,7 +213,67 @@ written outside the app.
 
 ---
 
+## 11. `UnitOfMeasure.getLocalization()` ships a placeholder as the French name
+
+`unit_of_measure` has no `name_localization_id` column, so the getter builds a
+`Localization` on the fly — and sets the French value to the literal string
+`"French"`:
+
+```java
+_localization.setEnglish(this.getDefaultLocalizedName());
+_localization.setFrench("French");
+```
+
+That literal reaches the client inside every `rest/accession-results`
+response, in `values.fr.value`, `french`, `valuesAsMap.fr` and
+`localesAndValuesOfLocalesWithValues`. A French deployment shows "French" as
+the unit of measure.
+
+- **Pinned by:** the c3 parity gate, byte-for-byte.
+
+---
+
 ## Not defects — deliberate asymmetries worth knowing
+
+- **`result` is TWO different objects under one key.** `LogbookResults` nests a
+  five-key reference (`isActive`, `id`, `significantDigits`, `grouping`,
+  `fhirUuidAsString`); `accession-results` nests the FULLY serialised Hibernate
+  entity — analysis, sample item, sample, type of sample, test section, test,
+  unit of measure, panel and all their `Localization` objects, roughly 300
+  fields. Nothing in the code selects between them: it is which associations
+  happen to be initialised when Jackson reaches the object.
+- **`LogbookResults` leaves `searchFinished` FALSE on the `selectedTest` path**
+  while still returning rows. Only the `labNumber` path sets it.
+- **`testDate` is the clock, not a stored column.** It changes between two
+  calls seconds apart. The analysis's `entry_date` looks like the obvious
+  source and is not it.
+- **`accession-results` flattens the patient onto the ROOT and blanks it in the
+  rows** — `patientName` and `patientInfo` come out as a single SPACE,
+  `nationalId` as `""`, and `patientId` is absent. `LogbookResults` does the
+  opposite, repeating the patient on every row and omitting it from the root.
+- **Two patient-name formats and two birth-date COLUMNS in one wave.**
+  `LogbookResults` renders "Last, First" and formats the parsed `birth_date`;
+  `AccessionValidation` renders "Last First" and emits the raw
+  `entered_birth_date` text. On the seeded patient those disagree —
+  `01/03/1991` against `01/15/1990`.
+- **`significantDigits` has two sources.** `LogbookResults` reads
+  `test_result.significant_digits`; `AccessionValidation` reads the result
+  row's own. Same field name, different numbers for the same result.
+- **`result_limits` is per test AND per AGE BAND** (`min_age`/`max_age` in
+  DAYS) and optionally per gender. Joining on `test_id` alone multiplies every
+  analysis by its band count — one order went from 4 rows to 9.
+- **`normalRange` and `units` carry DIFFERENT ranges.** `normalRange` is the
+  test's `result_limits` row formatted to the `test_result` significant digits
+  (`7 - 40`); the range inside `units` is the RESULT row's own
+  `min_normal`/`max_normal` formatted to the RESULT's significant digits
+  (`UI/L ( 1.00-9.00 )`).
+- **`upperAbnormalRange`/`lowerAbnormalRange` are `result_limits`' VALID
+  range** (`high_valid`/`low_valid`) under a different name.
+- **`reportable` is the TEST's column, not the analysis's.** Every seeded
+  analysis is `Y` while every test is `N`.
+- **The logbook groups by SAMPLE ITEM; the validation list groups by
+  ACCESSION** — with the same counter, which starts at ONE and increments on
+  the first row, so the first group is 2.
 
 - **`WorkPlanByPanel` expands the panel to its TESTS; it does not read
   `analysis.panel_id`.** `getWorkplanByPanel` reads `panel_item` for the panel
