@@ -9,11 +9,13 @@
 // and this same file is the gate it has to pass.
 //
 // ── SCOPE NOTE ─────────────────────────────────────────────────────────────
-// Wave 4 lists 17 endpoints. This file covers the ones that are reachable and
-// meaningfully assertable against the current dataset. Three groups are
-// deliberately excluded, each for a stated reason (see the bottom of the
-// file): the form-load endpoints, the binary attachment endpoints, and the
-// mutating shipment endpoints that share the unassigned-sample controller.
+// Wave 4 lists 17 endpoints. This file covers the sample/order reads; the four
+// Type-D form loads moved to c2-sample-form-loads.spec.ts once they were
+// ported. The ONLY group still outside c2 is the mutating shipment endpoints
+// that share the unassigned-sample controller — reason at the bottom of the
+// file. Earlier drafts also excluded the binary attachment endpoints and the
+// form loads; both are covered now, and the "table is empty" exclusions were
+// fixture bugs that have since been seeded.
 //
 // ── MIGRATION POLICY ───────────────────────────────────────────────────────
 // This is a migration, not a bug-fix pass. Where Java is broken, these tests
@@ -149,10 +151,322 @@ test.describe("c2 — sample + order reads", () => {
     }
   });
 
+  test("order/search: the response BYTES, not just the parsed values", async ({ request }) => {
+    // Everything else in this file asserts on `await res.json()`, which is blind
+    // by construction to any difference that survives a round trip. Two such
+    // differences were real and shipped:
+    //
+    //   - Go's json.Encoder.Encode appends a trailing newline; Jackson does
+    //     not. Every response was one byte longer with a different
+    //     Content-Length.
+    //   - Go renders a float64 5.0 as `5`; Jackson renders the same
+    //     java.lang.Double as `5.0`. Both parse to 5, so a field-by-field
+    //     comparison of the DECODED objects reports parity.
+    //
+    // Neither is visible to a JSON assertion, so this one reads the raw text.
+    const res = await request.get(`${ORDER_SEARCH}?labNumber=${encodeURIComponent(anyAccession())}`);
+    expect(res.status(), `${ORDER_SEARCH} raw fetch`).toBe(200);
+    const text = await res.text();
+
+    expect(text.endsWith("\n"), "the body must not end with a newline — Jackson emits none").toBe(false);
+    expect(text.endsWith("}"), "it ends at the closing brace").toBe(true);
+    // Content-Length has to agree with the bytes, which is what the stray
+    // newline actually broke.
+    const declared = res.headers()["content-length"];
+    if (declared !== undefined) {
+      expect(Number(declared), "Content-Length matches the body length").toBe(Buffer.byteLength(text, "utf8"));
+    }
+
+    // A Double is rendered with its fraction digit. sample_item.quantity is the
+    // only such column reachable here, so the assertion is anchored to a sample
+    // item that HAS one — with a NULL quantity the outer key is the string ""
+    // and there is no number to format.
+    const withQuantity = query(
+      `SELECT s.accession_number, si.quantity
+         FROM clinlims.sample_item si
+         JOIN clinlims.sample s ON s.id = si.samp_id
+        WHERE si.quantity IS NOT NULL AND si.voided = false
+        ORDER BY si.id LIMIT 1`,
+    );
+    expect(withQuantity.length, "some sample item carries a quantity").toBe(1);
+    const [accession, quantity] = withQuantity[0];
+    const raw = await (await request.get(`${ORDER_SEARCH}?labNumber=${encodeURIComponent(accession)}`)).text();
+
+    // Postgres renders numeric 5.0 as "5.0" and Java's Double.toString agrees,
+    // so the column value is its own oracle here.
+    expect(
+      raw.includes(`"quantity":${quantity}`),
+      `quantity is serialized as ${quantity}, the way Double.toString writes it`,
+    ).toBe(true);
+    expect(
+      new RegExp(`"quantity":${String(quantity).replace(/\.0$/, "")}([,}])`).test(raw),
+      "...and NOT with the fraction digit stripped, which is Go's default",
+    ).toBe(false);
+  });
+
   test("order/search: a missing labNumber is rejected with 400", async ({ request }) => {
     const res = await request.get(ORDER_SEARCH);
     expect(res.status(), `${ORDER_SEARCH} missing labNumber`).toBe(400);
   });
+  test("order/search: the WHOLE sampleOrderItems map, on an order that trips every branch", async ({
+    request,
+  }) => {
+    // `buildSampleOrderItems` puts ~25 keys, almost all conditionally. On the
+    // stock dataset every condition is false — no sample carries a provider, a
+    // requester organization, a program or any observation history — so the
+    // live response was a six-key object and a port that built only those six
+    // keys passed. The test was green and the parity was fictional.
+    //
+    // order-search-full-e2e.sql seeds E2E-FULL-01 to trip all of them at once.
+    // Every value below is oracled against the row it came from, so a port that
+    // reads the wrong column or the wrong observation type fails on the VALUE,
+    // not merely on the key being present.
+    const body = await readJson(
+      await request.get(`${ORDER_SEARCH}?labNumber=E2E-FULL-01`),
+      `${ORDER_SEARCH} E2E-FULL-01`,
+    );
+    const soi = body.sampleOrderItems;
+
+    // ── provider: sample_human.provider_id -> provider -> person ──────────
+    const prov = query(
+      `SELECT pe.id, pe.first_name, pe.last_name, pe.work_phone, pe.email, pe.fax
+         FROM clinlims.sample s
+         JOIN clinlims.sample_human sh ON sh.samp_id = s.id
+         JOIN clinlims.provider pr ON pr.id = sh.provider_id
+         JOIN clinlims.person pe ON pe.id = pr.person_id
+        WHERE s.accession_number = 'E2E-FULL-01'`,
+    );
+    expect(prov.length, "E2E-FULL-01 has a provider (fixture loaded?)").toBe(1);
+    const [pid, pfirst, plast, pphone, pemail, pfax] = prov[0];
+    expect(soi.providerPersonId, "providerPersonId is the PERSON id, not the provider id").toBe(String(pid));
+    expect(soi.providerFirstName, "providerFirstName == person.first_name").toBe(pfirst);
+    expect(soi.providerLastName, "providerLastName == person.last_name").toBe(plast);
+    // The remaining three are put RAW inside the same guard, so a person with
+    // no phone omits just that key rather than emitting "". Whichever way this
+    // deployment's person row falls, the response has to agree with the column.
+    for (const [key, col] of [
+      ["providerWorkPhone", pphone],
+      ["providerEmail", pemail],
+      ["providerFax", pfax],
+    ] as const) {
+      if (col === null || col === "") {
+        expect(key in soi, `${key} is absent when the column is empty`).toBe(false);
+      } else {
+        expect(soi[key], `${key} == its person column`).toBe(col);
+      }
+    }
+
+    // ── referring site / department: sample_requester, split by ORG TYPE ───
+    // requester_type_id only separates organization from provider; which
+    // organization is the "site" and which the "department" is decided by the
+    // organization's TYPE name. A port that keys off requester_type_id gets the
+    // two swapped, and this oracle catches it.
+    const orgOf = (typeName: string) =>
+      query(
+        `SELECT o.id, o.name, o.short_name
+           FROM clinlims.sample s
+           JOIN clinlims.sample_requester sr ON sr.sample_id = s.id
+           JOIN clinlims.organization o ON o.id = sr.requester_id
+           JOIN clinlims.organization_organization_type oot ON oot.org_id = o.id
+           JOIN clinlims.organization_type t ON t.id = oot.org_type_id
+          WHERE s.accession_number = 'E2E-FULL-01' AND t.short_name = '${typeName}'
+          LIMIT 1`,
+      );
+    const site = orgOf("referring clinic");
+    expect(site.length, "E2E-FULL-01 has a referring-clinic requester").toBe(1);
+    expect(soi.referringSiteId, "referringSiteId == the referring-clinic org").toBe(String(site[0][0]));
+    expect(soi.referringSiteName, "referringSiteName == organization.name").toBe(site[0][1]);
+    expect(soi.referringSiteCode, "referringSiteCode == organization.short_name").toBe(site[0][2]);
+
+    const dept = orgOf("dept");
+    if (dept.length > 0) {
+      expect(soi.referringSiteDepartmentId, "departmentId == the dept-typed org").toBe(String(dept[0][0]));
+      expect(soi.referringSiteDepartmentName, "departmentName == organization.name").toBe(dept[0][1]);
+    } else {
+      // Java PROMOTES a lone department into the site slot, so the absence of a
+      // dept-typed org must leave both department keys off rather than emitting
+      // empties.
+      expect("referringSiteDepartmentId" in soi, "no dept org -> no departmentId key").toBe(false);
+      expect("referringSiteDepartmentName" in soi, "no dept org -> no departmentName key").toBe(false);
+    }
+
+    // ── program: NAME from observation history, ID from program_sample ─────
+    // Two different tables feed one logical field. A port that read the name
+    // off program.name would still look right until the two disagree.
+    const progId = query(
+      `SELECT ps.program_id FROM clinlims.sample s
+         JOIN clinlims.program_sample ps ON ps.sample_id = s.id
+        WHERE s.accession_number = 'E2E-FULL-01'`,
+    );
+    expect(progId.length, "E2E-FULL-01 has a program_sample row").toBe(1);
+    expect(soi.programId, "programId comes from program_sample").toBe(String(progId[0][0]));
+
+    // ── observation history: one row per key, matched by TYPE NAME ─────────
+    const obs = new Map(
+      query(
+        `SELECT t.type_name, oh.value
+           FROM clinlims.sample s
+           JOIN clinlims.observation_history oh ON oh.sample_id = s.id
+           JOIN clinlims.observation_history_type t ON t.id = oh.observation_history_type_id
+          WHERE s.accession_number = 'E2E-FULL-01'`,
+      ).map((r) => [r[0], r[1]]),
+    );
+    expect(obs.size, "E2E-FULL-01 carries observation history").toBeGreaterThan(0);
+    for (const [key, typeName] of [
+      ["program", "program"],
+      ["paymentOptionSelection", "paymentStatus"],
+      ["billingReferenceNumber", "billingRefNumber"],
+      ["testLocationCode", "testLocationCode"],
+      ["otherLocationCode", "testLocationCodeOther"],
+      ["requestDate", "requestDate"],
+      ["nextVisitDate", "nextVisitDate"],
+      ["provisionalClinicalDiagnosis", "provisionalClinicalDiagnosis"],
+    ] as const) {
+      if (obs.has(typeName)) {
+        expect(soi[key], `${key} == observation ${typeName}`).toBe(obs.get(typeName));
+      } else {
+        // observation_history_type is deployment data: this database has no
+        // testLocationCode row at all, so the key can never appear. Pinning the
+        // absence stops a port from inventing a default.
+        expect(key in soi, `${key} is absent when ${typeName} is not a known observation type`).toBe(false);
+      }
+    }
+
+    // ── priority: the RAW enum name, upper case ────────────────────────────
+    // order/dashboard lower-cases the same column. Two endpoints, two casings,
+    // and only a seeded non-null priority shows it.
+    const pri = query(`SELECT order_priority FROM clinlims.sample WHERE accession_number = 'E2E-FULL-01'`)[0][0];
+    expect(soi.priority, "priority is the raw enum name, not lower-cased").toBe(pri);
+
+    // ── INVERSION ─────────────────────────────────────────────────────────
+    // Everything above would also pass against a port that emitted these keys
+    // unconditionally with hardcoded values. E2E001 has none of the underlying
+    // rows, so every conditional key must be ABSENT there — that is what makes
+    // the assertions above evidence of a conditional build rather than of a
+    // constant.
+    const lean = await readJson(await request.get(`${ORDER_SEARCH}?labNumber=E2E001`), `${ORDER_SEARCH} E2E001`);
+    for (const key of [
+      "providerPersonId",
+      "providerFirstName",
+      "providerLastName",
+      "referringSiteId",
+      "referringSiteName",
+      "referringSiteCode",
+      "programId",
+      "program",
+      "paymentOptionSelection",
+      "billingReferenceNumber",
+      "requestDate",
+      "nextVisitDate",
+      "provisionalClinicalDiagnosis",
+    ]) {
+      expect(key in lean.sampleOrderItems, `${key} is absent on an order with no such row`).toBe(false);
+      expect(key in soi, `${key} IS present on the fully-populated order`).toBe(true);
+    }
+
+    // `priority` is deliberately NOT in that list. sample.order_priority is
+    // nullable but carries DEFAULT 'ROUTINE', so an ordinary insert always
+    // stores a value and the key is always emitted — an earlier draft of this
+    // test asserted it absent on E2E001 and failed for exactly that reason.
+    // E2E-FULL-03 is seeded with an EXPLICIT NULL, which is the only way to
+    // reach Java's `if (sample.getPriority() != null)` guard.
+    expect(lean.sampleOrderItems.priority, "a defaulted order still emits priority").toBe("ROUTINE");
+    const nulled = await readJson(
+      await request.get(`${ORDER_SEARCH}?labNumber=E2E-FULL-03`),
+      `${ORDER_SEARCH} E2E-FULL-03`,
+    );
+    expect(
+      query(`SELECT order_priority IS NULL FROM clinlims.sample WHERE accession_number = 'E2E-FULL-03'`)[0][0],
+      "E2E-FULL-03 really has a NULL order_priority",
+    ).toBe("t");
+    expect("priority" in nulled.sampleOrderItems, "an explicitly NULL priority drops the key").toBe(false);
+  });
+
+  test("order/search: program resolution takes three different paths", async ({ request }) => {
+    // The program keys are the one place where reading the obvious column is
+    // wrong. ProgramSampleDAOImpl.getProgrammeSampleBySample picks an ENTITY
+    // CLASS from the program NAME, and ProgramSample is
+    // @Inheritance(TABLE_PER_CLASS) — each subclass has its OWN table. So:
+    //
+    //   (a) a plain name  -> queries program_sample, finds the row,
+    //                        programId = program_sample.program_id
+    //   (b) a name containing pathology/cytology/immunohistochemistry
+    //                     -> queries the SUBCLASS table, finds nothing, and
+    //                        falls back to matching the name against the
+    //                        program list. program_sample is ignored entirely.
+    //   (c) no program observation at all
+    //                     -> a different query supplies BOTH keys, and
+    //                        `program` is the program's own NAME.
+    //
+    // E2E-FULL-02 exists to separate (b) from (a): its observation names one
+    // program while its program_sample row points at another, so the two
+    // branches give different ids and a port cannot satisfy both by accident.
+    const psProgram = (accession: string) =>
+      query(
+        `SELECT ps.program_id, p.name
+           FROM clinlims.sample s
+           JOIN clinlims.program_sample ps ON ps.sample_id = s.id
+           JOIN clinlims.program p ON p.id = ps.program_id
+          WHERE s.accession_number = '${accession}'`,
+      );
+    const obsProgram = (accession: string) =>
+      query(
+        `SELECT oh.value
+           FROM clinlims.sample s
+           JOIN clinlims.observation_history oh ON oh.sample_id = s.id
+           JOIN clinlims.observation_history_type t ON t.id = oh.observation_history_type_id
+          WHERE s.accession_number = '${accession}' AND t.type_name = 'program'`,
+      );
+
+    // ── (a) ───────────────────────────────────────────────────────────────
+    const a = await readJson(
+      await request.get(`${ORDER_SEARCH}?labNumber=E2E-FULL-01`),
+      `${ORDER_SEARCH} E2E-FULL-01`,
+    );
+    const aObs = obsProgram("E2E-FULL-01");
+    const aPs = psProgram("E2E-FULL-01");
+    expect(aObs.length, "E2E-FULL-01 has a program observation").toBe(1);
+    expect(aPs.length, "E2E-FULL-01 has a program_sample row").toBe(1);
+    expect(a.sampleOrderItems.program, "(a) program is the OBSERVATION value").toBe(aObs[0][0]);
+    expect(a.sampleOrderItems.programId, "(a) programId comes from program_sample").toBe(aPs[0][0]);
+
+    // ── (b) ───────────────────────────────────────────────────────────────
+    const b = await readJson(
+      await request.get(`${ORDER_SEARCH}?labNumber=E2E-FULL-02`),
+      `${ORDER_SEARCH} E2E-FULL-02`,
+    );
+    const bObs = obsProgram("E2E-FULL-02")[0][0];
+    const bPs = psProgram("E2E-FULL-02");
+    expect(
+      /pathology|cytology|immunohistochemistry/i.test(bObs),
+      "E2E-FULL-02 names a subclass-routed program",
+    ).toBe(true);
+    const namedId = query(`SELECT id FROM clinlims.program WHERE name = '${bObs}'`)[0][0];
+    expect(
+      bPs[0][0],
+      "the fixture must point program_sample somewhere ELSE, or (b) is indistinguishable from (a)",
+    ).not.toBe(namedId);
+    expect(b.sampleOrderItems.program, "(b) program is still the observation value").toBe(bObs);
+    expect(
+      b.sampleOrderItems.programId,
+      "(b) programId is the NAMED program, NOT the one program_sample points at",
+    ).toBe(namedId);
+
+    // ── (c) ───────────────────────────────────────────────────────────────
+    const c = await readJson(
+      await request.get(`${ORDER_SEARCH}?labNumber=E2E-FULL-03`),
+      `${ORDER_SEARCH} E2E-FULL-03`,
+    );
+    expect(obsProgram("E2E-FULL-03").length, "E2E-FULL-03 has NO program observation").toBe(0);
+    const cPs = psProgram("E2E-FULL-03");
+    expect(cPs.length, "E2E-FULL-03 has a program_sample row").toBe(1);
+    expect(
+      c.sampleOrderItems.program,
+      "(c) program falls back to the program table NAME, with no observation to read",
+    ).toBe(cPs[0][1]);
+    expect(c.sampleOrderItems.programId, "(c) programId comes from program_sample").toBe(cPs[0][0]);
+  });
+
 
   test("order/search: the WHOLE envelope, not just sampleOrderItems", async ({ request }) => {
     // The two tests above assert `sampleOrderItems` and nothing else — two of
@@ -303,6 +617,29 @@ test.describe("c2 — sample + order reads", () => {
       `${ORDER_SEARCH} samples are the live sample items`,
     ).toEqual([...liveItems].sort());
 
+    // ...and in the DB's PHYSICAL order, which is neither id nor sortOrder.
+    //
+    // The assertion above sorts both sides, so it says nothing about order —
+    // and order is observable here, since samples[] is an array the frontend
+    // renders in sequence. SampleItemDAOImpl has an HQL
+    // getSampleItemsBySampleId ending `order by sampleItem.sortOrder`, but the
+    // SERVICE method of the same name does NOT call it: it builds a criteria
+    // map and calls getAllMatching, which has no ordering at all. The
+    // controller calls the service, so Postgres decides, and what it returns
+    // is scan order.
+    //
+    // This is a real discriminator on the stock dataset, not a theoretical one:
+    // E2E001's items come back 10002 first even though 10002 has the HIGHER id
+    // and the LATER sortOrder. A port that added `ORDER BY id` or
+    // `ORDER BY sort_order` — the two obvious guesses — reverses them.
+    const physicalOrder = query(
+      `SELECT id FROM clinlims.sample_item WHERE samp_id = ${sampleId} AND voided = false ORDER BY ctid`,
+    ).map((r) => r[0]);
+    expect(
+      body.samples.map((s: any) => s.id),
+      `${ORDER_SEARCH} samples keep the DB's physical order, not id or sortOrder order`,
+    ).toEqual(physicalOrder);
+
     for (const item of body.samples) {
       // id and sampleItemId are the SAME value under two keys, as are
       // sortOrder and index — Java puts each twice for the frontend.
@@ -314,7 +651,23 @@ test.describe("c2 — sample + order reads", () => {
       // duplicate rather than a second source of truth.
       expect(item.sampleXML.collectionDate, "sampleXML mirrors collectionDate").toBe(item.collectionDate);
       expect(item.sampleXML.collectionTime, "sampleXML mirrors collectionTime").toBe(item.collectionTime);
-      expect(item.sampleXML.quantity, "sampleXML mirrors quantity").toBe(item.quantity);
+
+      // quantity is NOT a mirror — it is the sharpest null-policy split in the
+      // envelope, and it took a fixture with a NULL quantity to expose it.
+      // sample_item.quantity is a Double put at two sites:
+      //   outer   put("quantity", q != null ? q : "")   -> number, or the STRING ""
+      //   nested  put("quantity", q)                    -> number, or DROPPED by NON_NULL
+      // So one column yields three shapes. An earlier version of this test
+      // asserted the two were equal; it passed only because every sample_item
+      // in the stock dataset happens to carry a quantity.
+      const q = query(`SELECT quantity FROM clinlims.sample_item WHERE id = ${Number(item.id)}`)[0][0];
+      if (q === null) {
+        expect(item.quantity, "outer quantity coalesces NULL to the empty string").toBe("");
+        expect("quantity" in item.sampleXML, "sampleXML drops a null quantity entirely").toBe(false);
+      } else {
+        expect(item.quantity, "outer quantity is the numeric column value").toBe(Number(q));
+        expect(item.sampleXML.quantity, "sampleXML repeats a non-null quantity").toBe(item.quantity);
+      }
 
       expect(Array.isArray(item.tests), "tests is an array").toBe(true);
       expect(Array.isArray(item.panels), "panels is an array").toBe(true);
@@ -427,6 +780,155 @@ test.describe("c2 — sample + order reads", () => {
     const without = await readJson(await request.get(ORDER_DASHBOARD), ORDER_DASHBOARD);
     expect(withExternal.orders.length, "includeExternal=true is ignored").toBe(without.orders.length);
     expect(withExternal.externalCount, "includeExternal does not populate externalCount").toBe(0);
+  });
+
+  test("order/dashboard: stepProgress ignores VOIDED sample items", async ({ request }) => {
+    // Every count behind stepProgress stands in for a pass over
+    // sampleItemService.getSampleItemsBySampleId, whose criteria map is
+    // {sample.id, voided:false} — so a voided item contributes to neither
+    // collect nor label.
+    //
+    // E2E-VOIDED-01 is the only order in the dataset where that matters: its
+    // ONE item carrying analyses is the voided one, and that item has a
+    // collection date. Counting it makes collect look complete. Java reports
+    // false; a port without the filter reports true, and no other assertion on
+    // this endpoint looks at stepProgress per row.
+    const items = query(
+      `SELECT si.voided,
+              (SELECT count(*) FROM clinlims.analysis a WHERE a.sampitem_id = si.id),
+              (si.collection_date IS NOT NULL)
+         FROM clinlims.sample_item si
+         JOIN clinlims.sample s ON s.id = si.samp_id
+        WHERE s.accession_number = 'E2E-VOIDED-01'
+        ORDER BY si.id`,
+    );
+    const voidedWithTests = items.filter((r) => r[0] === "t" && Number(r[1]) > 0 && r[2] === "t");
+    const liveWithTests = items.filter((r) => r[0] === "f" && Number(r[1]) > 0);
+    expect(voidedWithTests.length, "E2E-VOIDED-01 has a voided, dated item WITH analyses").toBeGreaterThan(0);
+    expect(liveWithTests.length, "...and no LIVE item with analyses, so collect must be false").toBe(0);
+
+    const body = await readJson(await request.get(ORDER_DASHBOARD), ORDER_DASHBOARD);
+    const row = body.orders.find((o: any) => o.labNumber === "E2E-VOIDED-01");
+    expect(row, "E2E-VOIDED-01 is on the dashboard page").toBeTruthy();
+    expect(
+      row.stepProgress.collect,
+      "collect is false: the only item with analyses is voided, so no item counts",
+    ).toBe(false);
+    // label is computed over the same voided-filtered list, so it must not be
+    // rescued by the voided item's storage assignment either.
+    expect(typeof row.stepProgress.label, "label is still a boolean").toBe("boolean");
+  });
+
+  test("unassigned-sample: rows keep the DB's physical order", async ({ request }) => {
+    // getUnassignedReferrals is `FROM Referral r WHERE ...` with NO ordering, so
+    // the array order is whatever Postgres scans — and the shipment dashboard
+    // renders the array in sequence, which makes it observable.
+    //
+    // Every other assertion on this endpoint matches rows by id, so a port that
+    // returned the same rows in a different order passed. The Go query adds five
+    // JOINs that Java resolves lazily per row, and the planner reordered them:
+    // Java led with E2E-REF-01, the port with E2E-REF-03.
+    const rows = await readJson(await request.get(UNASSIGNED), UNASSIGNED);
+    expect(rows.length, "the referral fixture seeds unassigned rows").toBeGreaterThan(1);
+
+    const physicalOrder = query(
+      `SELECT r.id FROM clinlims.referral r
+        WHERE r.assigned_to_box_id IS NULL
+          AND (r.lost_status IS NULL OR r.lost_status = false)
+          AND r.status IS NOT NULL AND r.status <> 'CANCELED'
+        ORDER BY r.ctid`,
+    ).map((r) => r[0]);
+    expect(
+      rows.map((r: any) => String(r.id)),
+      `${UNASSIGNED} rows are in scan order, not id or date order`,
+    ).toEqual(physicalOrder);
+
+    // by-facility runs the same predicate with an organization filter, so it
+    // inherits the same ordering. Checked on the facility with more than one
+    // row, since a single-row list cannot show an ordering bug.
+    const byFacility = query(
+      `SELECT r.organization_id, count(*) FROM clinlims.referral r
+        WHERE r.organization_id IS NOT NULL
+          AND r.assigned_to_box_id IS NULL
+          AND (r.lost_status IS NULL OR r.lost_status = false)
+          AND r.status IS NOT NULL AND r.status <> 'CANCELED'
+        GROUP BY 1 HAVING count(*) > 1 ORDER BY 2 DESC LIMIT 1`,
+    );
+    expect(byFacility.length, "one facility has more than one unassigned referral").toBe(1);
+    const facilityId = byFacility[0][0];
+    const facilityRows = await readJson(
+      await request.get(`${UNASSIGNED}/by-facility/${facilityId}`),
+      `${UNASSIGNED}/by-facility`,
+    );
+    expect(
+      facilityRows.map((r: any) => String(r.id)),
+      `${UNASSIGNED}/by-facility keeps scan order too`,
+    ).toEqual(
+      query(
+        `SELECT r.id FROM clinlims.referral r
+          WHERE r.organization_id = ${Number(facilityId)}
+            AND r.assigned_to_box_id IS NULL
+            AND (r.lost_status IS NULL OR r.lost_status = false)
+            AND r.status IS NOT NULL AND r.status <> 'CANCELED'
+          ORDER BY r.ctid`,
+      ).map((r) => r[0]),
+    );
+  });
+
+test("order/dashboard: binding failures are 400, not a silent default", async ({ request }) => {
+    // page and pageSize bind as int, includeExternal as boolean, so Spring
+    // rejects an unconvertible value BEFORE the handler runs. The port
+    // originally used a "parse, else use the default" helper and answered 200
+    // here — a divergence its own comment acknowledged and declined to fix.
+    for (const q of ["page=abc", "pageSize=abc", "includeExternal=abc"]) {
+      const res = await request.get(`${ORDER_DASHBOARD}?${q}`);
+      expect(res.status(), `${ORDER_DASHBOARD}?${q} is a bind failure`).toBe(400);
+      const body = await res.json();
+      expectKeysWithin(
+        body,
+        ["type", "title", "status", "detail", "instance"],
+        ["type", "title", "status", "detail", "instance"],
+        `${ORDER_DASHBOARD} 400 ProblemDetail`,
+      );
+      expect(body.status, "ProblemDetail.status").toBe(400);
+      // type/title name MethodArgumentTypeMismatchException while detail names
+      // org.springframework.beans.TypeMismatchException — two different classes
+      // in one body. Pinned because it looks like a transcription slip and is
+      // not.
+      expect(body.type, "type names the method-argument exception").toBe(
+        "problemDetail.type.org.springframework.web.method.annotation" +
+          ".MethodArgumentTypeMismatchException",
+      );
+      expect(body.detail, "detail names the beans exception instead").toBe(
+        "problemDetail.org.springframework.beans.TypeMismatchException",
+      );
+      expect(body.instance, "instance is the request path").toContain("/rest/order/dashboard");
+    }
+
+    // An EMPTY value is not a bind failure — the default applies.
+    for (const q of ["page=", "pageSize="]) {
+      const res = await request.get(`${ORDER_DASHBOARD}?${q}`);
+      expect(res.status(), `${ORDER_DASHBOARD}?${q} falls back to the default`).toBe(200);
+    }
+
+    // String-typed params bind to anything, so garbage in them is a 200. The
+    // contrast is the point: only the typed params can fail.
+    for (const q of ["startDate=abc", "priority=abc", "status=abc", "search=abc"]) {
+      const res = await request.get(`${ORDER_DASHBOARD}?${q}`);
+      expect(res.status(), `${ORDER_DASHBOARD}?${q} is a String param, so 200`).toBe(200);
+    }
+
+    // includeExternal follows Spring's StringToBooleanConverter vocabulary,
+    // which is NOT Go's: "t" and "f" are rejected even though strconv.ParseBool
+    // accepts them.
+    for (const v of ["on", "off", "yes", "no", "1", "0", "TRUE"]) {
+      const res = await request.get(`${ORDER_DASHBOARD}?includeExternal=${v}`);
+      expect(res.status(), `includeExternal=${v} is in Spring's vocabulary`).toBe(200);
+    }
+    for (const v of ["t", "f"]) {
+      const res = await request.get(`${ORDER_DASHBOARD}?includeExternal=${v}`);
+      expect(res.status(), `includeExternal=${v} is Go shorthand, not Spring's`).toBe(400);
+    }
   });
 
   // ── rest/unassigned-sample (the trailing-slash trap) ────────────────────
@@ -677,6 +1179,110 @@ test.describe("c2 — sample + order reads", () => {
     expect(res.status(), `${PENDING_ANALYSIS} without its required param`).toBe(400);
   });
 
+  test("getPendingAnalysisForTestProvider: the four groups, oracled per status", async ({ request }) => {
+    // The only assertion this endpoint had was the 400 for a missing param, so
+    // its entire payload — four status-grouped lists — was unverified. Under
+    // the field-by-field diff it also turned out to be the one c2 response
+    // whose array order is not reproducible; see the ordering note below.
+    //
+    // Each group is one status, resolved by NAME because the numeric ids are
+    // deployment data:
+    // Each group is one status. The enum constant is NOT the stored name —
+    // StatusService.addToAnalysisMap maps them by matching status_of_sample.name
+    // literally, so AnalysisStatus.NotStarted is the row named "Not Tested" and
+    // BiologistRejected is "Biologist Rejection" (not "Biologist Rejected").
+    // Resolved by that stored NAME here, because the numeric ids are deployment
+    // data.
+    //   notStarted          NotStarted          -> "Not Tested"
+    //   technicianRejection TechnicalRejected   -> "Technical Rejected"
+    //   biologistRejection  BiologistRejected   -> "Biologist Rejection"
+    //   notValidated        TechnicalAcceptance -> "Technical Acceptance"
+    //                       ^ an ACCEPTANCE status under a "notValidated" key
+    const groups = [
+      ["notStarted", "Not Tested"],
+      ["technicianRejection", "Technical Rejected"],
+      ["biologistRejection", "Biologist Rejection"],
+      ["notValidated", "Technical Acceptance"],
+    ] as const;
+
+    // A test id that actually has pending analyses, so the assertions below are
+    // not all vacuously true on empty arrays.
+    const testIds = query(
+      `SELECT a.test_id, count(*) FROM clinlims.analysis a
+        WHERE a.test_id IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 1`,
+    );
+    expect(testIds.length, "some test has analyses").toBe(1);
+    const testId = testIds[0][0];
+
+    const body = await readJson(await request.get(`${PENDING_ANALYSIS}?testId=${testId}`), PENDING_ANALYSIS);
+    expect(Object.keys(body).sort(), `${PENDING_ANALYSIS} emits exactly the four groups`).toEqual(
+      [...groups].map(([k]) => k).sort(),
+    );
+
+    let populated = 0;
+    for (const [key, statusName] of groups) {
+      const expected = query(
+        `SELECT a.id, s.accession_number
+           FROM clinlims.analysis a
+           JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+           JOIN clinlims.sample s ON s.id = si.samp_id
+           JOIN clinlims.status_of_sample sos ON sos.id = a.status_id
+          WHERE a.test_id = ${Number(testId)}
+            AND sos.status_type = 'ANALYSIS' AND sos.name = '${statusName}'
+          ORDER BY s.accession_number`,
+      );
+      const rows = body[key];
+      expect(Array.isArray(rows), `${key} is an array`).toBe(true);
+
+      // MEMBERSHIP is the contract; order within it is not (see below).
+      expect(
+        rows.map((r: any) => r.id).sort(),
+        `${key} contains exactly the ${statusName} analyses for this test`,
+      ).toEqual(expected.map((r) => r[0]).sort());
+
+      // Each entry carries the accession of the sample its analysis hangs off,
+      // which is the join a port could get wrong while still returning the
+      // right ids.
+      const labNoById = new Map(expected.map((r) => [r[0], r[1]]));
+      for (const r of rows) {
+        expect(Object.keys(r).sort(), `${key} row shape`).toEqual(["id", "labNo"]);
+        expect(r.labNo, `${key} row ${r.id} carries its own sample's accession`).toBe(labNoById.get(r.id));
+      }
+
+      // ORDERING — and specifically what is NOT asserted.
+      //
+      // The HQL ends `order by a.sampleItem.sample.accessionNumber` and nothing
+      // else, so rows sharing an accession number are TIED and Postgres decides
+      // their relative order from the query plan. That is not stable even
+      // within one server: measured on this dataset, the two calls after a
+      // fresh connection return a tie group in one order and later calls return
+      // it in another, on Java and on the port alike.
+      //
+      // So the only ordering Java actually promises is the one it asked for,
+      // and that is all this asserts. Do NOT "fix" a tie-order mismatch by
+      // adding a secondary sort key to the port: Java has none, no available
+      // column reproduces the observed tie order anyway, and inventing one
+      // makes the port deterministic in a way the original is not.
+      // The comparison uses POSTGRES as the oracle rather than sorting in JS.
+      // `ORDER BY accession_number` sorts under the database collation, which on
+      // this deployment ignores punctuation at the primary level — so E2E001
+      // precedes E2E-EDIT-01, while a JS `<` (code-point order) puts the
+      // hyphen first and gets the opposite answer. A port that sorted in Go
+      // rather than in SQL would inherit the JS answer.
+      //
+      // Comparing the labNo SEQUENCE also sidesteps the tie problem: rows tied
+      // on accession number share a labNo, so the sequence is the same whichever
+      // order the plan puts them in.
+      expect(
+        rows.map((r: any) => r.labNo),
+        `${key} is ordered by accession_number under the DB collation`,
+      ).toEqual(expected.map((r) => r[1]));
+
+      if (rows.length > 0) populated++;
+    }
+    expect(populated, "at least one group is non-empty, so the loop above proved something").toBeGreaterThan(0);
+  });
+
   // ── rest/order/{accessionNumber}/attachments ────────────────────────────
 
   test("order/{accession}/attachments: populated rows, soft-delete filter and ordering", async ({
@@ -875,6 +1481,34 @@ test.describe("c2 — sample + order reads", () => {
 //     - order/search: voided sample items are excluded (order-search-e2e.sql
 //       seeds the dataset's only voided row — without it, deleting the
 //       predicate from the port left the suite green).
+//     - order/search: the FULL sampleOrderItems map on E2E-FULL-01 — provider
+//       via person, referring site and department split by ORGANIZATION TYPE,
+//       programId from program_sample, and every observation-history value by
+//       type name, each oracled against its own row, with E2E001 as the
+//       inversion proving all of them are conditional.
+//     - order/search: quantity's three shapes (number / "" / absent) from the
+//       one column, which only a NULL-quantity sample item can show.
+//     - order/search: all THREE program-resolution paths, on E2E-FULL-01/02/03
+//       — program_sample, the TABLE_PER_CLASS subclass miss that falls back to
+//       a name lookup, and the no-observation branch that takes both keys from
+//       program_sample. -02 points its program_sample at a different program
+//       from the one it names, so the branches cannot agree by accident.
+//     - order/search: priority survives a DEFAULT and disappears only on an
+//       EXPLICIT NULL (E2E-FULL-03).
+//     - order/search: the raw response BYTES — no trailing newline, and a
+//       Double rendered as 5.0 rather than 5. Neither is visible to any
+//       assertion on the DECODED body, and both were wrong.
+//     - order/search: samples[] keeps the DB's physical order (E2E001 returns
+//       item 10002 first, which is neither id nor sortOrder order).
+//     - order/dashboard: stepProgress ignores VOIDED items — E2E-VOIDED-01's
+//       only item with analyses is the voided one, so collect must be false.
+//     - unassigned-sample + by-facility: rows keep scan order, checked against
+//       ctid, on a facility with more than one row.
+//     - getPendingAnalysisForTestProvider: all four status groups oracled by
+//       stored status NAME, row shape, the labNo join, and ordering compared
+//       against Postgres itself (the DB collation ignores punctuation, so
+//       E2E001 precedes E2E-EDIT-01). The within-tie order is deliberately
+//       NOT asserted — it is unstable on Java too.
 //     - order/dashboard: every labNumber must be a real sample
 //       accession_number, and the page is a strict subset of the table.
 //     - order/dashboard quirks: pageSize-ignored / externalCount-0 /
@@ -905,21 +1539,19 @@ test.describe("c2 — sample + order reads", () => {
 //
 // ── DELIBERATELY NOT COVERED (and why) ──────────────────────────────────────
 //
-// Neither reason below is "the table is empty" — that is a fixture bug, not a
-// scope boundary, and the ones this wave had are now seeded.
+// Exactly one exclusion remains, and it is not "the table is empty" — that is a
+// fixture bug, not a scope boundary, and the ones this wave had are now seeded.
 //
-// 1. MUTATING endpoints on the unassigned-sample controller —
-//    POST/PUT assignSampleToBox, markSampleAsLost, cancelReferral
-//    (UnassignedSampleRestController.java:126, :155, :184). They change
-//    referral state and must never run from the read-only suite. They belong
-//    to the shipment feature module (an h-* branch), not to c2.
+// MUTATING endpoints on the unassigned-sample controller —
+// POST/PUT assignSampleToBox, markSampleAsLost, cancelReferral
+// (UnassignedSampleRestController.java:126, :155, :184). They change referral
+// state and must never run from the read-only suite. They belong to the
+// shipment feature module (an h-* branch), not to c2.
 //
-// 2. Type-D form loads — rest/GenericSampleOrder, rest/SamplePatientEntry,
-//    rest/SampleEdit, rest/SampleBatchEntrySetup. These return large
-//    form-backing envelopes assembled from many reference lists; pinning them
-//    meaningfully is its own unit of work and they are closer to Type D than
-//    to a sample/order read. order/search is included above as the one
-//    representative of that shape.
+// The Type-D form loads (rest/GenericSampleOrder, rest/SamplePatientEntry,
+// rest/SampleEdit, rest/SampleBatchEntrySetup) used to be listed here as a
+// second exclusion. They are now ported and pinned in
+// c2-sample-form-loads.spec.ts, so c2 has exactly one exclusion, not three.
 //
 // ── JAVA DEFECTS THIS FILE PINS ─────────────────────────────────────────────
 //

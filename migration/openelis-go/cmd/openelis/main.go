@@ -325,14 +325,18 @@ func main() {
 	// -----------------------------------------------------------------------
 	// c2: sample + order reads.
 	// -----------------------------------------------------------------------
+	// site_information-backed configuration, resolved once at startup. Both
+	// stacks read the same rows, so a deployment needs no code change.
+	activeLocale := siteDefaultLocale(gormDB)
+	dateLocale := siteDateLocale(gormDB)
 	sampleSvc := &sampleservice.SampleService{
-		DAO:    &sampledaoimpl.SampleDAOImpl{DB: gormDB},
+		DAO:    &sampledaoimpl.SampleDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
 		Status: statusSvc,
 	}
 	samplerest.Routes(mux, &samplerest.SampleRestController{Service: sampleSvc})
 	samplerest.PendingAnalysisRoutes(mux, &samplerest.PendingAnalysisRestController{
 		Service: &sampleservice.PendingAnalysisService{
-			DAO:    &sampledaoimpl.SampleDAOImpl{DB: gormDB},
+			DAO:    &sampledaoimpl.SampleDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
 			Status: statusSvc,
 		},
 	})
@@ -341,10 +345,14 @@ func main() {
 		Service: &sampleservice.UnassignedSampleService{DAO: &sampledaoimpl.UnassignedSampleDAOImpl{DB: gormDB}},
 	})
 	samplerest.OrderDashboardRoutes(mux, &samplerest.OrderDashboardRestController{
-		Service: &sampleservice.OrderDashboardService{DAO: &sampledaoimpl.SampleDAOImpl{DB: gormDB}},
+		Service: &sampleservice.OrderDashboardService{DAO: &sampledaoimpl.SampleDAOImpl{DB: gormDB, ActiveLocale: activeLocale}},
 	})
+
 	samplerest.OrderSearchRoutes(mux, &samplerest.OrderSearchRestController{
-		Service: &sampleservice.OrderSearchService{DAO: &sampledaoimpl.SampleDAOImpl{DB: gormDB}},
+		Service: &sampleservice.OrderSearchService{
+			DAO:        &sampledaoimpl.SampleDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+			DateLocale: dateLocale,
+		},
 	})
 	// c2 4.5 — rest/GenericSampleOrder. Two of its three outcomes are error
 	// envelopes and the third is a reproduced Java defect, so the service only
@@ -356,17 +364,18 @@ func main() {
 	// authenticated user, whose lab-unit roles decide the role-filtered
 	// sampleTypes list.
 	displayLists := &commonservices.DisplayListService{
-		DAO:      &commondaoimpl.DisplayListDAOImpl{DB: gormDB},
+		DAO:      &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
 		Messages: msgs,
 		// site_information.stringContext — "CI" on this deployment. Read from
 		// the DB rather than hardcoded: it selects which of the two label
 		// variants the message bundle ships for a key.
 		StringContext: siteStringContext(gormDB),
-		DefaultLocale: siteDefaultLocale(gormDB),
+		DefaultLocale: activeLocale,
 	}
 	samplerest.SampleEditRoutes(mux, &samplerest.SampleEditRestController{
+		Sessions: sessionStore,
 		Service: &sampleservice.SampleEditService{
-			DAO:    &sampledaoimpl.SampleEditDAOImpl{DB: gormDB},
+			DAO:    &sampledaoimpl.SampleEditDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
 			Lists:  displayLists,
 			Status: statusSvc,
 		},
@@ -418,6 +427,23 @@ func siteDefaultLocale(db *gorm.DB) string {
 	}
 	if i := strings.IndexAny(value, "-_"); i > 0 {
 		return strings.TrimSpace(value[:i])
+	}
+	return strings.TrimSpace(value)
+}
+
+// siteDateLocale reads site_information."default date locale" (e.g. "fr-FR").
+// It decides whether order/search renders a birth date day-first or
+// month-first. Empty when absent, which makes the caller pick month-first —
+// Java's else-branch.
+func siteDateLocale(db *gorm.DB) string {
+	var value string
+	if err := db.Table("clinlims.site_information").
+		Select("value").
+		Where("name = ?", "default date locale").
+		Limit(1).
+		Scan(&value).Error; err != nil {
+		log.Printf("WARN: could not read the default date locale (%v); falling back to month-first", err)
+		return ""
 	}
 	return strings.TrimSpace(value)
 }

@@ -65,6 +65,16 @@ func (d *UnassignedSampleDAOImpl) UnassignedReferrals() ([]UnassignedReferralRow
 		Joins("LEFT JOIN clinlims.test AS t ON t.id = a.test_id").
 		Joins("LEFT JOIN clinlims.organization AS o ON o.id = r.organization_id").
 		Where(unassignedReferralPredicate).
+		// ORDER BY ctid — the physical order Java's unordered query returns.
+		//
+		// getUnassignedReferrals is `FROM Referral r WHERE ...` with no ordering
+		// at all, so the array order is whatever Postgres scans. This query adds
+		// five JOINs that Hibernate resolves lazily per row, and those let the
+		// planner emit a different sequence — measured: Java led with E2E-REF-01
+		// and this port with E2E-REF-03. The rows are rendered in array order in
+		// the shipment dashboard, so that is observable, and every assertion on
+		// this endpoint matched by id and never looked at it.
+		Order("r.ctid").
 		Scan(&rows).Error
 	if err != nil {
 		return nil, err

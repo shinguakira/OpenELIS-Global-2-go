@@ -48,7 +48,7 @@ func (d *DisplayListDAOImpl) DictionaryEntitiesByCategory(categoryName string) (
 			c.name AS category_name, c.lastupdated AS category_lastupdated,
 			COALESCE(NULLIF(lv.value, ''), d.dict_entry) AS sort_value`).
 		Joins("JOIN clinlims.dictionary_category AS c ON c.id = d.dictionary_category_id").
-		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = d.name_localization_id AND lv.locale = 'en'").
+		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = d.name_localization_id AND lv.locale = ?", d.Locale()).
 		Where("c.name = ? AND d.is_active = ?", categoryName, "Y").
 		// Byte order, matching Java's String.compareTo — see the note on
 		// DictionaryByCategoryLocalizedSort.

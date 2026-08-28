@@ -23,6 +23,22 @@ import (
 // does. Joining `localization` alone returns nothing useful.
 type DisplayListDAOImpl struct {
 	DB *gorm.DB
+	// ActiveLocale is the locale getLocalizedName resolves against, taken from
+	// site_information."default language locale" (language subtag only). Empty
+	// falls back to "en" — see Locale().
+	//
+	// It is a field rather than the literal 'en' this DAO used to repeat in
+	// every query: on a deployment whose default locale is not English, every
+	// form list came back in English while Java returned the active locale.
+	ActiveLocale string
+}
+
+// Locale returns the configured locale, or "en" when unset.
+func (d *DisplayListDAOImpl) Locale() string {
+	if d.ActiveLocale != "" {
+		return d.ActiveLocale
+	}
+	return "en"
 }
 
 // activeFlagRow is idValueRow plus the is_active column, for the lists whose
@@ -67,7 +83,7 @@ func (d *DisplayListDAOImpl) DictionaryByCategoryLocalizedSort(categoryName stri
 	err := d.DB.Table("clinlims.dictionary AS d").
 		Select("d.id AS id, COALESCE(NULLIF(lv.value, ''), d.dict_entry) AS value").
 		Joins("JOIN clinlims.dictionary_category AS c ON c.id = d.dictionary_category_id").
-		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = d.name_localization_id AND lv.locale = 'en'").
+		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = d.name_localization_id AND lv.locale = ?", d.Locale()).
 		Where("c.name = ? AND d.is_active = ?", categoryName, "Y").
 		// COLLATE "C" is byte order, which is what Java's String.compareTo does.
 		// Postgres' default collation ignores case, so it puts "divorced"
@@ -92,7 +108,7 @@ func (d *DisplayListDAOImpl) DictionaryByCategory(categoryName string) ([]util.I
 	err := d.DB.Table("clinlims.dictionary AS d").
 		Select("d.id AS id, COALESCE(NULLIF(lv.value, ''), d.dict_entry) AS value").
 		Joins("JOIN clinlims.dictionary_category AS c ON c.id = d.dictionary_category_id").
-		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = d.name_localization_id AND lv.locale = 'en'").
+		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = d.name_localization_id AND lv.locale = ?", d.Locale()).
 		Where("c.name = ? AND d.is_active = ?", categoryName, "Y").
 		// sort_order, NOT id. They usually agree — sort_order is typically
 		// id*100 — but not always: in resultRejectionReasons, 1160 and 1161
@@ -111,7 +127,7 @@ func (d *DisplayListDAOImpl) ActiveTestSections() ([]util.IdValuePair, error) {
 	rows := []idValueRow{}
 	err := d.DB.Table("clinlims.test_section AS ts").
 		Select("ts.id AS id, COALESCE(NULLIF(lv.value, ''), ts.name) AS value").
-		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = ts.name_localization_id AND lv.locale = 'en'").
+		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = ts.name_localization_id AND lv.locale = ?", d.Locale()).
 		Where("ts.is_active = 'Y'").
 		Order("ts.sort_order").
 		Scan(&rows).Error
@@ -141,7 +157,7 @@ func (d *DisplayListDAOImpl) ActiveHumanSampleTypes() ([]util.IdValuePair, error
 	rows := []activeFlagRow{}
 	err := d.DB.Table("clinlims.type_of_sample AS t").
 		Select("t.id AS id, COALESCE(NULLIF(lv.value, ''), t.description) AS value, t.is_active AS is_active").
-		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = t.name_localization_id AND lv.locale = 'en'").
+		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = t.name_localization_id AND lv.locale = ?", d.Locale()).
 		Where("t.domain = 'H'").
 		Order("t.sort_order").
 		Scan(&rows).Error
@@ -321,7 +337,7 @@ func (d *DisplayListDAOImpl) UserSampleTypes(systemUserID, roleName string) ([]u
 		Select("tos.id AS id, COALESCE(NULLIF(lv.value, ''), tos.description) AS value").
 		Joins("JOIN clinlims.sampletype_test AS st ON st.test_id = t.id").
 		Joins("JOIN clinlims.type_of_sample AS tos ON tos.id = st.sample_type_id").
-		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = tos.name_localization_id AND lv.locale = 'en'").
+		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = tos.name_localization_id AND lv.locale = ?", d.Locale()).
 		Where("t.is_active = 'Y'").
 		Where("t.test_section_id IN (?)", sections).
 		// ctid is the PHYSICAL row order, which is what Java's unordered query

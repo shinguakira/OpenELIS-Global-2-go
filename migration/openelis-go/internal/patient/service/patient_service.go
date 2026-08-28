@@ -7,6 +7,7 @@
 package service
 
 import (
+	"openelis-go/internal/common/util"
 	"strconv"
 	"time"
 
@@ -145,8 +146,8 @@ func toPersonDTO(p personvh.Person) form.PersonDTO {
 		PrimaryPhone:  p.PrimaryPhone,
 		Fax:           p.Fax,
 		Email:         p.Email,
-		GpsLatitude:   p.GpsLatitude,
-		GpsLongitude:  p.GpsLongitude,
+		GpsLatitude:   util.JavaDoublePtr(p.GpsLatitude),
+		GpsLongitude:  util.JavaDoublePtr(p.GpsLongitude),
 	}
 	if p.Lastupdated != nil {
 		ms := p.Lastupdated.UnixMilli()

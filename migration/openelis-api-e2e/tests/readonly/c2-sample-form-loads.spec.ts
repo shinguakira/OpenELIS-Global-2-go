@@ -713,6 +713,245 @@ test.describe("c2 form loads — SampleEdit", () => {
     // one column, two renderings.
     expect(body.dob, "dob is the stored entered_birth_date, unreformatted").toBe(dob);
   });
+
+  test("SampleEdit: sampleOrderItems is the CLOCK item overwritten by the sample", async ({ request }) => {
+    // getBaseSampleOrderItem stamps receivedDateForDisplay, receivedTime and
+    // requestDate from the clock and attaches the reference lists. Then, if the
+    // accession resolves, `if (sample != null)` OVERWRITES both dates from
+    // sample.received_date and fills in ~15 further fields.
+    //
+    // A port that stopped at the base item is correct only for a form with no
+    // sample behind it — and that was not detectable here, because no sample in
+    // the dataset carried a provider, a requester, a program or an observation.
+    // E2E-FULL-01 carries all four.
+    const body = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-01`),
+      `${SAMPLE_EDIT} E2E-FULL-01`,
+    );
+    const soi = body.sampleOrderItems;
+
+    // ── the dates are the SAMPLE's, not today's ───────────────────────────
+    const [received] = query(
+      `SELECT to_char(received_date, 'DD/MM/YYYY'), to_char(received_date, 'HH24:MI')
+         FROM clinlims.sample WHERE accession_number = 'E2E-FULL-01'`,
+    );
+    expect(soi.receivedDateForDisplay, "receivedDateForDisplay is sample.received_date").toBe(received[0]);
+    expect(soi.receivedTime, "receivedTime is sample.received_date, NOT the clock").toBe(received[1]);
+    // The fixture receives the sample in 2025 while the form is loaded today,
+    // so a port that left the clock value in place cannot coincidentally pass.
+    const todayDMY = query(`SELECT to_char(now(), 'DD/MM/YYYY')`)[0][0];
+    expect(soi.receivedDateForDisplay, "and it is not today's date").not.toBe(todayDMY);
+
+    // ── observations: two readers over one table ──────────────────────────
+    // getRawValueForSample returns observation_history.value as stored.
+    // getValueForSample returns it only when value_type is LITERAL and
+    // otherwise treats the value as a DICTIONARY ID, rendering its localized
+    // name. Java picks between them per field, so one reader for everything is
+    // right for whichever half it happens to match.
+    const obs = new Map(
+      query(
+        `SELECT t.type_name, oh.value
+           FROM clinlims.sample s
+           JOIN clinlims.observation_history oh ON oh.sample_id = s.id
+           JOIN clinlims.observation_history_type t ON t.id = oh.observation_history_type_id
+          WHERE s.accession_number = 'E2E-FULL-01'`,
+      ).map((r) => [r[0], r[1]]),
+    );
+    for (const [key, typeName] of [
+      ["requestDate", "requestDate"],
+      ["nextVisitDate", "nextVisitDate"],
+      ["billingReferenceNumber", "billingRefNumber"],
+      ["provisionalClinicalDiagnosis", "provisionalClinicalDiagnosis"],
+      ["paymentOptionSelection", "paymentStatus"],
+      ["program", "program"],
+    ] as const) {
+      expect(obs.has(typeName), `E2E-FULL-01 seeds the ${typeName} observation`).toBe(true);
+      expect(soi[key], `${key} == observation ${typeName}`).toBe(obs.get(typeName));
+    }
+
+    // ── provider: the PERSON requester, a different table from order/search ─
+    // getPersonRequester compares requester_type_id against the type NAMED
+    // "provider" and then reads requester_id as a PERSON id. order/search
+    // instead reads sample_human.provider_id. Same six keys, two sources.
+    const [prov] = query(
+      `SELECT pe.id, pe.first_name, pe.last_name, pe.work_phone, pe.fax, pe.email, pr.id
+         FROM clinlims.sample s
+         JOIN clinlims.sample_requester sr ON sr.sample_id = s.id
+         JOIN clinlims.requester_type rt ON rt.id = sr.requester_type_id
+         JOIN clinlims.person pe ON pe.id = sr.requester_id
+         LEFT JOIN clinlims.provider pr ON pr.person_id = pe.id
+        WHERE s.accession_number = 'E2E-FULL-01' AND rt.requester_type = 'provider'`,
+    );
+    expect(soi.providerPersonId, "providerPersonId is the sample_requester PERSON").toBe(prov[0]);
+    expect(soi.providerFirstName, "providerFirstName == person.first_name").toBe(prov[1]);
+    expect(soi.providerLastName, "providerLastName == person.last_name").toBe(prov[2]);
+    expect(soi.providerWorkPhone, "providerWorkPhone == person.work_phone").toBe(prov[3]);
+    expect(soi.providerFax, "providerFax == person.fax").toBe(prov[4]);
+    expect(soi.providerEmail, "providerEmail == person.email").toBe(prov[5]);
+    // providerId is a SEPARATE lookup: getProviderByPerson on the person above.
+    expect(soi.providerId, "providerId is the provider that person maps to").toBe(prov[6]);
+
+    // ── referringSiteCode reads organization.CODE here ────────────────────
+    // order/search emits getShortName() under the same key. On this deployment
+    // the referring clinic has short_name '279' and a NULL code, so the two
+    // endpoints disagree: order/search emits "279" and SampleEdit emits no key
+    // at all. Pinning that keeps a port from sharing one builder.
+    const [site] = query(
+      `SELECT o.id, o.name, coalesce(o.short_name, ''), coalesce(o.code, '')
+         FROM clinlims.sample s
+         JOIN clinlims.sample_requester sr ON sr.sample_id = s.id
+         JOIN clinlims.organization o ON o.id = sr.requester_id
+         JOIN clinlims.organization_organization_type oot ON oot.org_id = o.id
+         JOIN clinlims.organization_type t ON t.id = oot.org_type_id
+        WHERE s.accession_number = 'E2E-FULL-01' AND t.short_name = 'referring clinic'`,
+    );
+    expect(soi.referringSiteId, "referringSiteId == the referring-clinic org").toBe(site[0]);
+    expect(soi.referringSiteName, "referringSiteName == organization.name").toBe(site[1]);
+    if (site[3] === "") {
+      expect("referringSiteCode" in soi, "a NULL organization.code drops referringSiteCode").toBe(false);
+      expect(site[2], "...even though short_name is populated, which order/search uses").not.toBe("");
+    } else {
+      expect(soi.referringSiteCode, "referringSiteCode == organization.CODE, not short_name").toBe(site[3]);
+    }
+
+    // referringSiteDepartmentId is emitted; the department NAME is not — this
+    // endpoint only carries the id, while order/search carries both.
+    const [dept] = query(
+      `SELECT o.id FROM clinlims.sample s
+         JOIN clinlims.sample_requester sr ON sr.sample_id = s.id
+         JOIN clinlims.organization o ON o.id = sr.requester_id
+         JOIN clinlims.organization_organization_type oot ON oot.org_id = o.id
+         JOIN clinlims.organization_type t ON t.id = oot.org_type_id
+        WHERE s.accession_number = 'E2E-FULL-01' AND t.short_name = 'dept'`,
+    );
+    expect(soi.referringSiteDepartmentId, "departmentId == the dept-typed org").toBe(dept[0]);
+    expect("referringSiteDepartmentName" in soi, "SampleEdit carries no department NAME").toBe(false);
+  });
+
+  test("SampleEdit: the dictionary-valued observation is RESOLVED, not echoed", async ({ request }) => {
+    // observation_history.value_type decides how getValueForSample renders the
+    // row: 'L' returns the value verbatim, anything else treats it as a
+    // DICTIONARY ID and returns that row's localized name. Every observation in
+    // the stock dataset is LITERAL, so a port that returned the raw value for
+    // both passed — it would have echoed a numeric id to the user.
+    const [dict] = query(
+      `SELECT oh.value, d.dict_entry
+         FROM clinlims.sample s
+         JOIN clinlims.observation_history oh ON oh.sample_id = s.id
+         JOIN clinlims.dictionary d ON d.id::text = oh.value
+        WHERE s.accession_number = 'E2E-FULL-02' AND oh.value_type <> 'L'`,
+    );
+    expect(dict, "E2E-FULL-02 seeds a non-LITERAL observation").toBeTruthy();
+    const body = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-02`),
+      `${SAMPLE_EDIT} E2E-FULL-02`,
+    );
+    expect(
+      body.sampleOrderItems.provisionalClinicalDiagnosis,
+      "a value_type<>'L' observation renders the dictionary NAME",
+    ).toBe(dict[1]);
+    expect(
+      body.sampleOrderItems.provisionalClinicalDiagnosis,
+      "...and not the raw dictionary id it stores",
+    ).not.toBe(dict[0]);
+  });
+
+  test("SampleEdit: programId resolves differently from order/search", async ({ request }) => {
+    // Both endpoints call getProgrammeSampleBySample, which routes by program
+    // NAME to a TABLE_PER_CLASS subclass table. order/search wraps it in a
+    // fallback that resolves the id by name when that table has no row;
+    // SampleOrderService has no fallback. So on E2E-FULL-02 — whose observation
+    // names "Cytology" while its program_sample row points elsewhere —
+    // order/search emits a programId and SampleEdit emits none, from the same
+    // two rows.
+    const edit = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-02`),
+      `${SAMPLE_EDIT} E2E-FULL-02`,
+    );
+    const search = await readJson(
+      await request.get(`rest/order/search?labNumber=E2E-FULL-02`),
+      "order/search E2E-FULL-02",
+    );
+    expect(edit.sampleOrderItems.program, "both endpoints agree on the program NAME").toBe(
+      search.sampleOrderItems.program,
+    );
+    expect("programId" in edit.sampleOrderItems, "SampleEdit has no name fallback, so no programId").toBe(false);
+    expect(search.sampleOrderItems.programId, "order/search falls back and resolves one").toBeTruthy();
+
+    // And the lookup is UNCONDITIONAL: E2E-FULL-03 has a program_sample row but
+    // no program observation, so the name is null, no subclass is selected, the
+    // base table is queried and programId appears with NO program beside it.
+    // Guarding the lookup on "there is a program name" drops it.
+    const noObs = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-03`),
+      `${SAMPLE_EDIT} E2E-FULL-03`,
+    );
+    const psProgram = query(
+      `SELECT ps.program_id FROM clinlims.sample s
+         JOIN clinlims.program_sample ps ON ps.sample_id = s.id
+        WHERE s.accession_number = 'E2E-FULL-03'`,
+    )[0][0];
+    expect("program" in noObs.sampleOrderItems, "no program observation, so no program name").toBe(false);
+    expect(noObs.sampleOrderItems.programId, "programId is still resolved from program_sample").toBe(psProgram);
+  });
+
+  test("SampleEdit: priority is dropped only by an explicit NULL", async ({ request }) => {
+    // getBaseSampleOrderItem never sets priority; the sample branch does
+    // setPriority(sample.getPriority()), so a NULL column leaves the bean field
+    // null and NON_NULL drops the key. sample.order_priority is nullable but
+    // DEFAULTs to 'ROUTINE', so ordinary rows always carry a value and a port
+    // that defaulted to "ROUTINE" looked correct everywhere except here.
+    const withPriority = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-01`),
+      `${SAMPLE_EDIT} E2E-FULL-01`,
+    );
+    expect(withPriority.sampleOrderItems.priority, "a set priority is emitted raw").toBe(
+      query(`SELECT order_priority FROM clinlims.sample WHERE accession_number = 'E2E-FULL-01'`)[0][0],
+    );
+
+    expect(
+      query(`SELECT order_priority IS NULL FROM clinlims.sample WHERE accession_number = 'E2E-FULL-03'`)[0][0],
+      "E2E-FULL-03 really has a NULL order_priority",
+    ).toBe("t");
+    const nulled = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-03`),
+      `${SAMPLE_EDIT} E2E-FULL-03`,
+    );
+    expect("priority" in nulled.sampleOrderItems, "a NULL order_priority drops the key entirely").toBe(false);
+  });
+
+  test("SampleEdit: existingTests is [] for a resolved sample, absent for an unresolved one", async ({
+    request,
+  }) => {
+    // setExistingTests / setAddableTestInfo run only inside
+    // `if (sample != null)`, so a resolved accession emits [] even with no
+    // analyses while an unresolved one leaves the field null and NON_NULL drops
+    // the key. In Go these are the same `omitempty` case, which silently lost
+    // both keys for a sample that had no tests — and E2E-FULL-01 is the first
+    // seeded sample with sample items but no analyses.
+    const analyses = query(
+      `SELECT count(*) FROM clinlims.analysis a
+         JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+         JOIN clinlims.sample s ON s.id = si.samp_id
+        WHERE s.accession_number = 'E2E-FULL-01'`,
+    )[0][0];
+    expect(analyses, "E2E-FULL-01 has no analyses, so existingTests is empty").toBe("0");
+
+    const resolved = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=E2E-FULL-01`),
+      `${SAMPLE_EDIT} E2E-FULL-01`,
+    );
+    expect("existingTests" in resolved, "a resolved sample always carries the key").toBe(true);
+    expect(resolved.existingTests, "...as an EMPTY array, not an absent key").toEqual([]);
+    expect(Array.isArray(resolved.possibleTests), "possibleTests is present too").toBe(true);
+
+    const unresolved = await readJson(
+      await request.get(`${SAMPLE_EDIT}?accessionNumber=NO_SUCH_ACCESSION_XYZ`),
+      `${SAMPLE_EDIT} unresolved`,
+    );
+    expect("existingTests" in unresolved, "an unresolved accession drops the key").toBe(false);
+    expect("possibleTests" in unresolved, "and drops possibleTests with it").toBe(false);
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────────

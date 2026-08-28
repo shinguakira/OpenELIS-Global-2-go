@@ -4,28 +4,33 @@
 // Folder layout mirrors the Java source during migration.
 package form
 
+import "openelis-go/internal/common/util"
+
 // PersonDTO mirrors Person's JSON shape (GET Provider/Person/{id}). Pointer
 // fields with omitempty mirror Jackson's Include.NON_NULL.
 type PersonDTO struct {
-	ID            string   `json:"id"`
-	LastName      *string  `json:"lastName,omitempty"`
-	FirstName     *string  `json:"firstName,omitempty"`
-	MiddleName    *string  `json:"middleName,omitempty"`
-	MultipleUnit  *string  `json:"multipleUnit,omitempty"`
-	StreetAddress *string  `json:"streetAddress,omitempty"`
-	City          *string  `json:"city,omitempty"`
-	State         *string  `json:"state,omitempty"`
-	ZipCode       *string  `json:"zipCode,omitempty"`
-	Country       *string  `json:"country,omitempty"`
-	WorkPhone     *string  `json:"workPhone,omitempty"`
-	HomePhone     *string  `json:"homePhone,omitempty"`
-	CellPhone     *string  `json:"cellPhone,omitempty"`
-	PrimaryPhone  *string  `json:"primaryPhone,omitempty"`
-	Fax           *string  `json:"fax,omitempty"`
-	Email         *string  `json:"email,omitempty"`
-	GpsLatitude   *float64 `json:"gpsLatitude,omitempty"`
-	GpsLongitude  *float64 `json:"gpsLongitude,omitempty"`
-	Lastupdated   *int64   `json:"lastupdated,omitempty"`
+	ID            string  `json:"id"`
+	LastName      *string `json:"lastName,omitempty"`
+	FirstName     *string `json:"firstName,omitempty"`
+	MiddleName    *string `json:"middleName,omitempty"`
+	MultipleUnit  *string `json:"multipleUnit,omitempty"`
+	StreetAddress *string `json:"streetAddress,omitempty"`
+	City          *string `json:"city,omitempty"`
+	State         *string `json:"state,omitempty"`
+	ZipCode       *string `json:"zipCode,omitempty"`
+	Country       *string `json:"country,omitempty"`
+	WorkPhone     *string `json:"workPhone,omitempty"`
+	HomePhone     *string `json:"homePhone,omitempty"`
+	CellPhone     *string `json:"cellPhone,omitempty"`
+	PrimaryPhone  *string `json:"primaryPhone,omitempty"`
+	Fax           *string `json:"fax,omitempty"`
+	Email         *string `json:"email,omitempty"`
+	// util.JavaDouble, not float64: Go renders 5.0 as `5` and Jackson renders
+	// the same java.lang.Double as `5.0`. The two parse equal, so only the raw
+	// bytes and Content-Length differ.
+	GpsLatitude  *util.JavaDouble `json:"gpsLatitude,omitempty"`
+	GpsLongitude *util.JavaDouble `json:"gpsLongitude,omitempty"`
+	Lastupdated  *int64           `json:"lastupdated,omitempty"`
 }
 
 // ProviderDTO mirrors Provider's JSON shape (GET Provider/raw/{id}, GET

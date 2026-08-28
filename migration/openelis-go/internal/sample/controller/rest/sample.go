@@ -16,10 +16,12 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
 	"openelis-go/internal/auth/middleware"
+	authsession "openelis-go/internal/auth/session"
 	"openelis-go/internal/common/web"
 	"openelis-go/internal/sample/daoimpl"
 	"openelis-go/internal/sample/form"
@@ -304,18 +306,50 @@ type OrderDashboardRestController struct {
 func OrderDashboardRoutes(mux *http.ServeMux, ctrl *OrderDashboardRestController) {
 	web.Register(mux, "GET", "rest/order/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		// Spring's @RequestParam defaults: page=1, pageSize=100,
-		// includeExternal=false. A non-numeric page or pageSize would fail
-		// Spring's binding with a 400; atoiDefault keeps the default instead,
-		// which is a divergence on malformed input only and is noted here
-		// rather than emulated — the c2 spec exercises neither.
+
+		// BINDING FAILURES ARE 400, not a silent default.
+		//
+		// page and pageSize bind as int and includeExternal as boolean, so a
+		// value Spring cannot convert is rejected before the handler runs, with
+		// a ProblemDetail body. An earlier version of this port used
+		// atoiDefault here and answered 200 with the default — a divergence
+		// that its own comment acknowledged and declined to emulate. Measured:
+		//   ?page=abc  ?pageSize=abc  ?includeExternal=abc   -> 400
+		//   ?page=      ?pageSize=                           -> 200 (empty is
+		//                                                      not a failure;
+		//                                                      the default wins)
+		//   ?startDate=abc ?priority=abc ?status=abc ?search=abc -> 200 (String
+		//                                                      params bind to
+		//                                                      anything)
+		page, ok := bindInt(q, "page", 1)
+		if !ok {
+			web.WriteJSON(w, http.StatusBadRequest, form.TypeMismatchProblem(r))
+			return
+		}
+		pageSize, ok := bindInt(q, "pageSize", 100)
+		if !ok {
+			web.WriteJSON(w, http.StatusBadRequest, form.TypeMismatchProblem(r))
+			return
+		}
+		includeExternal := false
+		if raw := q.Get("includeExternal"); raw != "" {
+			// Spring's StringToBooleanConverter vocabulary — "t"/"f" are NOT
+			// in it and fail to bind, unlike Go's strconv.ParseBool.
+			v, bok := parseSpringBoolean(raw)
+			if !bok {
+				web.WriteJSON(w, http.StatusBadRequest, form.TypeMismatchProblem(r))
+				return
+			}
+			includeExternal = v
+		}
+
 		dto, err := ctrl.Service.GetDashboard(service.DashboardQuery{
-			Page:            atoiDefault(q.Get("page"), 1),
-			PageSize:        atoiDefault(q.Get("pageSize"), 100),
+			Page:            page,
+			PageSize:        pageSize,
 			Search:          q.Get("search"),
 			Status:          q.Get("status"),
 			Priority:        q.Get("priority"),
-			IncludeExternal: q.Get("includeExternal") == "true",
+			IncludeExternal: includeExternal,
 			StartDate:       q.Get("startDate"),
 			EndDate:         q.Get("endDate"),
 		})
@@ -328,15 +362,38 @@ func OrderDashboardRoutes(mux *http.ServeMux, ctrl *OrderDashboardRestController
 	})
 }
 
-func atoiDefault(v string, def int) int {
-	if v == "" {
-		return def
+// bindInt ports Spring's int @RequestParam binding: an absent or EMPTY value
+// takes the default, anything non-numeric is a bind failure.
+func bindInt(q url.Values, name string, def int) (int, bool) {
+	raw := q.Get(name)
+	if raw == "" {
+		return def, true
 	}
-	n, err := strconv.Atoi(v)
+	n, err := strconv.Atoi(raw)
 	if err != nil {
-		return def
+		return 0, false
 	}
-	return n
+	return n, true
+}
+
+// parseSpringBoolean ports Spring's StringToBooleanConverter. Duplicated from
+// the c1 patient controller deliberately: the two are separate ports of the
+// same Spring behaviour and neither should start depending on the other.
+//
+//	true:  "true", "on", "yes", "1"
+//	false: "false", "off", "no", "0"
+//
+// Anything else — "t", "f", "abc" — fails to bind. Measured on the live server
+// across the full matrix.
+func parseSpringBoolean(raw string) (value bool, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "on", "yes", "1":
+		return true, true
+	case "false", "off", "no", "0":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 // OrderSearchRestController mirrors OrderSearchRestController's /search
@@ -379,6 +436,10 @@ func OrderSearchRoutes(mux *http.ServeMux, ctrl *OrderSearchRestController) {
 // keys the REST class leaves commented out.
 type SampleEditRestController struct {
 	Service *service.SampleEditService
+	// Sessions backs the SampleEditWritable attribute. Java keeps it in the
+	// HttpSession, so a form opened with ?type=readwrite stays editable on
+	// later requests that omit the parameter.
+	Sessions *authsession.MemoryStore
 }
 
 // SampleEditRoutes registers GET rest/SampleEdit.
@@ -388,11 +449,10 @@ type SampleEditRestController struct {
 func SampleEditRoutes(mux *http.ServeMux, ctrl *SampleEditRestController) {
 	web.Register(mux, "GET", "rest/SampleEdit", func(w http.ResponseWriter, r *http.Request) {
 		dto, err := ctrl.Service.GetSampleEdit(service.SampleEditRequest{
-			AccessionNumber: r.URL.Query().Get("accessionNumber"),
-			SysUserID:       sysUserID(r),
-			// The session half of Java's check needs a writable session this
-			// read-only port does not have; the ?type half is honoured.
-			Editable:           r.URL.Query().Get("type") == "readwrite",
+			AccessionNumber:    r.URL.Query().Get("accessionNumber"),
+			PatientID:          r.URL.Query().Get("patientId"),
+			SysUserID:          sysUserID(r),
+			Editable:           ctrl.resolveEditable(r),
 			AllowedToCancelAll: allowedToCancelAll(r),
 		})
 		if err != nil {
@@ -422,6 +482,38 @@ func SamplePatientEntryRoutes(mux *http.ServeMux, ctrl *SamplePatientEntryRestCo
 		}
 		web.WriteJSON(w, http.StatusOK, dto)
 	})
+}
+
+// resolveEditable ports isEditable:
+//
+//	"readwrite".equals(session.getAttribute(SAMPLE_EDIT_WRITABLE))
+//	  || "readwrite".equals(request.getParameter("type"))
+//
+// and the WRITE half of the same controller, which stores the attribute when
+// ?type=readwrite arrives WITHOUT an accession number.
+//
+// Measured on the live server: opening ?type=readwrite with no accession makes
+// a LATER ?accessionNumber=... request (no type parameter) still report
+// isEditable true. An earlier version of this port read only the query
+// parameter, so that second request came back read-only.
+func (ctrl *SampleEditRestController) resolveEditable(r *http.Request) bool {
+	q := r.URL.Query()
+	typeParam := q.Get("type") == "readwrite"
+
+	if ctrl.Sessions == nil {
+		return typeParam
+	}
+	id := authsession.IDFromRequest(r)
+
+	// Java only WRITES the attribute on the branch with no accession number —
+	// the else-branch of the accession check. Writing it unconditionally would
+	// make a one-off ?accessionNumber=X&type=readwrite stick for the session,
+	// which Java does not do.
+	if typeParam && strings.TrimSpace(q.Get("accessionNumber")) == "" {
+		ctrl.Sessions.SetAttribute(id, authsession.SampleEditWritable, "readwrite")
+	}
+
+	return typeParam || ctrl.Sessions.Attribute(id, authsession.SampleEditWritable) == "readwrite"
 }
 
 // sysUserID is Java's BaseController.getSysUserId(request): the id of the

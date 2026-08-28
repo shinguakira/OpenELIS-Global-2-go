@@ -23,6 +23,11 @@ var AbleToCancelRoles = []string{"Validator", "Validation", "Biologist"}
 // the e2e admin happened to produce.
 type SampleEditRequest struct {
 	AccessionNumber string
+	// PatientID is the ?patientId parameter. When accessionNumber is blank and
+	// this is not, Java resolves the patient's most recent accession and
+	// continues as though that had been requested — the /ModifyOrder?patientId=
+	// flow in the frontend sends exactly this shape.
+	PatientID string
 	// SysUserID is the AUTHENTICATED user; the role-filtered sampleTypes list
 	// depends on their lab-unit roles.
 	SysUserID string
@@ -89,6 +94,19 @@ func (s *SampleEditService) GetSampleEdit(req SampleEditRequest) (*form.SampleEd
 	dto.InitialSampleConditionList = conditions
 
 	accessionNumber = strings.TrimSpace(accessionNumber)
+
+	// Java: if the accession is blank and a patientId was given, resolve that
+	// patient's most recent accession and carry on as if it had been supplied.
+	// Everything downstream — including the echoed accessionNumber — then
+	// behaves as a normal accession lookup.
+	if accessionNumber == "" && strings.TrimSpace(req.PatientID) != "" {
+		resolved, err := s.DAO.MostRecentAccessionForPatient(strings.TrimSpace(req.PatientID))
+		if err != nil {
+			return nil, err
+		}
+		accessionNumber = resolved
+	}
+
 	if accessionNumber == "" {
 		// The blank form: searchFinished false and accessionNumber never
 		// assigned, so NON_NULL drops it. noSampleFound stays false — it is
@@ -132,13 +150,13 @@ func (s *SampleEditService) GetSampleEdit(req SampleEditRequest) (*form.SampleEd
 	if err != nil {
 		return nil, err
 	}
-	dto.ExistingTests = existing
+	dto.ExistingTests = &existing
 
 	possible, err := s.buildPossibleTests(items, accessionNumber)
 	if err != nil {
 		return nil, err
 	}
-	dto.PossibleTests = possible
+	dto.PossibleTests = &possible
 
 	// The AUTHENTICATED user, not a fixed id: Java passes getSysUserId(request),
 	// and the list is filtered by that user's lab-unit roles. Hardcoding one id
@@ -312,20 +330,15 @@ func (s *SampleEditService) buildOrderItems(accessionNumber string, sample *daoi
 		return nil, err
 	}
 
-	priority := "ROUTINE"
-	if sample.Priority != nil && *sample.Priority != "" {
-		priority = *sample.Priority
-	}
-
-	// receivedDateForDisplay / receivedTime are stamped at LOAD TIME from the
-	// clock, not read off the sample — getBaseSampleOrderItem sets them before
-	// any sample is looked at.
-	return &form.SampleEditOrderDTO{
+	// getBaseSampleOrderItem stamps these three from the clock...
+	nowDate, nowTime := currentDateAsText(), currentTimeAsText()
+	dto := &form.SampleEditOrderDTO{
 		LabNo:                  accessionNumber,
 		SampleID:               sample.ID,
-		Priority:               priority,
-		ReceivedDateForDisplay: currentDateAsText(),
-		ReceivedTime:           currentTimeAsText(),
+		Priority:               sample.Priority,
+		ReceivedDateForDisplay: nowDate,
+		ReceivedTime:           nowTime,
+		RequestDate:            &nowDate,
 		PaymentOptions:         payment,
 		PriorityList:           s.Lists.PriorityList(),
 		ProgramList:            program,
@@ -333,8 +346,150 @@ func (s *SampleEditService) buildOrderItems(accessionNumber string, sample *daoi
 		ReferringSiteList:      referring,
 		TestLocationCodeList:   locations,
 		EnvironmentalFields:    map[string]any{},
-	}, nil
+	}
+
+	// ...and the sample branch then overwrites them. Both dates come from
+	// sample.received_date, so a form loaded a day later still shows the date
+	// the sample was received.
+	if sample.ReceivedDate != nil {
+		dto.ReceivedDateForDisplay = displayDate(sample.ReceivedDate)
+		_, t := displayDateTime(sample.ReceivedDate)
+		dto.ReceivedTime = t
+	}
+
+	obs, err := s.DAO.ObservationsForSample(sample.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Two different readers over the same table, and Java picks between them
+	// per field. getRawValueForSample returns observation_history.value as
+	// stored; getValueForSample returns it only when value_type is LITERAL and
+	// otherwise treats the value as a DICTIONARY ID and renders its localized
+	// name. A port that used one reader for everything is right for whichever
+	// half of the fields it happened to match.
+	raw := func(typeName string) *string {
+		o, ok := obs[typeName]
+		if !ok {
+			return nil
+		}
+		v := o.Value
+		return &v
+	}
+	resolved := func(typeName string) (*string, error) {
+		o, ok := obs[typeName]
+		if !ok {
+			return nil, nil
+		}
+		if o.ValueType == observationLiteral {
+			v := o.Value
+			return &v, nil
+		}
+		// getValueForObservation returns null for a blank non-literal value
+		// rather than looking it up.
+		if strings.TrimSpace(o.Value) == "" {
+			return nil, nil
+		}
+		name, err := s.DAO.DictionaryLocalizedName(o.Value)
+		if err != nil {
+			return nil, err
+		}
+		return &name, nil
+	}
+
+	for _, f := range []struct {
+		dst      **string
+		typeName string
+	}{
+		{&dto.RequestDate, obsRequestDate},
+		{&dto.ReferringPatientNumber, obsReferrersPatientID},
+		{&dto.NextVisitDate, obsNextVisitDate},
+		{&dto.OtherLocationCode, obsTestLocationOther},
+		{&dto.BillingReferenceNumber, obsBillingRefNumber},
+		{&dto.ProvisionalClinicalDiagnosis, obsProvisionalDiagnosis},
+	} {
+		v, err := resolved(f.typeName)
+		if err != nil {
+			return nil, err
+		}
+		// requestDate is unconditional: the clock value is REPLACED even when
+		// the observation is missing, which is why it is assigned rather than
+		// guarded.
+		*f.dst = v
+	}
+
+	dto.PaymentOptionSelection = raw(obsPaymentStatus)
+	dto.TestLocationCode = raw(obsTestLocationCode)
+	dto.Program = raw(obsProgram)
+
+	// programId uses the name-routed lookup with NO name fallback — unlike
+	// order/search, which falls back and therefore emits an id where this
+	// endpoint emits none.
+	//
+	// The lookup is UNCONDITIONAL. Java passes the program name straight into
+	// getProgrammeSampleBySample without checking it first, and a null name
+	// simply selects no subclass — so the base program_sample table is queried
+	// and a sample with a program_sample row but NO program observation still
+	// gets a programId (with no `program` name beside it). Guarding this on
+	// `program != nil` dropped that key.
+	programName := ""
+	if dto.Program != nil {
+		programName = *dto.Program
+	}
+	if id, err := s.DAO.ProgramIDForSample(sample.ID, programName); err != nil {
+		return nil, err
+	} else if id != "" {
+		dto.ProgramID = &id
+	}
+
+	person, err := s.DAO.RequesterPerson(sample.ID)
+	if err != nil {
+		return nil, err
+	}
+	if person != nil {
+		dto.ProviderPersonID = &person.PersonID
+		dto.ProviderID = person.ProviderID
+		dto.ProviderFirstName = person.FirstName
+		dto.ProviderLastName = person.LastName
+		dto.ProviderWorkPhone = person.WorkPhone
+		dto.ProviderFax = person.Fax
+		dto.ProviderEmail = person.Email
+	}
+
+	site, err := s.DAO.RequesterOrganization(sample.ID, orgTypeReferringClinic)
+	if err != nil {
+		return nil, err
+	}
+	if site != nil {
+		dto.ReferringSiteID = &site.ID
+		dto.ReferringSiteName = site.Name
+		// organization.CODE, not short_name — see RequesterOrganization.
+		dto.ReferringSiteCode = site.Code
+	}
+	dept, err := s.DAO.RequesterOrganization(sample.ID, orgTypeDepartment)
+	if err != nil {
+		return nil, err
+	}
+	if dept != nil {
+		dto.ReferringSiteDepartmentID = &dept.ID
+	}
+
+	return dto, nil
 }
+
+// Observation type names and organization type names this builder reads, as
+// spelled in ObservationHistoryServiceImpl.ObservationType and in the
+// organization_type rows TableIdService looks up by name.
+// The other observation-type names are declared once in
+// order_search_service.go — same package, same ObservationType enum.
+const (
+	observationLiteral = "L"
+
+	obsReferrersPatientID = "referrersPatientID"
+
+	orgTypeReferringClinic = "referring clinic"
+	orgTypeDepartment      = "dept"
+)
 
 // currentDateAsText ports DateUtil.getCurrentDateAsText — dd/MM/yyyy in the
 // display zone, the same zone order/search renders in.

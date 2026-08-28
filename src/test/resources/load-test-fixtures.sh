@@ -31,6 +31,7 @@ PATIENT_MEDIA_E2E_SQL="$SCRIPT_DIR/fixtures/patient-media-e2e.sql"
 ORDER_SEARCH_E2E_SQL="$SCRIPT_DIR/fixtures/order-search-e2e.sql"
 SHIPMENT_ATTACHMENT_E2E_SQL="$SCRIPT_DIR/fixtures/shipment-attachment-e2e.sql"
 SAMPLE_EDIT_E2E_SQL="$SCRIPT_DIR/fixtures/sample-edit-e2e.sql"
+ORDER_SEARCH_FULL_E2E_SQL="$SCRIPT_DIR/fixtures/order-search-full-e2e.sql"
 RESET_SCRIPT="$SCRIPT_DIR/reset-test-database.sh"
 
 RESET=false
@@ -432,6 +433,18 @@ load_profile_lane_fixtures() {
     if [ -f "$SAMPLE_EDIT_E2E_SQL" ]; then
         load_sql_file "$SAMPLE_EDIT_E2E_SQL" \
             "sample-edit-e2e.sql (SampleEntered sample items)" "fatal"
+    fi
+
+    # A single order carrying every conditional branch of
+    # buildSampleOrderItems: a provider, a referring site AND department, a
+    # program, and one observation per emitted key.
+    #
+    # MUST run after storage for the same reason as above (it links to the
+    # first patient by id). Fatal: without it rest/order/search returns a
+    # six-key object, and a port that builds only those six keys passes.
+    if [ -f "$ORDER_SEARCH_FULL_E2E_SQL" ]; then
+        load_sql_file "$ORDER_SEARCH_FULL_E2E_SQL" \
+            "order-search-full-e2e.sql (fully-populated order)" "fatal"
     fi
 }
 

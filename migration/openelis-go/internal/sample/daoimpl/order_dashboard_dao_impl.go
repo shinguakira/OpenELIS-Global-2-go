@@ -1,14 +1,37 @@
 package daoimpl
 
-import "time"
+import (
+	"log"
+	"os"
+	"strconv"
+	"time"
+)
 
 // DefaultPageSize is `page.defaultPageSize` from SystemConfiguration.properties.
 //
 // It is what actually bounds the dashboard's result set — the request's own
-// pageSize does NOT (see DashboardPage). Mirrored as a constant because the Go
-// service cannot read the Java container's properties file; if a deployment
-// changes it, this must change with it.
-const DefaultPageSize = 20
+// pageSize does NOT (see DashboardPage).
+//
+// UNLIKE the accession settings and the locales, this one genuinely is NOT in
+// the database: checked, site_information has no row for it. Java resolves it
+// from SystemConfiguration.properties inside the container
+// (page.defaultPageSize=20 as deployed), which the Go service cannot read.
+//
+// So it stays a default — but an OVERRIDABLE one. A deployment that changes the
+// property sets OE_PAGE_DEFAULT_PAGE_SIZE to match instead of needing a rebuild.
+const defaultPageSizeFallback = 20
+
+// DefaultPageSize resolves page.defaultPageSize: OE_PAGE_DEFAULT_PAGE_SIZE when
+// set to a positive integer, otherwise the deployed default.
+func DefaultPageSize() int {
+	if v := os.Getenv("OE_PAGE_DEFAULT_PAGE_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+		log.Printf("WARN: OE_PAGE_DEFAULT_PAGE_SIZE=%q is not a positive integer; using %d", v, defaultPageSizeFallback)
+	}
+	return defaultPageSizeFallback
+}
 
 // OrderDashboardRow is one dashboard row, with every derived flag computed in
 // SQL rather than by re-querying per sample.
@@ -59,7 +82,7 @@ func (d *SampleDAOImpl) DashboardPage(startingRecNo int) ([]OrderDashboardRow, e
 	if offset < 0 {
 		offset = 0
 	}
-	limit := startingRecNo + DefaultPageSize
+	limit := startingRecNo + DefaultPageSize()
 
 	rows := []OrderDashboardRow{}
 	err := d.DB.Table("clinlims.sample AS s").
@@ -87,6 +110,16 @@ func (d *SampleDAOImpl) DashboardPage(startingRecNo int) ([]OrderDashboardRow, e
 			       SELECT count(*) AS n FROM clinlims.analysis a WHERE a.sampitem_id = si.id
 			  ) ana ON true
 			  LEFT JOIN clinlims.sample_storage_assignment ssa ON ssa.sample_item_id = si.id
+			 -- voided = false, because every count here stands in for a pass over
+			 -- sampleItemService.getSampleItemsBySampleId, whose criteria map is
+			 -- {sample.id, voided:false}. An EXACT match, so a NULL voided is
+			 -- excluded too.
+			 --
+			 -- Without it a VOIDED item still fed collectComplete and
+			 -- labelComplete. E2E-VOIDED-01 is precisely that shape — its only
+			 -- item carrying analyses is the voided one — so Java reported
+			 -- collect:false and this port reported collect:true.
+			 WHERE si.voided = false
 			 GROUP BY si.samp_id
 			) AS agg ON agg.samp_id = s.id`).
 		Joins("LEFT JOIN clinlims.sample_qa_checklist AS qa ON qa.sample_id = s.id").

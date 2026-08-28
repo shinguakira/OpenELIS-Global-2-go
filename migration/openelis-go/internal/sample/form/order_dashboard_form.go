@@ -1,5 +1,7 @@
 package form
 
+import "net/http"
+
 // OrderDashboardDTO mirrors the response map OrderSearchRestController
 // .getDashboard builds. Every key is put unconditionally, so none omits.
 type OrderDashboardDTO struct {
@@ -40,4 +42,39 @@ type OrderStepProgressDTO struct {
 	Collect bool `json:"collect"`
 	Label   bool `json:"label"`
 	QA      bool `json:"qa"`
+}
+
+// ProblemDetail mirrors Spring's RFC 7807 envelope for a binding failure.
+//
+// The four message fields come back as UNRESOLVED message keys on this
+// deployment — no MessageSource is wired for ProblemDetail — so they are
+// literal "problemDetail.*" strings rather than English. Reproduced as-is.
+type ProblemDetail struct {
+	Type     string `json:"type"`
+	Title    string `json:"title"`
+	Status   int    `json:"status"`
+	Detail   string `json:"detail"`
+	Instance string `json:"instance"`
+}
+
+const (
+	typeMismatchException  = "org.springframework.web.method.annotation.MethodArgumentTypeMismatchException"
+	beansTypeMismatchClass = "org.springframework.beans.TypeMismatchException"
+)
+
+// TypeMismatchProblem is the body Spring returns when an int or boolean
+// @RequestParam cannot be converted.
+//
+// NOTE the two class names differ: type and title name
+// MethodArgumentTypeMismatchException while detail names
+// org.springframework.beans.TypeMismatchException. That asymmetry is Spring's
+// and is measured, not a transcription slip.
+func TypeMismatchProblem(r *http.Request) ProblemDetail {
+	return ProblemDetail{
+		Type:     "problemDetail.type." + typeMismatchException,
+		Title:    "problemDetail.title." + typeMismatchException,
+		Status:   http.StatusBadRequest,
+		Detail:   "problemDetail." + beansTypeMismatchClass,
+		Instance: r.URL.Path,
+	}
 }

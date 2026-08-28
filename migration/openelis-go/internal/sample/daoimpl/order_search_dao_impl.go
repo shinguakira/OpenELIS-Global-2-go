@@ -1,6 +1,9 @@
 package daoimpl
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // IDValuePair mirrors org.openelisglobal.common.util.IdValuePair, the shape
 // every DisplayListService list is built from.
@@ -28,7 +31,7 @@ func (d *SampleDAOImpl) PaymentOptions() ([]IDValuePair, error) {
 	err := d.DB.Table("clinlims.dictionary AS d").
 		Select("d.id::text AS id, COALESCE(lv.value, d.dict_entry) AS value").
 		Joins("JOIN clinlims.dictionary_category AS c ON c.id = d.dictionary_category_id").
-		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = d.name_localization_id AND lv.locale = ?", "en").
+		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = d.name_localization_id AND lv.locale = ?", d.Locale()).
 		Where("c.name = ? AND d.is_active = ?", "patientPayment", "Y").
 		Order("value").
 		Scan(&rows).Error
@@ -188,7 +191,7 @@ type OrderSearchSampleItemRow struct {
 
 // SampleItemsForSample mirrors sampleItemService.getSampleItemsBySampleId plus
 // the per-item lookups searchOrder performs (type of sample, storage
-// assignment). Ordered by id, matching the DAO's natural order.
+// assignment).
 func (d *SampleDAOImpl) SampleItemsForSample(sampleID int64) ([]OrderSearchSampleItemRow, error) {
 	rows := []OrderSearchSampleItemRow{}
 	err := d.DB.Table("clinlims.sample_item AS si").
@@ -203,12 +206,23 @@ func (d *SampleDAOImpl) SampleItemsForSample(sampleID int64) ([]OrderSearchSampl
 		// builds criteria {sample.id, voided:false} — an EXACT match, so a NULL
 		// voided is excluded too.
 		//
-		// NO ORDER BY, deliberately. That criteria call goes to
-		// getAllMatchingOrdered with an EMPTY order list, so Java's order is
-		// DB-natural — and the samples[] array order is observable, so imposing
-		// an ORDER BY here would diverge (measured: Java returns sample item
-		// 10002 before 10001, which is neither id nor sort_order order).
+		// ORDER BY ctid — the physical order, which is what Java's unordered
+		// query actually returns.
+		//
+		// SampleItemDAOImpl has an HQL getSampleItemsBySampleId that ends
+		// `order by sampleItem.sortOrder`, but the SERVICE method of the same
+		// name does NOT call it: it builds a criteria map and calls
+		// getAllMatching, which has no ordering at all. The controller calls the
+		// service, so sortOrder never enters into it and Postgres decides —
+		// measured as seqscan order (E2E001 returns item 10002 first, ctid (0,2),
+		// ahead of 10001 at ctid (0,36); by id or sortOrder it would be second).
+		//
+		// This query carries two LEFT JOINs that Java resolves lazily per row, so
+		// without an explicit order the planner is free to emit a different
+		// sequence — and did: E2E-EDIT-01 came back reversed. samples[] order is
+		// observable in the response, so that is a real divergence, not a detail.
 		Where("si.samp_id = ? AND si.voided = false", sampleID).
+		Order("si.ctid").
 		Scan(&rows).Error
 	if err != nil {
 		return nil, err
@@ -241,12 +255,21 @@ func (d *SampleDAOImpl) AnalysesForSampleItems(sampleID int64) ([]SampleItemTest
 		Joins("JOIN clinlims.sample_item AS si ON si.id = a.sampitem_id").
 		Joins("LEFT JOIN clinlims.test AS t ON t.id = a.test_id").
 		Joins("LEFT JOIN clinlims.localization AS tl ON tl.id = t.name_localization_id").
-		Joins("LEFT JOIN clinlims.localization_value AS tlv ON tlv.localization_id = tl.id AND tlv.locale = ?", "en").
+		Joins("LEFT JOIN clinlims.localization_value AS tlv ON tlv.localization_id = tl.id AND tlv.locale = ?", d.Locale()).
 		Joins("LEFT JOIN clinlims.panel AS p ON p.id = a.panel_id").
 		Joins("LEFT JOIN clinlims.localization AS pl ON pl.id = p.name_localization_id").
-		Joins("LEFT JOIN clinlims.localization_value AS plv ON plv.localization_id = pl.id AND plv.locale = ?", "en").
+		Joins("LEFT JOIN clinlims.localization_value AS plv ON plv.localization_id = pl.id AND plv.locale = ?", d.Locale()).
 		Where("si.samp_id = ?", sampleID).
-		Order("a.id").
+		// AnalysisDAOImpl.getAnalysesBySampleItem is
+		// `from Analysis a where a.sampleItem.id = :id` with NO ordering, run once
+		// per item, so Java's per-item order is physical. `a.id` was an ordering
+		// this port invented; ctid reproduces the scan order instead, the same way
+		// the sample-item query does.
+		//
+		// No sample item in this database has analyses whose ctid order differs
+		// from their id order, so no test can currently tell the two apart — the
+		// change is for faithfulness, not to fix an observed diff.
+		Order("a.ctid").
 		Scan(&rows).Error
 	if err != nil {
 		return nil, err
@@ -346,4 +369,218 @@ func (d *SampleDAOImpl) QAAllRequiredVerified(sampleID int64) (bool, error) {
 		return false, nil
 	}
 	return vals[0], nil
+}
+
+// SampleOrderExtrasRow carries the conditional halves of buildSampleOrderItems
+// that come from tables rather than from the sample row.
+//
+// Every field is a pointer: Java puts each value only when its source row
+// exists, and Include.NON_NULL then drops the key. A zero value would emit the
+// key with "" and diverge.
+type SampleOrderExtrasRow struct {
+	ProviderPersonID  *string `gorm:"column:provider_person_id"`
+	ProviderFirstName *string `gorm:"column:provider_first_name"`
+	ProviderLastName  *string `gorm:"column:provider_last_name"`
+	ProviderWorkPhone *string `gorm:"column:provider_work_phone"`
+	ProviderEmail     *string `gorm:"column:provider_email"`
+	ProviderFax       *string `gorm:"column:provider_fax"`
+
+	ReferringSiteID   *string `gorm:"column:site_id"`
+	ReferringSiteName *string `gorm:"column:site_name"`
+	ReferringSiteCode *string `gorm:"column:site_code"`
+
+	DepartmentID   *string `gorm:"column:dept_id"`
+	DepartmentName *string `gorm:"column:dept_name"`
+}
+
+// SampleOrderExtras loads the provider and the referring site/department for a
+// sample in one query.
+//
+// The program is NOT here: its resolution has three branches that depend on the
+// observation value, so it lives in ProgramIDForSampleByName /
+// ProgramSampleByAccession instead.
+//
+// The site/department split is by ORGANISATION TYPE — RequesterService calls
+// getOrganizationRequester twice, with the type named "referring clinic" and
+// the one named "dept". sample_requester.requester_type_id only separates
+// organization (1) from provider (2) and does NOT decide which is which.
+//
+// Types are matched by NAME because TableIdService looks them up by name; their
+// ids (5 and 11 here) are deployment data.
+func (d *SampleDAOImpl) SampleOrderExtras(sampleID int64) (*SampleOrderExtrasRow, error) {
+	rows := []SampleOrderExtrasRow{}
+	err := d.DB.Table("clinlims.sample AS s").
+		Select(`pe.id::text            AS provider_person_id,
+			pe.first_name          AS provider_first_name,
+			pe.last_name           AS provider_last_name,
+			pe.work_phone          AS provider_work_phone,
+			pe.email               AS provider_email,
+			pe.fax                 AS provider_fax,
+			site.id::text          AS site_id,
+			site.name              AS site_name,
+			site.short_name        AS site_code,
+			dept.id::text          AS dept_id,
+			dept.name              AS dept_name`).
+		Joins("LEFT JOIN clinlims.sample_human AS sh ON sh.samp_id = s.id").
+		Joins("LEFT JOIN clinlims.provider AS pr ON pr.id = sh.provider_id").
+		Joins("LEFT JOIN clinlims.person AS pe ON pe.id = pr.person_id").
+		Joins(`LEFT JOIN clinlims.organization AS site ON site.id = (
+			SELECT sr.requester_id FROM clinlims.sample_requester sr
+			  JOIN clinlims.organization_organization_type oot ON oot.org_id = sr.requester_id
+			  JOIN clinlims.organization_type ot ON ot.id = oot.org_type_id
+			 WHERE sr.sample_id = s.id AND ot.short_name = 'referring clinic'
+			 LIMIT 1)`).
+		Joins(`LEFT JOIN clinlims.organization AS dept ON dept.id = (
+			SELECT sr.requester_id FROM clinlims.sample_requester sr
+			  JOIN clinlims.organization_organization_type oot ON oot.org_id = sr.requester_id
+			  JOIN clinlims.organization_type ot ON ot.id = oot.org_type_id
+			 WHERE sr.sample_id = s.id AND ot.short_name = 'dept'
+			 LIMIT 1)`).
+		Where("s.id = ?", sampleID).
+		Limit(1).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	return &rows[0], nil
+}
+
+// ObservationValues returns the raw observation-history values for a sample,
+// keyed by observation type name — the map behind
+// observationHistoryService.getRawValueForSample.
+//
+// A type NAME absent from observation_history_type simply yields no entry, so a
+// deployment missing one (this one has no testLocationCode row) omits the key
+// exactly as Java does.
+func (d *SampleDAOImpl) ObservationValues(sampleID int64) (map[string]string, error) {
+	type row struct {
+		TypeName string `gorm:"column:type_name"`
+		Value    string `gorm:"column:value"`
+	}
+	rows := []row{}
+	err := d.DB.Table("clinlims.observation_history AS oh").
+		Select("oht.type_name AS type_name, oh.value AS value").
+		Joins("JOIN clinlims.observation_history_type AS oht ON oht.id = oh.observation_history_type_id").
+		Where("oh.sample_id = ? AND oh.value IS NOT NULL", sampleID).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(rows))
+	for _, r := range rows {
+		out[r.TypeName] = r.Value
+	}
+	return out, nil
+}
+
+// programSubclassTable reproduces the entity-class selection in
+// ProgramSampleDAOImpl.getProgrammeSampleBySample.
+//
+// Java picks a CLASS from the program NAME, and ProgramSample is
+// @Inheritance(TABLE_PER_CLASS) — so each subclass lives in its own table and a
+// row in program_sample is INVISIBLE to a query for a subclass. The name
+// therefore decides which table is searched, and a mismatch silently yields no
+// row rather than an error.
+//
+// The three tests run in Java's order: "pathology" first, then
+// "immunohistochemistry", then "cytology". Only a name containing two of them
+// could tell the order apart, but it is reproduced rather than tidied.
+func programSubclassTable(programName string) string {
+	n := strings.ToLower(programName)
+	switch {
+	case strings.Contains(n, "pathology"):
+		return "clinlims.pathology_sample"
+	case strings.Contains(n, "immunohistochemistry"):
+		return "clinlims.immunohistochemistry_sample"
+	case strings.Contains(n, "cytology"):
+		return "clinlims.cytology_sample"
+	}
+	return "clinlims.program_sample"
+}
+
+// ProgramIDForSampleByName resolves programId the way Java does when the sample
+// HAS a program observation: look in the table the NAME selects, and fall back
+// to matching the name against the program list when that table has no row.
+//
+// Returns "" when neither path resolves, which is Java putting no programId key.
+func (d *SampleDAOImpl) ProgramIDForSampleByName(sampleID int64, programName string) (string, error) {
+	// No ORDER BY: Hibernate issues `... where sample_id = ? limit 1` with no
+	// ordering either, so both take whatever the table hands back first.
+	ids := []string{}
+	err := d.DB.Table(programSubclassTable(programName)).
+		Select("program_id::text").
+		Where("sample_id = ? AND program_id IS NOT NULL", sampleID).
+		Limit(1).
+		Scan(&ids).Error
+	if err != nil {
+		return "", err
+	}
+	if len(ids) > 0 && ids[0] != "" {
+		return ids[0], nil
+	}
+
+	// Fallback: `for (Program p : programService.getAll())` breaking on the
+	// first name match. Program names are unique here, so the scan order of
+	// getAll() cannot change the answer; ctid keeps it deterministic anyway.
+	err = d.DB.Table("clinlims.program").
+		Select("id::text").
+		Where("name = ?", programName).
+		Order("ctid").
+		Limit(1).
+		Scan(&ids).Error
+	if err != nil {
+		return "", err
+	}
+	if len(ids) > 0 {
+		return ids[0], nil
+	}
+	return "", nil
+}
+
+// ProgramSampleByAccession is the ELSE branch, taken when the sample has no
+// program observation at all. Java calls
+// getProgramSamplesByAccessionNumberOrProgramName(accessionNumber) and reads
+// element 0, taking BOTH keys from it — so `program` here is the program's own
+// NAME, not an observation value.
+//
+// The HQL is `from ProgramSample ps join ps.program p join ps.sample s where
+// lower(p.programName) like :f or lower(s.accessionNumber) like :f order by
+// ps.id`, and under TABLE_PER_CLASS Hibernate expands `from ProgramSample` to a
+// UNION over the base table and all three subclass tables — hence the union
+// below. The filter is `%<accession, lower-cased>%`, matched against the
+// program name as well, so an accession that happens to be a substring of a
+// program name can match a different sample's row entirely.
+func (d *SampleDAOImpl) ProgramSampleByAccession(accessionNumber string) (programID string, programName string, err error) {
+	type row struct {
+		ProgramID   string `gorm:"column:program_id"`
+		ProgramName string `gorm:"column:program_name"`
+	}
+	rows := []row{}
+	filter := "%" + strings.ToLower(accessionNumber) + "%"
+	sql := `
+		SELECT ps.id AS ps_id, p.id::text AS program_id, p.name AS program_name
+		  FROM (
+		        SELECT id, program_id, sample_id FROM clinlims.program_sample
+		         UNION ALL
+		        SELECT id, program_id, sample_id FROM clinlims.pathology_sample
+		         UNION ALL
+		        SELECT id, program_id, sample_id FROM clinlims.immunohistochemistry_sample
+		         UNION ALL
+		        SELECT id, program_id, sample_id FROM clinlims.cytology_sample
+		       ) AS ps
+		  JOIN clinlims.program p ON p.id = ps.program_id
+		  JOIN clinlims.sample s ON s.id = ps.sample_id
+		 WHERE lower(p.name) LIKE ? OR lower(s.accession_number) LIKE ?
+		 ORDER BY ps.id
+		 LIMIT 1`
+	if err := d.DB.Raw(sql, filter, filter).Scan(&rows).Error; err != nil {
+		return "", "", err
+	}
+	if len(rows) == 0 {
+		return "", "", nil
+	}
+	return rows[0].ProgramID, rows[0].ProgramName, nil
 }

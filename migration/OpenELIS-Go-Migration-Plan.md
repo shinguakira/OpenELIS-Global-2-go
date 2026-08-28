@@ -306,6 +306,55 @@ version with the incident that motivated it:**
   that is a **bug report against the fixtures**, not a documented limitation.
   `test.skip` on an empty collection is the same failure mode wearing a
   different hat — it turns "never verified" into a green run.
+  - `order-search-full-e2e.sql` (c2) — no sample in the dataset carried a
+    provider, a requester organization, a program or any observation history,
+    so `buildSampleOrderItems` returned six of its ~25 keys and a port that
+    built exactly those six passed. Seeding three orders that trip every
+    branch exposed four divergences at once: the whole conditional half of the
+    map, `quantity`'s three shapes, the program resolution described below,
+    and a `samples[]` ORDER that no existing assertion looked at because it
+    sorted both sides first.
+
+- **A DAO method that orders is not evidence the endpoint orders. Read the
+  method the CONTROLLER calls.** `SampleItemDAOImpl.getSampleItemsBySampleId`
+  ends `order by sampleItem.sortOrder`.
+  `SampleItemServiceImpl.getSampleItemsBySampleId` — same name, and the one
+  the controller actually calls — ignores it entirely and runs an unordered
+  `getAllMatching`. Porting from the DAO gives `ORDER BY sort_order`, which
+  reverses the array on the stock dataset.
+
+  Where Java issues no `ORDER BY`, the faithful port is `ORDER BY ctid`, not
+  `ORDER BY id`. `id` is an ordering the original does not have; ctid
+  reproduces the scan order Postgres actually returns, which is what the Java
+  response contains. This also applies where the Go query adds JOINs that Java
+  resolves lazily per row — the extra joins let the planner reorder, so an
+  unordered Go query is not equivalent to an unordered Java one.
+
+- **A JSON-level diff cannot certify byte parity, because it decodes both
+  sides first.** Anything that survives a round trip is invisible to it, and
+  two such differences shipped through a suite that reported "完全一致" on
+  every endpoint:
+
+  - `json.Encoder.Encode` appends a trailing newline; Jackson does not. Every
+    response was one byte longer than Java's, with a different
+    `Content-Length`.
+  - Go renders a `float64` 5.0 as `5`; Jackson renders the same
+    `java.lang.Double` as `5.0`. `5 === 5.0` after parsing, so a field-by-field
+    comparison reports parity.
+
+  Compare the RAW bytes and the status code as well as the decoded values.
+  Key ORDER is the one difference to tolerate — several of these responses are
+  built from a `HashMap`, whose iteration order is a function of the JVM string
+  hash — so normalise key order and compare everything else exactly.
+
+- **A Java lookup keyed on a NAME may not read the table the name implies.**
+  `getProgrammeSampleBySample` picks a JPA entity CLASS from the program name,
+  and those classes are `TABLE_PER_CLASS` — so naming a subclass sends the
+  query to a different TABLE, it finds nothing, and the controller silently
+  falls back to a name lookup that ignores the row the sample actually points
+  at. Three branches, one of which contradicts the database. A port that reads
+  the obvious column agrees on the common case and is wrong on the other two,
+  and only a fixture whose two sources DISAGREE can tell them apart.
 - **Finish the endpoint before it enters the gate, and never commit the gate
   red.** `go-parity`'s `testMatch` is the ledger of what is ported AND verified.
   A spec joins it when the Go side passes — not earlier.

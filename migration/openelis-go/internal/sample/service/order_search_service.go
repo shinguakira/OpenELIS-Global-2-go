@@ -1,6 +1,7 @@
 package service
 
 import (
+	"openelis-go/internal/common/util"
 	"os"
 	"strconv"
 	"strings"
@@ -13,6 +14,10 @@ import (
 // OrderSearchService backs GET rest/order/search.
 type OrderSearchService struct {
 	DAO *daoimpl.SampleDAOImpl
+	// DateLocale is site_information."default date locale" (e.g. "fr-FR"). It
+	// decides whether birthDateForDisplay is day-first or month-first; empty
+	// means month-first, matching Java's else-branch.
+	DateLocale string
 }
 
 // GetOrderByLabNumber mirrors OrderSearchRestController.searchOrder.
@@ -128,7 +133,7 @@ func (s *OrderSearchService) attachPatient(dto *form.OrderSearchDTO, sampleID in
 		// already holds, so it passes through unchanged here. A deployment on
 		// the other branch would need the reformat — noted, not implemented,
 		// because there is no live response to verify it against.
-		BirthDateForDisplay: reformatEnteredBirthDate(deref(p.EnteredBirthDate)),
+		BirthDateForDisplay: reformatEnteredBirthDate(deref(p.EnteredBirthDate), s.DateLocale),
 		// Primitive booleans on the bean, so they always serialize.
 		ReadOnly: false,
 		IsMerged: p.IsMerged != nil && *p.IsMerged,
@@ -214,7 +219,7 @@ func (s *OrderSearchService) buildSampleItems(sampleID int64) ([]form.OrderSearc
 			CollectionTime:       collectionTime,
 			ReceivedDate:         receivedDate,
 			ReceivedTime:         receivedTime,
-			Quantity:             r.Quantity,
+			Quantity:             quantityOrEmptyString(r.Quantity),
 			QuantityUnit:         idOrEmpty(r.UomID),
 			CollectorID:          derefOrEmpty(r.Collector),
 			CollectionConditions: derefOrEmpty(r.CollectionConditions),
@@ -227,7 +232,7 @@ func (s *OrderSearchService) buildSampleItems(sampleID int64) ([]form.OrderSearc
 			SampleXML: form.OrderSearchSampleXMLDTO{
 				CollectionDate:    collectionDate,
 				CollectionTime:    collectionTime,
-				Quantity:          r.Quantity,
+				Quantity:          util.JavaDoublePtr(r.Quantity),
 				UOM:               idOrEmpty(r.UomID),
 				Collector:         r.Collector,
 				CollectionMethod:  derefOrEmpty(r.CollectionMethod),
@@ -313,14 +318,29 @@ func (s *OrderSearchService) hierarchicalPath(r daoimpl.OrderSearchSampleItemRow
 	return &joined, nil
 }
 
-// buildSampleOrderItems ports the sampleOrderItems block.
+// Observation type names buildSampleOrderItems reads, as spelled in
+// ObservationHistoryServiceImpl.ObservationType. A name that has no row in
+// observation_history_type simply never matches, and the key is omitted —
+// which is what happens to testLocationCode on this deployment.
+const (
+	obsPaymentStatus        = "paymentStatus"
+	obsBillingRefNumber     = "billingRefNumber"
+	obsTestLocationCode     = "testLocationCode"
+	obsTestLocationOther    = "testLocationCodeOther"
+	obsRequestDate          = "requestDate"
+	obsNextVisitDate        = "nextVisitDate"
+	obsProvisionalDiagnosis = "provisionalClinicalDiagnosis"
+	obsProgram              = "program"
+)
+
+// buildSampleOrderItems ports the sampleOrderItems block IN FULL.
 //
-// SCOPE: the provider, referring-site, department, program and
-// observation-history keys are NOT built. Every one of them is absent from the
-// live response on this dataset (no provider, no organization, no observations
-// on the sample), so there is nothing to verify an implementation against —
-// writing them would be guessing at shapes no test can check. They are listed
-// here so the omission is explicit rather than silent.
+// An earlier version built six keys and documented the rest as unverifiable
+// "because they are absent from the live response on this dataset". That was
+// backwards: the dataset was missing the rows, so the fixture was the gap, not
+// the endpoint. order-search-full-e2e.sql now seeds an order carrying a
+// provider, a referring site and department, a program and eight observations,
+// and the whole map is built and diffed against Java.
 func (s *OrderSearchService) buildSampleOrderItems(sample *daoimpl.OrderSearchSampleRow) (*form.SampleOrderItemsDTO, error) {
 	options, err := s.DAO.PaymentOptions()
 	if err != nil {
@@ -336,10 +356,122 @@ func (s *OrderSearchService) buildSampleOrderItems(sample *daoimpl.OrderSearchSa
 	}
 	// priority is the RAW enum name here ("ROUTINE"), not the lowercased form
 	// order/dashboard emits. Same column, two endpoints, two casings.
-	if sample.OrderPriority != nil && *sample.OrderPriority != "" {
+	//
+	// The guard is nil-only, matching Java's if (sample.getPriority() != null).
+	// An extra != "" test would make the port stricter than the original:
+	// order_priority is a varchar, so an empty string is storable and Java
+	// would emit it. The column also carries DEFAULT 'ROUTINE', so the key is
+	// present on nearly every row and only an explicit NULL drops it.
+	if sample.OrderPriority != nil {
 		dto.Priority = sample.OrderPriority
 	}
+
+	extras, err := s.DAO.SampleOrderExtras(sample.ID)
+	if err != nil {
+		return nil, err
+	}
+	if extras != nil {
+		// The six provider keys are put inside one guard, but each value is put
+		// RAW — so a provider whose person has no work phone omits just that
+		// key rather than emitting "".
+		if extras.ProviderPersonID != nil {
+			dto.ProviderPersonID = extras.ProviderPersonID
+			dto.ProviderFirstName = extras.ProviderFirstName
+			dto.ProviderLastName = extras.ProviderLastName
+			dto.ProviderWorkPhone = extras.ProviderWorkPhone
+			dto.ProviderEmail = extras.ProviderEmail
+			dto.ProviderFax = extras.ProviderFax
+		}
+
+		// Java PROMOTES the department to the site when only the department
+		// exists, and then emits no department at all — "this handles cases
+		// where organization was stored with department type instead of site
+		// type". Reproduced rather than simplified.
+		siteID, siteName, siteCode := extras.ReferringSiteID, extras.ReferringSiteName, extras.ReferringSiteCode
+		deptID, deptName := extras.DepartmentID, extras.DepartmentName
+		if siteID == nil && deptID != nil {
+			siteID, siteName, siteCode = deptID, deptName, nil
+			deptID, deptName = nil, nil
+		}
+		if siteID != nil {
+			dto.ReferringSiteID = siteID
+			dto.ReferringSiteName = siteName
+			dto.ReferringSiteCode = siteCode
+		}
+		if deptID != nil {
+			dto.ReferringSiteDepartmentID = deptID
+			dto.ReferringSiteDepartmentName = deptName
+		}
+	}
+
+	obs, err := s.DAO.ObservationValues(sample.ID)
+	if err != nil {
+		return nil, err
+	}
+	// ── program ─────────────────────────────────────────
+	// Java does NOT simply read program_sample.program_id. The observation
+	// value picks an ENTITY CLASS, those classes are TABLE_PER_CLASS, and a
+	// name naming a subclass sends the lookup to a table that holds no row for
+	// this sample — after which the id is resolved by NAME instead. With no
+	// observation at all a third branch supplies BOTH keys from program_sample,
+	// where `program` is the program's own name rather than an observation.
+	//
+	// A port that read program_sample.program_id would agree on the common case
+	// and be wrong on the other two.
+	if programName := obsValue(obs, obsProgram); programName != nil && *programName != "" {
+		dto.Program = programName
+		id, err := s.DAO.ProgramIDForSampleByName(sample.ID, *programName)
+		if err != nil {
+			return nil, err
+		}
+		if id != "" {
+			dto.ProgramID = &id
+		}
+	} else {
+		id, name, err := s.DAO.ProgramSampleByAccession(sample.AccessionNumber)
+		if err != nil {
+			return nil, err
+		}
+		// Both keys or neither: Java puts them together inside
+		// if (ps.getProgram() != null).
+		if id != "" {
+			dto.ProgramID = &id
+			dto.Program = &name
+		}
+	}
+
+	dto.PaymentOptionSelection = obsValue(obs, obsPaymentStatus)
+	dto.BillingReferenceNumber = obsValue(obs, obsBillingRefNumber)
+	dto.TestLocationCode = obsValue(obs, obsTestLocationCode)
+	dto.OtherLocationCode = obsValue(obs, obsTestLocationOther)
+	dto.RequestDate = obsValue(obs, obsRequestDate)
+	dto.NextVisitDate = obsValue(obs, obsNextVisitDate)
+	dto.ProvisionalClinicalDiagnosis = obsValue(obs, obsProvisionalDiagnosis)
+
 	return dto, nil
+}
+
+// quantityOrEmptyString reproduces the outer put: the Double when set, the
+// empty STRING when not. Returning a typed nil *float64 through an `any` would
+// marshal as null and diverge.
+func quantityOrEmptyString(q *float64) any {
+	if q == nil {
+		return ""
+	}
+	// util.JavaDouble, not the bare float64: Jackson writes 5.0 where Go
+	// writes 5.
+	return util.JavaDouble(*q)
+}
+
+// obsValue returns a pointer to an observation value, or nil when the sample
+// has no observation of that type — the difference between an emitted key and
+// an absent one.
+func obsValue(obs map[string]string, typeName string) *string {
+	v, ok := obs[typeName]
+	if !ok {
+		return nil
+	}
+	return &v
 }
 
 // stepProgress ports the four flags searchOrder emits.
@@ -460,13 +592,13 @@ func displayZone() *time.Location {
 //
 // An unparseable value becomes the literal "Invalid date format: <value>",
 // which is Java's, not a placeholder.
-func reformatEnteredBirthDate(raw string) string {
+func reformatEnteredBirthDate(raw, dateLocale string) string {
 	if raw == "" {
 		return ""
 	}
 	for _, in := range []string{"01/02/2006", "02/01/2006"} {
 		if t, err := time.Parse(in, raw); err == nil {
-			return t.Format(birthDateDisplayFormat)
+			return t.Format(birthDateDisplayFormat(dateLocale))
 		}
 	}
 	return "Invalid date format: " + raw
@@ -474,12 +606,28 @@ func reformatEnteredBirthDate(raw string) string {
 
 // birthDateDisplayFormat is the output pattern searchOrder picks.
 //
-// Java chooses dd/MM/yyyy when DEFAULT_DATE_LOCALE is "fr-FR" and MM/dd/yyyy
-// otherwise. The dev stack emits "15/01/1990" from a stored "01/15/1990", i.e.
-// dd/MM/yyyy — measured, not assumed. Mirrored as a constant because the Go
-// service cannot read the Java container's resolved property; a deployment on
-// the other branch must change it here too.
-const birthDateDisplayFormat = "02/01/2006"
+// Java chooses dd/MM/yyyy when the configured date locale is "fr-FR" and
+// MM/dd/yyyy otherwise. The dev stack emits "15/01/1990" from a stored
+// "01/15/1990", i.e. dd/MM/yyyy — measured, not assumed.
+//
+// This used to be a bare constant, with a comment claiming the value could not
+// be read. That was wrong: site_information carries a "default date locale" row
+// (fr-FR here), so both stacks read the same source and a deployment on the
+// other branch needs no code change. Getting this wrong silently swaps a
+// patient's birth month and day.
+const (
+	birthDateFormatDayFirst   = "02/01/2006"
+	birthDateFormatMonthFirst = "01/02/2006"
+	dateLocaleDayFirst        = "fr-FR"
+)
+
+// birthDateDisplayFormat picks the layout for the configured date locale.
+func birthDateDisplayFormat(dateLocale string) string {
+	if strings.EqualFold(strings.TrimSpace(dateLocale), dateLocaleDayFirst) {
+		return birthDateFormatDayFirst
+	}
+	return birthDateFormatMonthFirst
+}
 
 // DisplayZone exposes the display zone to other packages that render the same
 // dates — the batch-entry form load in particular. Kept as an accessor rather

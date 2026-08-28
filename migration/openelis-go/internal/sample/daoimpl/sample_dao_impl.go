@@ -14,6 +14,24 @@ import (
 // SampleDAOImpl ports SampleDAOImpl for the c2 read paths.
 type SampleDAOImpl struct {
 	DB *gorm.DB
+
+	// ActiveLocale is site_information "default language locale" (the language
+	// subtag), the locale localization_value rows are selected by. Empty falls
+	// back to "en".
+	//
+	// The literal 'en' this DAO used to carry made every localized name resolve
+	// through the English row regardless of how the site is configured, so a
+	// French deployment would have shown English test and panel names while
+	// Java showed French ones.
+	ActiveLocale string
+}
+
+// Locale returns the configured locale, or "en" when unset.
+func (d *SampleDAOImpl) Locale() string {
+	if d.ActiveLocale != "" {
+		return d.ActiveLocale
+	}
+	return "en"
 }
 
 // ErrAttachmentNotFound signals an attachment id with no row at all, as opposed
