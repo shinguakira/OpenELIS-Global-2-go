@@ -338,10 +338,17 @@ test.describe("c1 — patient reads", () => {
     test.skip(rows.length === 0, "no patient has samples in this dataset");
     const [patientId, orderCount] = rows[0];
 
+    // `voided = false` is NOT incidental. PatientMergeServiceImpl's
+    // countSamplesForPatient walks getSampleItemsBySampleId, whose criteria is
+    // {sample.id, voided:false} — the same filter rest/order/search applies.
+    // Without the predicate this oracle counts rows Java never counts, and the
+    // only reason it agreed before is that nothing in the dataset was voided;
+    // order-search-e2e.sql now seeds a voided item, which is what exposed it.
     const itemCount = Number(
       query(
         "SELECT count(*) FROM clinlims.sample_item si" +
-          " WHERE si.samp_id IN (SELECT sh.samp_id FROM clinlims.sample_human sh" +
+          " WHERE si.voided = false" +
+          " AND si.samp_id IN (SELECT sh.samp_id FROM clinlims.sample_human sh" +
           ` WHERE sh.patient_id = ${patientId})`,
       )[0][0],
     );
@@ -369,11 +376,18 @@ test.describe("c1 — patient reads", () => {
     // analyses are ALL "Not Tested", so Java reports 0 while an unfiltered
     // count reports 28. A port that forgets the exclusion (or wires its status
     // resolver as nil) lands on 28 and passes every other assertion here.
+    // The `si.voided = false` here is the SECOND filter on this field, and it
+    // is easy to miss: countResultsForPatient reaches its analyses through
+    // getSampleItemsBySampleId ({sample.id, voided:false}), so an analysis
+    // hanging off a voided sample item is never counted no matter what status
+    // it carries. order-search-e2e.sql seeds exactly that row — a countable
+    // status on a voided item — so this predicate is load-bearing rather than
+    // decorative.
     const expectedResults = Number(
       query(
         "SELECT count(*) FROM clinlims.analysis a" +
           " WHERE a.sampitem_id IN (SELECT si.id FROM clinlims.sample_item si" +
-          `  WHERE si.samp_id IN (SELECT sh.samp_id FROM clinlims.sample_human sh WHERE sh.patient_id = ${patientId}))` +
+          `  WHERE si.voided = false AND si.samp_id IN (SELECT sh.samp_id FROM clinlims.sample_human sh WHERE sh.patient_id = ${patientId}))` +
           "   AND a.status_id NOT IN (SELECT id FROM clinlims.status_of_sample" +
           "     WHERE status_type = 'ANALYSIS'" +
           "       AND name IN ('Test Canceled', 'Sample Rejected', 'Not Tested'))",
@@ -382,6 +396,27 @@ test.describe("c1 — patient reads", () => {
     expect(parsed.dataSummary.totalResults, `${MERGE_DETAILS} totalResults excludes the three statuses`).toBe(
       expectedResults,
     );
+
+    // Inversion check for the voided half specifically (Constitution V.6): the
+    // status exclusion already has its own inversion below, but without this
+    // one a port that keeps the status filter and drops the voided filter is
+    // caught only while the fixture happens to be loaded, and silently not
+    // caught when it is not. Asserting the fixture's discriminating row EXISTS
+    // turns "no coverage" into a failure instead of a pass.
+    const voidedCountable = Number(
+      query(
+        "SELECT count(*) FROM clinlims.analysis a" +
+          " JOIN clinlims.sample_item si ON si.id = a.sampitem_id" +
+          `  WHERE si.voided = true AND si.samp_id IN (SELECT sh.samp_id FROM clinlims.sample_human sh WHERE sh.patient_id = ${patientId})` +
+          "   AND a.status_id NOT IN (SELECT id FROM clinlims.status_of_sample" +
+          "     WHERE status_type = 'ANALYSIS'" +
+          "       AND name IN ('Test Canceled', 'Sample Rejected', 'Not Tested'))",
+      )[0][0],
+    );
+    expect(
+      voidedCountable,
+      "order-search-e2e.sql seeds an otherwise-countable analysis on a voided item for this patient",
+    ).toBeGreaterThan(0);
 
     // Prove the exclusion is doing something for this patient — otherwise the
     // assertion above is satisfied by any implementation whenever the filtered

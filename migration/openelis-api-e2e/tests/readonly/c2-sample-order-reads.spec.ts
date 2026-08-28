@@ -5,8 +5,8 @@
 // executable specification, and every expectation below was captured from the
 // LIVE Java server rather than read off the source.
 //
-// NOT yet in playwright.config.ts's `go-parity` testMatch — no Go
-// implementation exists to run it against. Add it there as c2 lands.
+// Wired into playwright.config.ts's `go-parity` testMatch: the Go port exists
+// and this same file is the gate it has to pass.
 //
 // ── SCOPE NOTE ─────────────────────────────────────────────────────────────
 // Wave 4 lists 17 endpoints. This file covers the ones that are reachable and
@@ -152,6 +152,207 @@ test.describe("c2 — sample + order reads", () => {
   test("order/search: a missing labNumber is rejected with 400", async ({ request }) => {
     const res = await request.get(ORDER_SEARCH);
     expect(res.status(), `${ORDER_SEARCH} missing labNumber`).toBe(400);
+  });
+
+  test("order/search: the WHOLE envelope, not just sampleOrderItems", async ({ request }) => {
+    // The two tests above assert `sampleOrderItems` and nothing else — two of
+    // the nine top-level keys. A port emitting only those would have passed
+    // them while dropping patientProperties, samples, orderData and
+    // stepProgress entirely. This pins the envelope so "green" means the
+    // response is actually Java's.
+    const accession = anyAccession();
+    const body = await readJson(
+      await request.get(`${ORDER_SEARCH}?labNumber=${encodeURIComponent(accession)}`),
+      ORDER_SEARCH,
+    );
+
+    expectKeysWithin(
+      body,
+      // collectionDate and status are dropped when null (HashMap +
+      // Include.NON_NULL); patientProperties/orderData are absent when the
+      // sample has no patient.
+      ["id", "labNumber", "receivedDate", "collectionDate", "status",
+       "patientProperties", "orderData", "samples", "sampleOrderItems",
+       "stepProgress", "storageSkipped"],
+      ["id", "labNumber", "samples", "sampleOrderItems", "stepProgress", "storageSkipped"],
+      `${ORDER_SEARCH} envelope`,
+    );
+
+    // id is the SAMPLE id as a string, and labNumber echoes the request.
+    const [[sampleId]] = query(
+      `SELECT id FROM clinlims.sample WHERE accession_number = '${accession}'`,
+    );
+    expect(body.id, `${ORDER_SEARCH} id is the sample id`).toBe(String(sampleId));
+    expect(body.labNumber, `${ORDER_SEARCH} labNumber echoes the request`).toBe(accession);
+    expect(typeof body.storageSkipped, `${ORDER_SEARCH} storageSkipped is boolean`).toBe("boolean");
+
+    // stepProgress: four flags, and `enter` is HARDCODED true here — "If
+    // sample exists, enter is complete" — while order/dashboard COMPUTES the
+    // same key from received date plus patient/workflow type. Same name, two
+    // meanings; pinned so a port does not share one implementation.
+    expectKeysWithin(
+      body.stepProgress,
+      ["enter", "collect", "label", "qa"],
+      ["enter", "collect", "label", "qa"],
+      `${ORDER_SEARCH} stepProgress`,
+    );
+    expect(body.stepProgress.enter, `${ORDER_SEARCH} stepProgress.enter is hardcoded true`).toBe(true);
+    for (const k of ["collect", "label", "qa"]) {
+      expect(typeof body.stepProgress[k], `${ORDER_SEARCH} stepProgress.${k} is boolean`).toBe("boolean");
+    }
+
+    // patientProperties is a BEAN, not a map: identity-backed fields come from
+    // getIdentityValue which returns "" for a missing identity, so those keys
+    // are always PRESENT and empty rather than dropped.
+    test.skip(!("patientProperties" in body), "this sample has no linked patient");
+    const pp = body.patientProperties;
+    for (const k of ["patientPK", "patientUpdateStatus", "firstName", "lastName",
+                     "nationalId", "subjectNumber", "guid", "aka", "mothersName",
+                     "gender", "birthDateForDisplay", "readOnly", "isMerged",
+                     "addressHierarchy", "stnumber"]) {
+      expect(k in pp, `${ORDER_SEARCH} patientProperties.${k} is always present`).toBe(true);
+    }
+    expect(pp.patientUpdateStatus, "patientUpdateStatus is the literal UPDATE").toBe("UPDATE");
+    expect(pp.readOnly, "readOnly is a primitive boolean").toBe(false);
+    expect(typeof pp.isMerged, "isMerged is a primitive boolean").toBe("boolean");
+    expect(pp.addressHierarchy, "addressHierarchy is an initialised empty map").toEqual({});
+
+    // DB oracle for the patient identity: patientPK is the linked patient, and
+    // nationalId comes from the patient row rather than from an identity.
+    const [[dbPatientId, dbNationalId]] = query(
+      "SELECT p.id, COALESCE(p.national_id, '') FROM clinlims.patient p" +
+        " JOIN clinlims.sample_human sh ON sh.patient_id = p.id" +
+        ` WHERE sh.samp_id = ${sampleId}`,
+    );
+    expect(pp.patientPK, "patientPK is the linked patient").toBe(String(dbPatientId));
+    expect(pp.nationalId, "nationalId comes from patient.national_id").toBe(dbNationalId);
+
+    // birthDateForDisplay is REFORMATTED here. c1's patientByLabNumer emits
+    // the stored entered_birth_date raw; this endpoint runs it through
+    // DateUtil.formatStringDate first, so the same stored value appears in two
+    // different orders across the two endpoints.
+    const [[storedBirth]] = query(
+      `SELECT COALESCE(entered_birth_date, '') FROM clinlims.patient WHERE id = ${dbPatientId}`,
+    );
+    if (storedBirth !== "") {
+      const [a, b, y] = storedBirth.split("/");
+      expect(pp.birthDateForDisplay, "birthDateForDisplay is reformatted, not the stored string").toBe(
+        `${b}/${a}/${y}`,
+      );
+    }
+
+    // orderData carries the SAME bean again plus the literal status.
+    expectKeysWithin(
+      body.orderData,
+      ["patientProperties", "patientUpdateStatus"],
+      ["patientProperties", "patientUpdateStatus"],
+      `${ORDER_SEARCH} orderData`,
+    );
+    expect(body.orderData.patientProperties, "orderData repeats patientProperties verbatim").toEqual(pp);
+  });
+
+  test("order/search: voided sample items are excluded", async ({ request }) => {
+    // Separate from the samples[] test above because that one cannot detect
+    // this. It counts the API rows against a DB oracle that applies the SAME
+    // `voided = false` predicate, so on a dataset where nothing is voided both
+    // sides agree no matter what the server does. Deleting the predicate from
+    // the Go DAO and re-running the suite left it green — that mutation is
+    // what this test exists to kill.
+    //
+    // src/test/resources/fixtures/order-search-e2e.sql seeds E2E-VOIDED-01
+    // with three items, the middle one voided.
+    const rows = query(
+      "SELECT si.id, si.voided FROM clinlims.sample_item si" +
+        " JOIN clinlims.sample s ON s.id = si.samp_id" +
+        " WHERE s.accession_number = 'E2E-VOIDED-01' ORDER BY si.sort_order",
+    );
+    // Not a skip: the loader marks this fixture fatal, so a missing row means
+    // the fixture did not run and the coverage is silently gone.
+    expect(rows.length, "E2E-VOIDED-01 fixture is loaded").toBe(3);
+    const voidedId = rows.find((r) => r[1] === "t" || r[1] === "true")![0];
+    const liveIds = rows.filter((r) => r[0] !== voidedId).map((r) => r[0]).sort();
+
+    const body = await readJson(
+      await request.get(`${ORDER_SEARCH}?labNumber=E2E-VOIDED-01`),
+      ORDER_SEARCH,
+    );
+    const returned = body.samples.map((s: any) => s.id).sort();
+    expect(returned, "voided item is not in samples[]").toEqual(liveIds);
+    expect(returned, "the voided id specifically").not.toContain(voidedId);
+  });
+
+  test("order/search: samples[] rows, their storage block and the sampleXML twin", async ({ request }) => {
+    const accession = anyAccession();
+    const body = await readJson(
+      await request.get(`${ORDER_SEARCH}?labNumber=${encodeURIComponent(accession)}`),
+      ORDER_SEARCH,
+    );
+    test.skip(body.samples.length === 0, "this order has no sample items");
+
+    const [[sampleId]] = query(
+      `SELECT id FROM clinlims.sample WHERE accession_number = '${accession}'`,
+    );
+    // The list excludes VOIDED items — Java's criteria is {sample.id,
+    // voided:false}, an exact match, so NULL is excluded as well.
+    const liveItems = query(
+      `SELECT id FROM clinlims.sample_item WHERE samp_id = ${sampleId} AND voided = false`,
+    ).map((r) => r[0]);
+    expect(body.samples.length, `${ORDER_SEARCH} samples excludes voided items`).toBe(liveItems.length);
+    expect(
+      body.samples.map((s: any) => s.id).sort(),
+      `${ORDER_SEARCH} samples are the live sample items`,
+    ).toEqual([...liveItems].sort());
+
+    for (const item of body.samples) {
+      // id and sampleItemId are the SAME value under two keys, as are
+      // sortOrder and index — Java puts each twice for the frontend.
+      expect(item.sampleItemId, "sampleItemId duplicates id").toBe(item.id);
+      if ("sortOrder" in item) expect(item.index, "index duplicates sortOrder").toBe(item.sortOrder);
+
+      // sampleXML is a nested partial duplicate. collectionDate/Time and
+      // quantity must agree with the outer copy, which is what makes it a
+      // duplicate rather than a second source of truth.
+      expect(item.sampleXML.collectionDate, "sampleXML mirrors collectionDate").toBe(item.collectionDate);
+      expect(item.sampleXML.collectionTime, "sampleXML mirrors collectionTime").toBe(item.collectionTime);
+      expect(item.sampleXML.quantity, "sampleXML mirrors quantity").toBe(item.quantity);
+
+      expect(Array.isArray(item.tests), "tests is an array").toBe(true);
+      expect(Array.isArray(item.panels), "panels is an array").toBe(true);
+
+      // The storage keys travel TOGETHER: Java puts them only inside
+      // `if (assignment != null && assignment.getLocationId() != null)`, so a
+      // port that emitted some of them, or emitted them as nulls, diverges.
+      const storageKeys = ["storageLocationId", "storageLocationType",
+                           "storagePositionCoordinate", "storageNotes"];
+      const present = storageKeys.filter((k) => k in item);
+      expect(
+        present.length === 0 || present.length === storageKeys.length,
+        `storage keys are all-or-nothing (saw ${present.join(",")})`,
+      ).toBe(true);
+
+      if (present.length > 0) {
+        // DB oracle for the assignment itself.
+        const [[locId, locType, coord]] = query(
+          "SELECT location_id, COALESCE(location_type,''), COALESCE(position_coordinate,'')" +
+            ` FROM clinlims.sample_storage_assignment WHERE sample_item_id = ${item.id}`,
+        );
+        expect(String(item.storageLocationId), "storageLocationId from the assignment").toBe(locId);
+        expect(item.storageLocationType, "storageLocationType from the assignment").toBe(locType);
+
+        // The hierarchical path is built by walking UPWARD to the root and
+        // appending the position coordinate. Asserting the last segment and
+        // the separator pins the shape without hardcoding a room name.
+        if ("storageHierarchicalPath" in item) {
+          expect(item.storageHierarchicalPath, "path is ' > '-separated").toContain(" > ");
+          if (coord !== "") {
+            expect(
+              item.storageHierarchicalPath.endsWith(coord),
+              "the position coordinate is the last path segment",
+            ).toBe(true);
+          }
+        }
+      }
+    }
   });
 
   // ── rest/order/dashboard ────────────────────────────────────────────────

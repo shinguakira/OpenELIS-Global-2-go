@@ -336,6 +336,9 @@ func main() {
 	samplerest.OrderDashboardRoutes(mux, &samplerest.OrderDashboardRestController{
 		Service: &sampleservice.OrderDashboardService{DAO: &sampledaoimpl.SampleDAOImpl{DB: gormDB}},
 	})
+	samplerest.OrderSearchRoutes(mux, &samplerest.OrderSearchRestController{
+		Service: &sampleservice.OrderSearchService{DAO: &sampledaoimpl.SampleDAOImpl{DB: gormDB}},
+	})
 	log.Printf("DB-backed routes enabled (c2: sample reads)")
 
 	srv := &http.Server{Addr: addr, Handler: mux}

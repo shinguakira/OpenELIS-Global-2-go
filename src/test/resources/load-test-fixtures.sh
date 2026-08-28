@@ -28,6 +28,7 @@ ANALYZER_HARNESS_LANE_SQL_FILE="$SCRIPT_DIR/fixtures/analyzer-harness-lane-data.
 STORAGE_IN_PROGRESS_ORDER_SQL="$SCRIPT_DIR/fixtures/storage-in-progress-order.sql"
 AUTH_E2E_SQL="$SCRIPT_DIR/fixtures/auth-e2e.sql"
 PATIENT_MEDIA_E2E_SQL="$SCRIPT_DIR/fixtures/patient-media-e2e.sql"
+ORDER_SEARCH_E2E_SQL="$SCRIPT_DIR/fixtures/order-search-e2e.sql"
 RESET_SCRIPT="$SCRIPT_DIR/reset-test-database.sh"
 
 RESET=false
@@ -388,6 +389,19 @@ load_profile_lane_fixtures() {
     if [ -f "$PATIENT_MEDIA_E2E_SQL" ]; then
         load_sql_file "$PATIENT_MEDIA_E2E_SQL" \
             "patient-media-e2e.sql (photos, ID documents, patient-less sample)" "fatal"
+    fi
+
+    # A sample carrying a VOIDED sample item. MUST run after storage: it links
+    # to the first patient by id, which is patient 1000 from
+    # testdata/storage-e2e.xml.
+    #
+    # Profile-independent and fatal on error. Every sample_item elsewhere in the
+    # dataset has voided = FALSE, so without this row the `voided = false`
+    # filter that rest/order/search depends on is unobservable — mutation
+    # testing confirmed a port can drop the predicate entirely and stay green.
+    if [ -f "$ORDER_SEARCH_E2E_SQL" ]; then
+        load_sql_file "$ORDER_SEARCH_E2E_SQL" \
+            "order-search-e2e.sql (voided sample item)" "fatal"
     fi
 }
 

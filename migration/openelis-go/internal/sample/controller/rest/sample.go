@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"openelis-go/internal/common/web"
 	"openelis-go/internal/sample/form"
@@ -273,4 +274,36 @@ func atoiDefault(v string, def int) int {
 		return def
 	}
 	return n
+}
+
+// OrderSearchRestController mirrors OrderSearchRestController's /search
+// endpoint (class-level @RequestMapping("/rest/order")).
+type OrderSearchRestController struct {
+	Service *service.OrderSearchService
+}
+
+// OrderSearchRoutes registers GET rest/order/search.
+func OrderSearchRoutes(mux *http.ServeMux, ctrl *OrderSearchRestController) {
+	web.Register(mux, "GET", "rest/order/search", func(w http.ResponseWriter, r *http.Request) {
+		labNumber := r.URL.Query().Get("labNumber")
+		// labNumber is @RequestParam(required = false), so a missing value
+		// reaches the handler and is rejected there with a BODILESS 400 —
+		// ResponseEntity.badRequest().build(). Blank and whitespace-only take
+		// the same branch (`labNumber.trim().isEmpty()`).
+		if strings.TrimSpace(labNumber) == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		dto, err := ctrl.Service.GetOrderByLabNumber(labNumber)
+		if err != nil {
+			log.Printf("c2: order/search failed: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if dto == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		web.WriteJSON(w, http.StatusOK, dto)
+	})
 }

@@ -69,9 +69,16 @@ func (d *PatientDAOImpl) CountOrdersForPatient(patientID string) (int64, error) 
 // Java calls `totalSamples` — so `totalSamples` is a count of sample_ITEM rows,
 // not of samples. Confirmed against live data (21 items vs 19 samples) and
 // pinned by the c1 e2e spec's DB oracle.
+//
+// `voided = false` is Java's, not an addition: the walk goes through
+// SampleItemServiceImpl.getSampleItemsBySampleId, whose criteria is
+// {sample.id, voided:false}. It was missing here until a voided row was seeded
+// (order-search-e2e.sql) and the c1 oracle tightened to match — before that,
+// nothing in the dataset was voided, so the omission was invisible.
 func (d *PatientDAOImpl) CountSampleItemsForPatient(patientID string) (int64, error) {
 	var n int64
 	err := d.DB.Table("clinlims.sample_item si").
+		Where("si.voided = false").
 		Where("si.samp_id IN (?)",
 			d.DB.Table("clinlims.sample_human").Select("samp_id").Where("patient_id = ?", patientID)).
 		Count(&n).Error
@@ -84,9 +91,14 @@ func (d *PatientDAOImpl) CountSampleItemsForPatient(patientID string) (int64, er
 // runtime; this port takes them as a parameter so the caller owns that mapping
 // and the DAO stays free of business rules.
 func (d *PatientDAOImpl) CountResultsForPatient(patientID string, excludedStatusIDs []string) (int64, error) {
+	// Same `voided = false` as CountSampleItemsForPatient, for the same reason:
+	// countResultsForPatient reaches its analyses through
+	// getSampleItemsBySampleId, so an analysis hanging off a voided sample item
+	// is never counted.
 	q := d.DB.Table("clinlims.analysis a").
 		Where("a.sampitem_id IN (?)",
 			d.DB.Table("clinlims.sample_item si").Select("si.id").
+				Where("si.voided = false").
 				Where("si.samp_id IN (?)",
 					d.DB.Table("clinlims.sample_human").Select("samp_id").Where("patient_id = ?", patientID)))
 	if len(excludedStatusIDs) > 0 {
