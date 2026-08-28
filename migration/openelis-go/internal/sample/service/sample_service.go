@@ -134,6 +134,49 @@ func normalizeAccession(accessionNumber string) string {
 	return accessionNumber
 }
 
+// AttachmentContent is what the download/view routes serve.
+type AttachmentContent struct {
+	FileName string
+	// ContentType is already defaulted: Java replaces a null or empty
+	// file_type with "application/octet-stream" HERE, while the LIST endpoint
+	// renders the same null as "". One column, two null policies — collapsing
+	// them to one value breaks one of the two callers.
+	ContentType string
+	Bytes       []byte
+}
+
+// GetAttachmentContent backs GET rest/order/attachments/{id}/download and
+// .../view, mirroring OrderAttachmentRestController.serveAttachment.
+//
+// Three outcomes, matching Java exactly:
+//   - (nil, nil)                      -> 404, for a soft-deleted row or a row
+//     whose file_content is null. Java's guards are
+//     `attachment == null || TRUE.equals(getIsDeleted())` and
+//     `fileContent == null`, both answering ResponseEntity.notFound().
+//   - (nil, ErrAttachmentNotFound)    -> 500, for an id with no row at all,
+//     because OrderAttachmentServiceImpl.get THROWS instead of returning null
+//     and the exception escapes the controller. Measured live: id 999999 is a
+//     500, while a soft-deleted id is a 404.
+//   - (content, nil)                  -> 200 with the bytes.
+func (s *SampleService) GetAttachmentContent(id int64) (*AttachmentContent, error) {
+	row, err := s.DAO.AttachmentByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if row.IsDeleted || row.FileContent == nil {
+		return nil, nil
+	}
+	contentType := "application/octet-stream"
+	if row.FileType != nil && *row.FileType != "" {
+		contentType = *row.FileType
+	}
+	return &AttachmentContent{
+		FileName:    row.FileName,
+		ContentType: contentType,
+		Bytes:       row.FileContent,
+	}, nil
+}
+
 // GetOrderAttachments backs GET rest/order/{accessionNumber}/attachments,
 // mirroring OrderAttachmentRestController.listAttachments.
 //

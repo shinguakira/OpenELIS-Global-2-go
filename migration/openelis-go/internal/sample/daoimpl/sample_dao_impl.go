@@ -16,6 +16,13 @@ type SampleDAOImpl struct {
 	DB *gorm.DB
 }
 
+// ErrAttachmentNotFound signals an attachment id with no row at all, as opposed
+// to one that exists and is soft-deleted. Java distinguishes the two by
+// accident — OrderAttachmentServiceImpl.get throws for a missing id while
+// serveAttachment's own guard handles the deleted one — and the two produce
+// DIFFERENT statuses (500 vs 404), so the distinction has to survive the port.
+var ErrAttachmentNotFound = errors.New("order attachment not found")
+
 // GetByAccessionNumber mirrors SampleServiceImpl.getSampleByAccessionNumber.
 //
 // Java strips anything from the first '.' onward before querying
@@ -126,6 +133,45 @@ type OrderAttachmentRow struct {
 	FileType      *string    `gorm:"column:file_type"`
 	FileSizeBytes *int64     `gorm:"column:file_size_bytes"`
 	UploadedAt    *time.Time `gorm:"column:uploaded_at"`
+}
+
+// OrderAttachmentBlob is one attachment WITH its bytes, for the download/view
+// routes. Separate from OrderAttachmentRow because the list endpoint must never
+// pull file_content.
+//
+// IsDeleted is carried rather than filtered in SQL: serveAttachment fetches by
+// id and then refuses a soft-deleted row, which is what makes a deleted id a
+// 404 while a MISSING id is a 500 (see AttachmentByID).
+type OrderAttachmentBlob struct {
+	ID          int64   `gorm:"column:id"`
+	FileName    string  `gorm:"column:original_file_name"`
+	FileType    *string `gorm:"column:file_type"`
+	FileContent []byte  `gorm:"column:file_content"`
+	IsDeleted   bool    `gorm:"column:is_deleted"`
+}
+
+// AttachmentByID mirrors OrderAttachmentServiceImpl.get(attachmentId).
+//
+// Returns (nil, nil) for an id that exists but is soft-deleted? No — it returns
+// the row and lets the caller decide, matching Java. For an id that does not
+// exist at all it returns ErrAttachmentNotFound, because Java's get() THROWS
+// there rather than returning null: that is why a missing id is a 500 while a
+// soft-deleted one is a 404. Two "not there" conditions, two statuses; pinned,
+// not smoothed over.
+func (d *SampleDAOImpl) AttachmentByID(id int64) (*OrderAttachmentBlob, error) {
+	rows := []OrderAttachmentBlob{}
+	err := d.DB.Table("clinlims.order_attachment").
+		Select("id, original_file_name, file_type, file_content, is_deleted").
+		Where("id = ?", id).
+		Limit(1).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, ErrAttachmentNotFound
+	}
+	return &rows[0], nil
 }
 
 // ActiveAttachmentsBySampleID mirrors

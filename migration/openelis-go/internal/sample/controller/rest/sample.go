@@ -13,12 +13,14 @@
 package rest
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"openelis-go/internal/common/web"
+	"openelis-go/internal/sample/daoimpl"
 	"openelis-go/internal/sample/form"
 	"openelis-go/internal/sample/service"
 )
@@ -108,9 +110,9 @@ func PendingAnalysisRoutes(mux *http.ServeMux, ctrl *PendingAnalysisRestControll
 }
 
 // OrderAttachmentRestController mirrors OrderAttachmentRestController
-// (class-level @RequestMapping("/rest/order")) for the read endpoint only.
-// The POST upload, the soft delete and the download/view routes are writes or
-// binary streams and are out of the c2 read scope.
+// (class-level @RequestMapping("/rest/order")) for its READ endpoints: the
+// attachment list plus the download and view streams. The POST upload and the
+// soft delete are writes and stay out of the c2 read scope.
 type OrderAttachmentRestController struct {
 	Service *service.SampleService
 }
@@ -133,6 +135,54 @@ func OrderAttachmentRoutes(mux *http.ServeMux, ctrl *OrderAttachmentRestControll
 		}
 		web.WriteJSON(w, http.StatusOK, dtos)
 	})
+
+	// GET rest/order/attachments/{attachmentId}/download  (Content-Disposition: attachment)
+	// GET rest/order/attachments/{attachmentId}/view      (Content-Disposition: inline)
+	//
+	// One handler, two dispositions — exactly how Java does it, both delegating
+	// to serveAttachment with a different literal.
+	for _, m := range []struct{ route, disposition string }{
+		{"rest/order/attachments/{attachmentId}/download", "attachment"},
+		{"rest/order/attachments/{attachmentId}/view", "inline"},
+	} {
+		disposition := m.disposition
+		web.Register(mux, "GET", m.route, func(w http.ResponseWriter, r *http.Request) {
+			id, err := strconv.ParseInt(r.PathValue("attachmentId"), 10, 64)
+			if err != nil {
+				// attachmentId binds as Integer, so Spring rejects a
+				// non-numeric value at binding time, before the handler runs.
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			content, err := ctrl.Service.GetAttachmentContent(id)
+			if err != nil {
+				// A missing id is a 500 in Java, not a 404 — the service's
+				// get() throws rather than returning null. Pinned, not fixed.
+				if !errors.Is(err, daoimpl.ErrAttachmentNotFound) {
+					log.Printf("c2: order attachment %s failed: %v", disposition, err)
+				}
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			if content == nil {
+				// Soft-deleted, or no bytes: ResponseEntity.notFound().build()
+				// — 404 with no body.
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			// Spring writes the parsed MediaType back WITH the default charset
+			// attached, so even application/pdf and application/octet-stream
+			// arrive as "…;charset=UTF-8". Measured live; a bare content type
+			// is a different response.
+			w.Header().Set("Content-Type", content.ContentType+";charset=UTF-8")
+			w.Header().Set("Content-Disposition", disposition+`; filename="`+content.FileName+`"`)
+			w.Header().Set("Content-Length", strconv.Itoa(len(content.Bytes)))
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write(content.Bytes); err != nil {
+				log.Printf("c2: order attachment %s write failed: %v", disposition, err)
+			}
+		})
+	}
 }
 
 // UnassignedSampleRestController mirrors UnassignedSampleRestController
@@ -161,10 +211,18 @@ func UnassignedSampleRoutes(mux *http.ServeMux, ctrl *UnassignedSampleRestContro
 	})
 
 	// GET rest/unassigned-sample/items
+	//
+	// 500 with an EMPTY body whenever the query matches anything — Java's
+	// behavior, reproduced rather than fixed. w.WriteHeader alone (no
+	// http.Error, no JSON envelope) is what makes Content-Length 0, matching
+	// ResponseEntity.status(500).build(). See
+	// service.ErrUnassignedItemsUnserializable for the Hibernate cause.
 	web.Register(mux, "GET", "rest/unassigned-sample/items", func(w http.ResponseWriter, r *http.Request) {
 		dtos, err := ctrl.Service.GetUnassignedItems("")
 		if err != nil {
-			log.Printf("c2: unassigned-sample/items failed: %v", err)
+			if !errors.Is(err, service.ErrUnassignedItemsUnserializable) {
+				log.Printf("c2: unassigned-sample/items failed: %v", err)
+			}
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -182,7 +240,11 @@ func UnassignedSampleRoutes(mux *http.ServeMux, ctrl *UnassignedSampleRestContro
 		}
 		dtos, err := ctrl.Service.GetUnassignedItems(r.URL.Query().Get("accessionNumber"))
 		if err != nil {
-			log.Printf("c2: unassigned-sample/items/search failed: %v", err)
+			// Same bodiless 500 as /items, for the same reason: a search that
+			// matches rows hits the identical DTO-building path.
+			if !errors.Is(err, service.ErrUnassignedItemsUnserializable) {
+				log.Printf("c2: unassigned-sample/items/search failed: %v", err)
+			}
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}

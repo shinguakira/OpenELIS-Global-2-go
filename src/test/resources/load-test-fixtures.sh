@@ -29,6 +29,7 @@ STORAGE_IN_PROGRESS_ORDER_SQL="$SCRIPT_DIR/fixtures/storage-in-progress-order.sq
 AUTH_E2E_SQL="$SCRIPT_DIR/fixtures/auth-e2e.sql"
 PATIENT_MEDIA_E2E_SQL="$SCRIPT_DIR/fixtures/patient-media-e2e.sql"
 ORDER_SEARCH_E2E_SQL="$SCRIPT_DIR/fixtures/order-search-e2e.sql"
+SHIPMENT_ATTACHMENT_E2E_SQL="$SCRIPT_DIR/fixtures/shipment-attachment-e2e.sql"
 RESET_SCRIPT="$SCRIPT_DIR/reset-test-database.sh"
 
 RESET=false
@@ -402,6 +403,22 @@ load_profile_lane_fixtures() {
     if [ -f "$ORDER_SEARCH_E2E_SQL" ]; then
         load_sql_file "$ORDER_SEARCH_E2E_SQL" \
             "order-search-e2e.sql (voided sample item)" "fatal"
+    fi
+
+    # Referral rows for the unassigned-sample endpoints and attachment rows for
+    # rest/order/{accession}/attachments. MUST run after storage: the samples
+    # link to the first patient by id, which is patient 1000 from
+    # testdata/storage-e2e.xml.
+    #
+    # Profile-independent and fatal on error. clinlims.referral and
+    # clinlims.order_attachment are BOTH empty in the stock dataset, which left
+    # six c2 endpoints asserted only down to `Array.isArray(body)` — a check
+    # that passes on [] forever. Loading this file is what makes those row
+    # shapes comparable against Java at all; it also surfaced a Java 500 on
+    # /items that an empty table had been hiding.
+    if [ -f "$SHIPMENT_ATTACHMENT_E2E_SQL" ]; then
+        load_sql_file "$SHIPMENT_ATTACHMENT_E2E_SQL" \
+            "shipment-attachment-e2e.sql (referrals + order attachments)" "fatal"
     fi
 }
 

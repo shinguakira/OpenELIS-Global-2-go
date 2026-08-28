@@ -8,10 +8,17 @@ package form
 // omitempty on every conditionally-populated field. `id`, `priority` and
 // `daysUnassigned` are always put, so they never omit.
 type UnassignedSampleDTO struct {
-	ID             string  `json:"id"`
-	ReferralDate   *string `json:"referralDate,omitempty"`
-	Priority       string  `json:"priority"`
-	DaysUnassigned int64   `json:"daysUnassigned"`
+	ID string `json:"id"`
+	// EPOCH MILLIS, not a formatted string. compileSampleData puts the raw
+	// java.sql.Timestamp into the map and Jackson serializes it with
+	// WRITE_DATES_AS_TIMESTAMPS, so the wire value is a NUMBER
+	// (1746086400000), unlike sampleXML.collectionDate and the attachment
+	// list's uploadedAt, which are Timestamp.toString() strings. Measured
+	// against live Java; this field emitted "2025-05-09 17:00:00.0" until the
+	// referral fixture existed to compare against.
+	ReferralDate   *int64 `json:"referralDate,omitempty"`
+	Priority       string `json:"priority"`
+	DaysUnassigned int64  `json:"daysUnassigned"`
 
 	AccessionNumber *string `json:"accessionNumber,omitempty"`
 	SampleID        *string `json:"sampleId,omitempty"`
@@ -31,24 +38,21 @@ type CountDTO struct {
 	Count int `json:"count"`
 }
 
-// UnassignedSampleItemDTO mirrors the subset of SampleItemDTO that the
-// unassigned-items queries populate. The Java class has many more fields; they
-// stay null on this path and Include.NON_NULL drops them, so declaring them
-// here would emit keys Java does not.
+// There is deliberately NO DTO for rest/unassigned-sample/items here.
 //
-// The three list fields are initialised to empty lists on the Java object, so
-// they DO appear as [] — they are not omitted.
-type UnassignedSampleItemDTO struct {
-	ID                    string  `json:"id"`
-	SampleAccessionNumber string  `json:"sampleAccessionNumber"`
-	SampleType            string  `json:"sampleType"`
-	SampleTypeID          *string `json:"sampleTypeId,omitempty"`
-	CollectionDate        *string `json:"collectionDate,omitempty"`
-
-	ChildAliquots []any `json:"childAliquots"`
-	OrderedTests  []any `json:"orderedTests"`
-	ReferralTests []any `json:"referralTests"`
-
-	// A primitive boolean on the Java class, so it always serializes.
-	HasRemainingQuantity bool `json:"hasRemainingQuantity"`
-}
+// Java never serializes one: buildSampleItemDTOs calls
+// getReferralsBySampleItemId(Integer) while SampleItem.id is mapped as a
+// String, so Hibernate rejects the binding for the FIRST row it reaches, the
+// read-only transaction is marked rollback-only, and the commit at the
+// @Transactional boundary throws — the controller's catch turns that into a
+// bodiless 500. See UnassignedSampleService.GetUnassignedItems.
+//
+// An earlier version of this file DID declare one, with fields
+// (`sampleAccessionNumber`, `sampleType`, `childAliquots`,
+// `hasRemainingQuantity`, …) that Java's SampleItemDTO does not even have. It
+// was written from a misread of the Java class and nothing could catch it,
+// because clinlims.referral was empty and the endpoint answered 200 [] on both
+// stacks. Declaring a shape no live response has ever confirmed is exactly the
+// guess this migration's e2e discipline exists to prevent, so it is gone
+// rather than corrected: if the Java defect is ever fixed, the shape gets
+// written from the response that fix produces.

@@ -105,9 +105,9 @@ BEGIN
     new_sample_id := nextval('clinlims.sample_seq');
 
     INSERT INTO clinlims.sample
-        (id, accession_number, entered_date, received_date, is_confirmation)
+        (id, accession_number, entered_date, received_date, lastupdated, is_confirmation)
     VALUES
-        (new_sample_id, 'E2E-VOIDED-01', now(), now(), false);
+        (new_sample_id, 'E2E-VOIDED-01', now(), now(), now(), false);
 
     INSERT INTO clinlims.sample_human (id, samp_id, patient_id)
     VALUES (nextval('clinlims.sample_human_seq'), new_sample_id, target_patient);

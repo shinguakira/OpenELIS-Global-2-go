@@ -449,16 +449,161 @@ test.describe("c2 — sample + order reads", () => {
     expect(slash.status(), `${UNASSIGNED}/ (trailing slash) is 404`).toBe(404);
   });
 
-  test("unassigned-sample/items: array; search variant requires accessionNumber", async ({ request }) => {
-    const items = await readJson(await request.get(`${UNASSIGNED}/items`), `${UNASSIGNED}/items`);
-    expect(Array.isArray(items), `${UNASSIGNED}/items is an array`).toBe(true);
+  test("unassigned-sample: dashboard rows, one per branch of compileSampleData", async ({ request }) => {
+    // Was `expect(Array.isArray(body)).toBe(true)` and nothing else, because
+    // clinlims.referral is empty in the stock dataset — a check that passes on
+    // [] forever, so the row shape was never compared against Java at all.
+    // shipment-attachment-e2e.sql now seeds ten referrals: five visible here,
+    // five excluded, each exercising exactly one branch.
+    const rows = await readJson(await request.get(UNASSIGNED), UNASSIGNED);
+    expect(Array.isArray(rows), `${UNASSIGNED} is an array`).toBe(true);
 
-    const accession = anyAccession();
-    const searched = await readJson(
-      await request.get(`${UNASSIGNED}/items/search?accessionNumber=${encodeURIComponent(accession)}`),
-      `${UNASSIGNED}/items/search`,
+    const byId = new Map<string, any>(rows.map((r: any) => [r.id, r]));
+    const fixture = query(
+      "SELECT r.id, COALESCE(r.organization_id::text,''), COALESCE(r.organization_name,'')," +
+        " COALESCE(r.priority,''), COALESCE(r.referral_reason_id::text,''), r.lost_status," +
+        " COALESCE(r.status,''), COALESCE(r.assigned_to_box_id::text,''), si.voided, s.accession_number" +
+        " FROM clinlims.referral r" +
+        " JOIN clinlims.analysis a ON a.id = r.analysis_id" +
+        " JOIN clinlims.sample_item si ON si.id = a.sampitem_id" +
+        " JOIN clinlims.sample s ON s.id = si.samp_id" +
+        " WHERE s.accession_number LIKE 'E2E-REF-%' ORDER BY r.id::numeric",
     );
-    expect(Array.isArray(searched), `${UNASSIGNED}/items/search is an array`).toBe(true);
+    // Not a skip: the loader marks the fixture fatal, so an empty result means
+    // it did not run and this test would otherwise silently assert nothing.
+    expect(fixture.length, "shipment-attachment-e2e.sql is loaded").toBe(10);
+
+    // ── the five exclusion rules, one row each ────────────────────────────
+    // A port implementing four of the five still returns a plausible list, so
+    // each is named and checked separately rather than as one count.
+    for (const [id, , , , , lost, status, boxId, voided] of fixture) {
+      const present = byId.has(id);
+      if (lost === "t") {
+        expect(present, `lost referral ${id} is excluded`).toBe(false);
+      } else if (status === "CANCELED") {
+        expect(present, `canceled referral ${id} is excluded`).toBe(false);
+      } else if (boxId !== "") {
+        expect(present, `box-assigned referral ${id} is excluded`).toBe(false);
+      } else if (status === "") {
+        // The HQL is `r.status != 'CANCELED'`, and NULL != 'CANCELED' is
+        // UNKNOWN, not TRUE — so a NULL status is excluded by three-valued
+        // logic rather than by any explicit rule. A port written with Go's
+        // `status != "CANCELED"` INCLUDES this row.
+        expect(present, `NULL-status referral ${id} is excluded by 3-valued logic`).toBe(false);
+      } else {
+        // Voided sample items are NOT filtered here. getUnassignedReferrals
+        // has no `si.voided` predicate, unlike the /items query — so this row
+        // is present here and absent there. A port that shares one filter
+        // between the two endpoints gets exactly one of them wrong.
+        expect(present, `referral ${id} is present (voided=${voided} does not exclude here)`).toBe(true);
+      }
+    }
+
+    // ── row shape, per branch ─────────────────────────────────────────────
+    for (const [id, orgId, orgName, priority, reasonId] of fixture) {
+      const row = byId.get(id);
+      if (!row) continue;
+
+      // The row is a HashMap, so Jackson's NON_NULL drops null values: which
+      // keys are PRESENT is itself the assertion.
+      expectKeysWithin(
+        row,
+        ["id", "referralDate", "priority", "daysUnassigned", "accessionNumber", "sampleId",
+         "referralTestName", "testId", "destinationFacilityName", "destinationFacilityId",
+         "referralReasonId"],
+        ["id", "priority", "daysUnassigned", "accessionNumber", "sampleId",
+         "referralTestName", "testId", "destinationFacilityName"],
+        `${UNASSIGNED} row ${id}`,
+      );
+
+      if (orgId !== "") {
+        expect(row.destinationFacilityId, `row ${id} destinationFacilityId`).toBe(orgId);
+      } else {
+        // The ELSE branch emits the free-text name WITHOUT an id. Pinning the
+        // ABSENCE matters: a port that emits `destinationFacilityId: null`
+        // or "" adds a key Java never sends.
+        expect("destinationFacilityId" in row, `row ${id} omits destinationFacilityId entirely`).toBe(false);
+        expect(row.destinationFacilityName, `row ${id} falls back to organization_name`).toBe(orgName);
+      }
+
+      // priority is `getPriority() != null ? getPriority() : "Normal"` — the
+      // literal string, not a lookup and not the DB value uppercased.
+      expect(row.priority, `row ${id} priority`).toBe(priority === "" ? "Normal" : priority);
+
+      if (reasonId === "") {
+        expect("referralReasonId" in row, `row ${id} omits a null referralReasonId`).toBe(false);
+      } else {
+        expect(row.referralReasonId, `row ${id} referralReasonId`).toBe(reasonId);
+      }
+    }
+
+    // ── daysUnassigned is COMPUTED, not stored ────────────────────────────
+    // TimeUnit.MILLISECONDS.toDays(now - requestDate), i.e. truncated toward
+    // zero, and 0L when there is no request date. Derived from the row's own
+    // referralDate so this does not rot as the fixture ages.
+    for (const row of rows) {
+      if (typeof row.referralDate === "number") {
+        const expected = Math.floor((Date.now() - row.referralDate) / 86_400_000);
+        // Tolerance 1: the server and the test read their own clocks, so a
+        // run that straddles a day boundary can legitimately differ by one.
+        expect(
+          Math.abs(row.daysUnassigned - expected),
+          `daysUnassigned for ${row.id} tracks referralDate`,
+        ).toBeLessThanOrEqual(1);
+      } else {
+        // No request date: BOTH the referralDate key disappears (NON_NULL) and
+        // daysUnassigned falls back to the literal 0.
+        expect(row.daysUnassigned, `daysUnassigned is 0 without a referralDate`).toBe(0);
+      }
+    }
+  });
+
+  test("unassigned-sample/items: 500 once ANY row matches — a Java defect the empty table hid", async ({
+    request,
+  }) => {
+    // MIGRATION POLICY: pinned, not fixed.
+    //
+    // UnassignedSampleItemServiceImpl.buildSampleItemDTOs calls
+    // referralDAO.getReferralsBySampleItemId(Integer), but SampleItem.id is
+    // mapped as a String, so Hibernate rejects the binding:
+    //   Parameter value [10111] did not match expected type [java.lang.String]
+    // The service catches it and returns an empty list, but the exception
+    // already marked the read-only transaction rollback-only, so the commit at
+    // the @Transactional boundary throws and the CONTROLLER's catch turns it
+    // into `ResponseEntity.status(500).build()` — a 500 with an EMPTY body.
+    //
+    // This is unconditional given at least one matching row: the mismatch is
+    // between an Integer argument and a String-mapped id, not between values.
+    // With clinlims.referral empty the loop never ran, so both endpoints
+    // returned 200 [] and looked healthy. That is precisely why seeding the
+    // table is part of the work rather than a follow-up.
+    const candidates = Number(
+      query(
+        "SELECT count(*) FROM clinlims.referral r" +
+          " JOIN clinlims.analysis a ON a.id = r.analysis_id" +
+          " JOIN clinlims.sample_item si ON si.id = a.sampitem_id" +
+          " WHERE r.assigned_to_box_id IS NULL" +
+          "   AND (r.lost_status IS NULL OR r.lost_status = false)" +
+          "   AND r.status IS NOT NULL AND r.status <> 'CANCELED'" +
+          "   AND (si.rejected IS NULL OR si.rejected = false)" +
+          "   AND (si.voided IS NULL OR si.voided = false)",
+      )[0][0],
+    );
+    expect(candidates, "the fixture leaves at least one row for /items to choke on").toBeGreaterThan(0);
+
+    const items = await request.get(`${UNASSIGNED}/items`);
+    expect(items.status(), `${UNASSIGNED}/items is 500 whenever a row matches`).toBe(500);
+    expect(await items.text(), `${UNASSIGNED}/items 500 carries no body`).toBe("");
+
+    const searched = await request.get(`${UNASSIGNED}/items/search?accessionNumber=E2E-REF`);
+    expect(searched.status(), `${UNASSIGNED}/items/search is 500 the same way`).toBe(500);
+    expect(await searched.text(), `${UNASSIGNED}/items/search 500 carries no body`).toBe("");
+
+    // A search term matching nothing takes the other path: the loop never
+    // runs, no binding happens, and the endpoint answers 200 [].
+    const empty = await request.get(`${UNASSIGNED}/items/search?accessionNumber=NO-SUCH-ACCESSION-XYZ`);
+    expect(empty.status(), "a search matching nothing is 200").toBe(200);
+    expect(await empty.json(), "a search matching nothing returns []").toEqual([]);
 
     // accessionNumber is a required @RequestParam here (no defaultValue), so
     // omitting it is a 400 — unlike /items, which takes none.
@@ -466,35 +611,55 @@ test.describe("c2 — sample + order reads", () => {
     expect(missing.status(), `${UNASSIGNED}/items/search without accessionNumber`).toBe(400);
   });
 
-  test("unassigned-sample/count-by-facility: {count:n}, a SUBSET of by-facility", async ({ request }) => {
-    const orgs = query("SELECT id FROM clinlims.organization ORDER BY id LIMIT 1");
-    test.skip(orgs.length === 0, "no organizations in this dataset");
-    const facilityId = orgs[0][0];
-
-    const counted = await readJson(
-      await request.get(`${UNASSIGNED}/count-by-facility/${facilityId}`),
-      `${UNASSIGNED}/count-by-facility`,
+  test("unassigned-sample/count-by-facility: agrees with by-facility, and both really filter", async ({
+    request,
+  }) => {
+    // Two organizations are seeded with different numbers of referrals, so
+    // this is a real filter rather than "everything, twice".
+    const orgs = query(
+      "SELECT r.organization_id, count(*) FROM clinlims.referral r" +
+        " WHERE r.organization_id IS NOT NULL" +
+        "   AND r.assigned_to_box_id IS NULL" +
+        "   AND (r.lost_status IS NULL OR r.lost_status = false)" +
+        "   AND r.status IS NOT NULL AND r.status <> 'CANCELED'" +
+        " GROUP BY r.organization_id ORDER BY count(*) DESC",
     );
-    expect(Object.keys(counted), `${UNASSIGNED}/count-by-facility envelope`).toEqual(["count"]);
-    expect(typeof counted.count, `${UNASSIGNED}/count-by-facility count is a number`).toBe("number");
+    expect(orgs.length, "the fixture seeds referrals across at least two facilities").toBeGreaterThan(1);
 
-    const listed = await readJson(
-      await request.get(`${UNASSIGNED}/by-facility/${facilityId}`),
-      `${UNASSIGNED}/by-facility`,
-    );
-    expect(Array.isArray(listed), `${UNASSIGNED}/by-facility is an array`).toBe(true);
+    let previous = -1;
+    for (const [facilityId, dbCount] of orgs) {
+      const counted = await readJson(
+        await request.get(`${UNASSIGNED}/count-by-facility/${facilityId}`),
+        `${UNASSIGNED}/count-by-facility`,
+      );
+      expect(Object.keys(counted), `${UNASSIGNED}/count-by-facility envelope`).toEqual(["count"]);
 
-    // NOT an equality. countUnassignedSamplesByFacility applies an extra
-    // lost/canceled filter that getUnassignedSamplesByDestinationFacility does
-    // NOT, so the count is legitimately a SUBSET of the list length. An
-    // earlier draft of this test asserted equality; it passed only because
-    // both are 0 in this dataset and would have failed the moment real
-    // referral data existed. The correct, non-vacuous invariant is the
-    // inequality plus the guarantee that count is never negative.
-    expect(counted.count, "count-by-facility never exceeds by-facility length").toBeLessThanOrEqual(
-      listed.length,
-    );
-    expect(counted.count, "count-by-facility is non-negative").toBeGreaterThanOrEqual(0);
+      const listed = await readJson(
+        await request.get(`${UNASSIGNED}/by-facility/${facilityId}`),
+        `${UNASSIGNED}/by-facility`,
+      );
+      expect(Array.isArray(listed), `${UNASSIGNED}/by-facility is an array`).toBe(true);
+
+      // countUnassignedSamplesByFacility re-applies a lost/canceled filter
+      // that getUnassignedSamplesByDestinationFacility does not — but the SQL
+      // has already excluded both, so the extra pass removes nothing and the
+      // two agree. Measured, not assumed: an earlier draft asserted only
+      // `count <= length`, which is satisfied by returning 0 forever.
+      expect(counted.count, `count-by-facility(${facilityId}) equals by-facility length`).toBe(listed.length);
+      expect(counted.count, `count-by-facility(${facilityId}) matches the DB`).toBe(Number(dbCount));
+
+      // Every listed row really belongs to the requested facility.
+      for (const row of listed) {
+        expect(row.destinationFacilityId, `by-facility(${facilityId}) row ${row.id}`).toBe(facilityId);
+      }
+
+      // The two facilities must not return the same number, or "filtering"
+      // and "not filtering" would be indistinguishable.
+      if (previous >= 0) {
+        expect(counted.count, "the two facilities differ, so the filter is observable").not.toBe(previous);
+      }
+      previous = counted.count;
+    }
   });
 
   test("unassigned-sample/by-facility: a non-numeric facilityId is 400", async ({ request }) => {
@@ -514,24 +679,157 @@ test.describe("c2 — sample + order reads", () => {
 
   // ── rest/order/{accessionNumber}/attachments ────────────────────────────
 
-  test("order/{accession}/attachments: 200 [] when known, 404 {error} when not", async ({ request }) => {
-    const accession = anyAccession();
+  test("order/{accession}/attachments: populated rows, soft-delete filter and ordering", async ({
+    request,
+  }) => {
+    // clinlims.order_attachment is empty in the stock dataset, so the 200 path
+    // could only ever be observed as []. shipment-attachment-e2e.sql seeds
+    // three rows on E2E-ATT-01: one typed, one with a NULL file_type, and one
+    // soft-deleted.
+    const seeded = query(
+      "SELECT oa.id, oa.original_file_name, COALESCE(oa.file_type,''), oa.file_size_bytes," +
+        " oa.is_deleted, to_char(oa.uploaded_at, 'YYYY-MM-DD HH24:MI:SS')" +
+        " FROM clinlims.order_attachment oa" +
+        " JOIN clinlims.sample s ON s.id = oa.sample_id" +
+        " WHERE s.accession_number = 'E2E-ATT-01' ORDER BY oa.uploaded_at DESC",
+    );
+    // Not a skip: the loader marks the fixture fatal.
+    expect(seeded.length, "shipment-attachment-e2e.sql seeds three attachments").toBe(3);
+    const live = seeded.filter((r) => r[4] === "f");
+    expect(live.length, "two of the three are active").toBe(2);
+
     const body = await readJson(
-      await request.get(`rest/order/${encodeURIComponent(accession)}/attachments`),
+      await request.get(`rest/order/E2E-ATT-01/attachments`),
       "order attachments",
     );
     expect(Array.isArray(body), "order attachments is an array").toBe(true);
+
+    // findActiveBySampleId is `where isDeleted = false order by uploadedAt desc`,
+    // so BOTH the soft-delete filter and the ordering are asserted here rather
+    // than the length alone.
+    expect(
+      body.map((a: any) => String(a.id)),
+      "active attachments, newest upload first",
+    ).toEqual(live.map((r) => r[0]));
+
+    for (const [i, row] of body.entries()) {
+      const [dbId, dbName, dbType, dbSize, , dbUploaded] = live[i];
+
+      // toDto is a Map.of with exactly five entries — no `sampleId`, no
+      // `isDeleted`, no `uploadedBy`. Those columns exist and must not leak.
+      expectKeysWithin(
+        row,
+        ["id", "fileName", "fileType", "fileSizeBytes", "uploadedAt"],
+        ["id", "fileName", "fileType", "fileSizeBytes", "uploadedAt"],
+        "order attachment row",
+      );
+      // id and fileSizeBytes are NUMBERS here, unlike the String ids most of
+      // this codebase emits — the column is a real integer and Map.of keeps it.
+      expect(typeof row.id, "attachment id is a number").toBe("number");
+      expect(String(row.id), "attachment id").toBe(dbId);
+      expect(row.fileName, "fileName is original_file_name").toBe(dbName);
+      expect(typeof row.fileSizeBytes, "fileSizeBytes is a number").toBe("number");
+      expect(String(row.fileSizeBytes), "fileSizeBytes").toBe(dbSize);
+
+      // A NULL file_type becomes "" HERE, while the download path turns the
+      // same NULL into application/octet-stream. One column, two null
+      // policies — a port that normalises them to one value breaks one caller.
+      expect(row.fileType, "fileType is '' when the column is null").toBe(dbType);
+
+      // uploadedAt is java.sql.Timestamp.toString(), which appends a
+      // fractional-second part: "2025-05-04 10:00:00.0", not ISO-8601 and not
+      // epoch millis.
+      expect(row.uploadedAt, "uploadedAt is Timestamp.toString()").toBe(`${dbUploaded}.0`);
+    }
 
     // A known order with zero attachments -> 200 []; an unknown order -> 404
     // with a JSON error envelope {"error":"Order not found"}. Two distinct
     // shapes for two distinct conditions, and the 404 body is JSON rather than
     // the empty body most other 404s in this codebase return — so a port must
     // emit the envelope, not just the status.
+    const emptyOne = query(
+      "SELECT s.accession_number FROM clinlims.sample s" +
+        " WHERE NOT EXISTS (SELECT 1 FROM clinlims.order_attachment oa WHERE oa.sample_id = s.id)" +
+        " ORDER BY s.id LIMIT 1",
+    );
+    if (emptyOne.length > 0) {
+      const res = await request.get(`rest/order/${encodeURIComponent(emptyOne[0][0])}/attachments`);
+      expect(res.status(), "a known order with no attachments is 200").toBe(200);
+      expect(await res.json(), "a known order with no attachments returns []").toEqual([]);
+    }
+
     const unknown = await request.get("rest/order/NO_SUCH_ACCESSION_XYZ/attachments");
     expect(unknown.status(), "order attachments unknown accession is 404").toBe(404);
     expect(await unknown.json(), "order attachments 404 carries a JSON error envelope").toEqual({
       error: "Order not found",
     });
+  });
+
+  test("order/attachments/{id}/download vs /view: same bytes, different disposition", async ({
+    request,
+  }) => {
+    // Entirely unverifiable before the fixture existed: with no rows, only the
+    // 404 branch was reachable, and 404 says nothing about the Content-Type /
+    // Content-Disposition behaviour that is the whole point of these two.
+    const rows = query(
+      "SELECT oa.id, oa.original_file_name, COALESCE(oa.file_type,''), oa.file_size_bytes, oa.is_deleted" +
+        " FROM clinlims.order_attachment oa" +
+        " JOIN clinlims.sample s ON s.id = oa.sample_id" +
+        " WHERE s.accession_number = 'E2E-ATT-01' ORDER BY oa.id::numeric",
+    );
+    expect(rows.length, "shipment-attachment-e2e.sql is loaded").toBe(3);
+
+    for (const [id, fileName, fileType, size, isDeleted] of rows) {
+      if (isDeleted === "t") {
+        // serveAttachment refuses a soft-deleted row before it ever looks at
+        // the bytes, on BOTH endpoints, with an empty body.
+        for (const mode of ["download", "view"]) {
+          const res = await request.get(`rest/order/attachments/${id}/${mode}`);
+          expect(res.status(), `soft-deleted attachment ${id} ${mode} is 404`).toBe(404);
+          expect(await res.text(), `soft-deleted ${mode} 404 carries no body`).toBe("");
+        }
+        continue;
+      }
+
+      // A NULL file_type falls back to application/octet-stream here — the
+      // same column the list endpoint renders as "".
+      const expectedType = fileType === "" ? "application/octet-stream" : fileType;
+
+      for (const [mode, disposition] of [["download", "attachment"], ["view", "inline"]]) {
+        const res = await request.get(`rest/order/attachments/${id}/${mode}`);
+        expect(res.status(), `attachment ${id} ${mode} is 200`).toBe(200);
+
+        // Spring appends `;charset=UTF-8` even to application/pdf and
+        // application/octet-stream, because the media type is built through
+        // MediaType.parseMediaType and written by a ResourceHttpMessageConverter
+        // with the default charset attached. Pinned as-is: a port emitting a
+        // bare `application/pdf` is a different response.
+        expect(res.headers()["content-type"], `attachment ${id} ${mode} Content-Type`).toBe(
+          `${expectedType};charset=UTF-8`,
+        );
+        expect(
+          res.headers()["content-disposition"],
+          `attachment ${id} ${mode} Content-Disposition`,
+        ).toBe(`${disposition}; filename="${fileName}"`);
+        expect(res.headers()["content-length"], `attachment ${id} ${mode} Content-Length`).toBe(size);
+
+        // The bytes themselves, not just the headers.
+        const buf = await res.body();
+        expect(buf.length, `attachment ${id} ${mode} body length`).toBe(Number(size));
+        const [[dbHex]] = query(
+          `SELECT encode(file_content, 'hex') FROM clinlims.order_attachment WHERE id = ${id}`,
+        );
+        expect(buf.toString("hex"), `attachment ${id} ${mode} body bytes`).toBe(dbHex);
+      }
+    }
+
+    // MIGRATION POLICY: pinned, not fixed. A MISSING id is a 500, not the 404
+    // a soft-deleted one produces — OrderAttachmentServiceImpl.get throws
+    // rather than returning null, so the `attachment == null` guard in
+    // serveAttachment is unreachable for that case. Two "not there" conditions,
+    // two different statuses.
+    const missing = await request.get("rest/order/attachments/999999/download");
+    expect(missing.status(), "a missing attachment id is 500, not 404").toBe(500);
   });
 
   // ── Auth boundary ───────────────────────────────────────────────────────
@@ -570,26 +868,45 @@ test.describe("c2 — sample + order reads", () => {
 //
 //   VERIFIED against real rows (DB oracle or populated response):
 //     - all-by-accession: rows echo the requested accession, ids are numeric.
-//     - order/search: every paymentOption {id,value} is cross-checked against
-//       clinlims.dictionary (and pins that `value` comes from dict_entry).
+//     - order/search: the whole envelope — nine top-level keys,
+//       patientProperties' always-present identity fields, samples[] with the
+//       sampleXML twin and the all-or-nothing storage block, and every
+//       paymentOption {id,value} cross-checked against clinlims.dictionary.
+//     - order/search: voided sample items are excluded (order-search-e2e.sql
+//       seeds the dataset's only voided row — without it, deleting the
+//       predicate from the port left the suite green).
 //     - order/dashboard: every labNumber must be a real sample
 //       accession_number, and the page is a strict subset of the table.
 //     - order/dashboard quirks: pageSize-ignored / externalCount-0 /
 //       includeExternal-inert, each proven by contrasting real responses.
 //     - unassigned-by-accession: always-500 proven across three inputs.
-//     - count-by-facility <= by-facility: an inequality that holds on real
-//       data (an earlier draft asserted equality and was WRONG).
+//     - unassigned-sample: dashboard row shape per branch of compileSampleData,
+//       all five exclusion rules one row each, and daysUnassigned derived from
+//       the row's own referralDate.
+//     - unassigned-sample/items + /items/search: the Java 500 (see below), the
+//       200 [] a non-matching search still returns, and the 400 for a missing
+//       param.
+//     - count-by-facility EQUALS by-facility length, across two facilities with
+//       different counts. Two earlier drafts were both wrong here: one asserted
+//       equality when the tables were empty, the next weakened it to
+//       `count <= length`, which returning 0 forever satisfies.
+//     - order/{accession}/attachments: row shape, the soft-delete filter and
+//       the uploadedAt-DESC ordering.
+//     - order/attachments/{id}/download|view: Content-Type (including Spring's
+//       appended charset), Content-Disposition, Content-Length and the BYTES,
+//       plus 404 for soft-deleted and 500 for missing.
 //
-//   ENVELOPE-ONLY — the collection is empty in this dataset, so row shape is
-//   UNVERIFIED:
-//     - unassigned-sample and unassigned-sample/items  (no referral rows)
-//     - unassigned-sample/items/search                 (same)
-//     - order/{accession}/attachments 200 path         (no order_attachment
-//       rows; the 404 path IS verified)
-//   Closing these means seeding referrals and attachments, the same way
-//   src/test/resources/fixtures/patient-media-e2e.sql closed c1's photo gap.
+//   All of the above became verifiable only after the fixtures existed.
+//   clinlims.referral and clinlims.order_attachment are empty in the stock
+//   dataset; src/test/resources/fixtures/shipment-attachment-e2e.sql seeds
+//   both, and order-search-e2e.sql seeds the voided sample item. Between them
+//   they turned four "green" assertions into failures that were real port
+//   defects.
 //
 // ── DELIBERATELY NOT COVERED (and why) ──────────────────────────────────────
+//
+// Neither reason below is "the table is empty" — that is a fixture bug, not a
+// scope boundary, and the ones this wave had are now seeded.
 //
 // 1. MUTATING endpoints on the unassigned-sample controller —
 //    POST/PUT assignSampleToBox, markSampleAsLost, cancelReferral
@@ -597,16 +914,17 @@ test.describe("c2 — sample + order reads", () => {
 //    referral state and must never run from the read-only suite. They belong
 //    to the shipment feature module (an h-* branch), not to c2.
 //
-// 2. Binary attachment endpoints —
-//    rest/order/attachments/{id}/download and .../view. The dataset has no
-//    attachments, so only the empty path could be exercised, and that path
-//    tells us nothing about the Content-Type/disposition behavior that
-//    actually matters. Covering these properly needs a seeded attachment
-//    fixture, the same way c1 needed patient-media-e2e.sql for photos.
-//
-// 3. Type-D form loads — rest/GenericSampleOrder, rest/SamplePatientEntry,
+// 2. Type-D form loads — rest/GenericSampleOrder, rest/SamplePatientEntry,
 //    rest/SampleEdit, rest/SampleBatchEntrySetup. These return large
 //    form-backing envelopes assembled from many reference lists; pinning them
 //    meaningfully is its own unit of work and they are closer to Type D than
 //    to a sample/order read. order/search is included above as the one
 //    representative of that shape.
+//
+// ── JAVA DEFECTS THIS FILE PINS ─────────────────────────────────────────────
+//
+// Reproduced, never fixed, and listed in migration/java-defects-found.md so
+// they can be raised with the maintainers rather than silently corrected here:
+// unassigned-by-accession's invalid HQL, unassigned-sample/items' Integer-vs-
+// String binding, order/dashboard's paging and hardcoded counters, and the
+// download/view split where a missing id is a 500 but a deleted one is a 404.
