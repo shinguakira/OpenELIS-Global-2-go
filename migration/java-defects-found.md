@@ -16,6 +16,11 @@ reading the source, and each is pinned by a named test in
 
 ---
 
+> **Looking for the short list?** [java-possible-bugs.md](java-possible-bugs.md)
+> is the consolidated triage index across every wave — severity, confidence and
+> whether a test pins it — including the items that never got a full write-up
+> here. This file is the detail.
+
 ## 1. `GET rest/sample/unassigned-by-accession/{accessionNumber}` — always 500
 
 `SampleDAOImpl.getUnassignedSampleByAccessionNumber` runs HQL referencing
