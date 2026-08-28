@@ -60,10 +60,14 @@ type AnalysisItemDTO struct {
 	TestID     string `json:"testId"`
 	ResultID   string `json:"resultId"`
 
-	LowerCritical  float64 `json:"lowerCritical"`
-	HigherCritical float64 `json:"higherCritical"`
-	NormalRange    string  `json:"normalRange"`
-	ResultType     string  `json:"resultType"`
+	// Declared `double` in Java, and yet lowerCritical can answer with the JSON
+	// STRING "Infinity" — see the switch in the service. util.JavaDouble carries
+	// both: a finite value renders 0.0, an infinity renders "Infinity", which is
+	// exactly Jackson's own split.
+	LowerCritical  util.JavaDouble `json:"lowerCritical"`
+	HigherCritical util.JavaDouble `json:"higherCritical"`
+	NormalRange    string          `json:"normalRange"`
+	ResultType     string          `json:"resultType"`
 
 	IsHighlighted        bool   `json:"isHighlighted"`
 	SampleGroupingNumber int    `json:"sampleGroupingNumber"`

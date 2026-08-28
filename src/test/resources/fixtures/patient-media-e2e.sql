@@ -43,7 +43,6 @@
 -- than hardcoded so this works against any dataset.
 DO $$
 DECLARE
-    order_status    NUMERIC;   -- status_of_sample, status_type='ORDER'
     target_patient  VARCHAR;
     other_patient   VARCHAR;
     -- A real, decodable 1x1 transparent PNG. Kept tiny on purpose: these are
@@ -54,12 +53,6 @@ DECLARE
     -- branch really reads thumbnail_data and not photo_data.
     thumb_b64       TEXT := 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 BEGIN
-    -- sample.status_id is the ORDER-level status (status_type='ORDER'), NOT
-    -- the SAMPLE-level one used by sample_item. Every stock sample carries it,
-    -- and Java dereferences it without a null check, so leaving it NULL breaks
-    -- unrelated endpoints (WorkPlanByTest 500s on the resulting NPE).
-    SELECT id INTO order_status FROM clinlims.status_of_sample
-     WHERE status_type = 'ORDER' AND name = 'Test Entered' LIMIT 1;
     SELECT id INTO target_patient FROM clinlims.patient ORDER BY id LIMIT 1;
     SELECT id INTO other_patient  FROM clinlims.patient ORDER BY id OFFSET 1 LIMIT 1;
 

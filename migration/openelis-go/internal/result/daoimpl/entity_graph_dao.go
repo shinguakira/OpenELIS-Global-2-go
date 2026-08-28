@@ -11,14 +11,16 @@ package daoimpl
 // java.sql.Timestamp as a number, while the same instant also appears beside it
 // pre-formatted as a string. Both go over the wire.
 type EntityGraphRow struct {
-	AnalysisID          string  `gorm:"column:analysis_id"`
-	AnalysisLastupdated *int64  `gorm:"column:analysis_lastupdated"`
-	AnalysisType        *string `gorm:"column:analysis_type"`
-	AnalysisRevision    *string `gorm:"column:analysis_revision"`
-	AnalysisEnteredDate *int64  `gorm:"column:analysis_entered_date"`
-	AnalysisReportable  *string `gorm:"column:analysis_reportable"`
-	AnalysisStatusID    *string `gorm:"column:analysis_status_id"`
-	AnalysisReferredOut *bool   `gorm:"column:analysis_referred_out"`
+	AnalysisID             string  `gorm:"column:analysis_id"`
+	AnalysisLastupdated    *int64  `gorm:"column:analysis_lastupdated"`
+	AnalysisType           *string `gorm:"column:analysis_type"`
+	AnalysisRevision       *string `gorm:"column:analysis_revision"`
+	AnalysisEnteredDate    *int64  `gorm:"column:analysis_entered_date"`
+	AnalysisReportable     *string `gorm:"column:analysis_reportable"`
+	AnalysisStartedDate    *int64  `gorm:"column:analysis_started_date"`
+	AnalysisStartedDisplay *string `gorm:"column:analysis_started_display"`
+	AnalysisStatusID       *string `gorm:"column:analysis_status_id"`
+	AnalysisReferredOut    *bool   `gorm:"column:analysis_referred_out"`
 
 	ResultID          *string  `gorm:"column:result_id"`
 	ResultLastupdated *int64   `gorm:"column:result_lastupdated"`
@@ -130,6 +132,8 @@ const graphSelect = `a.id::text AS analysis_id,
 	a.revision AS analysis_revision,
 	trunc(EXTRACT(EPOCH FROM a.entry_date) * 1000)::bigint AS analysis_entered_date,
 	a.is_reportable AS analysis_reportable,
+	trunc(EXTRACT(EPOCH FROM a.started_date) * 1000)::bigint AS analysis_started_date,
+	to_char(a.started_date, 'DD/MM/YYYY') AS analysis_started_display,
 	a.status_id::text AS analysis_status_id,
 	a.referred_out AS analysis_referred_out,
 
@@ -200,7 +204,7 @@ const graphSelect = `a.id::text AS analysis_id,
 		   JOIN clinlims.type_of_sample AS atos ON atos.id = atost.sample_type_id
 		   LEFT JOIN clinlims.localization AS atl ON atl.id = atos.name_localization_id
 		   LEFT JOIN clinlims.localization_value AS atlv
-		          ON atlv.localization_id = atl.id AND atlv.locale = 'en'
+		          ON atlv.localization_id = atl.id AND atlv.locale = @loc
 		  WHERE atost.test_id = t.id AND atos.local_abbrev IS DISTINCT FROM 'Variable'
 		  ORDER BY atost.ctid LIMIT 1), '') AS test_augmented_name,
 	t.domain AS test_domain,
@@ -232,7 +236,7 @@ const graphSelect = `a.id::text AS analysis_id,
 func (d *ResultDAOImpl) EntityGraphForAccession(accessionNumber string) ([]EntityGraphRow, error) {
 	rows := []EntityGraphRow{}
 	err := d.DB.Table("clinlims.analysis AS a").
-		Select(graphSelect).
+		Select(graphSelect, map[string]any{"loc": d.Locale()}).
 		Joins("JOIN clinlims.sample_item AS si ON si.id = a.sampitem_id").
 		Joins("JOIN clinlims.sample AS s ON s.id = si.samp_id").
 		Joins("LEFT JOIN clinlims.type_of_sample AS tos ON tos.id = si.typeosamp_id").

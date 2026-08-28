@@ -341,6 +341,9 @@ func main() {
 	// stacks read the same rows, so a deployment needs no code change.
 	activeLocale := siteDefaultLocale(gormDB)
 	dateLocale := siteDateLocale(gormDB)
+	// validateTechnicalRejection decides whether technically REJECTED analyses
+	// are offered for validation. Read once, the way ConfigurationProperties does.
+	validateRejected := siteValidateRejected(gormDB)
 	sampleSvc := &sampleservice.SampleService{
 		DAO:    &sampledaoimpl.SampleDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
 		Status: statusSvc,
@@ -401,7 +404,7 @@ func main() {
 	})
 	validationrest.Routes(mux, &validationrest.AccessionValidationRestController{
 		Service: &validationservice.ResultValidationService{
-			DAO:      &validationdaoimpl.ResultValidationDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+			DAO:      &validationdaoimpl.ResultValidationDAOImpl{DB: gormDB, ActiveLocale: activeLocale, ValidateRejected: validateRejected},
 			Sections: &referraldaoimpl.ReferralDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
 		},
 	})
@@ -485,4 +488,21 @@ func siteDateLocale(db *gorm.DB) string {
 		return ""
 	}
 	return strings.TrimSpace(value)
+}
+
+// siteValidateRejected reads site_information validateTechnicalRejection.
+//
+// Defaults to TRUE when the row is missing, matching
+// ConfigurationProperties' own default for this property — a site that never
+// set it still validates rejections.
+func siteValidateRejected(db *gorm.DB) bool {
+	values := []string{}
+	if err := db.Table("clinlims.site_information").
+		Select("value").
+		Where("name = ?", "validateTechnicalRejection").
+		Limit(1).
+		Scan(&values).Error; err != nil || len(values) == 0 {
+		return true
+	}
+	return values[0] != "false"
 }

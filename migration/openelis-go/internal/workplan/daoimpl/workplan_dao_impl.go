@@ -141,15 +141,24 @@ func (d *WorkplanDAOImpl) PanelMemberTests(panelID string) ([]string, error) {
 // observable, because the grouping counter is stamped in THIS order before the
 // list is sorted.
 //
-// Measured against live Java: the order is SAMPLE_ITEM physical order, not
-// analysis order. Hibernate drives the join from sample_item, so ORDER BY
-// si.ctid reproduces it; a.ctid does not (it puts E2E001 first where Java puts
-// it sixth, shifting every grouping number by one).
+// Measured against live Java: the order is ANALYSIS physical order.
+//
+// This was read as sample_item order once, off a dataset in which every
+// accession's analyses happened to be physically contiguous — under which the
+// two orders assign identical grouping numbers and neither can be ruled out.
+// Adding one analysis to an EXISTING accession separated them: the new row
+// lands at the end of the analysis heap while its sample_item stays where it
+// was, so si.ctid keeps that accession in one run and a.ctid splits it into
+// two. Java splits it — the same accession carries grouping 2 on its first
+// two rows and 8 on the third, eight groups across seventeen rows.
+//
+// The number is stamped in THIS order and survives the sort that follows, so
+// it is the only observable trace of the scan order left in the response.
 func (d *WorkplanDAOImpl) ByPriority(priority string) ([]WorkplanAnalysisRow, error) {
 	rows := []WorkplanAnalysisRow{}
 	err := d.base().
 		Where("s.order_priority = ?", priority).
-		Order("si.ctid").
+		Order("a.ctid").
 		Scan(&rows).Error
 	return rows, err
 }
@@ -182,6 +191,11 @@ func IsOrderPriority(v string) bool {
 // getUserLocalizedTestName, which is buildTestName and returns the BARE
 // localized name. Same conceptual field, two builders, and they differ
 // whenever a test has a sample type.
+// The locale is BOUND, not concatenated. It comes from site_information
+// rather than from a caller, so this is not a live injection path — but the
+// value still reaches the query as SQL text, and the sibling result DAO
+// already shows the parameterised form. Keeping one pattern is cheaper than
+// arguing about which strings are safe.
 func (d *WorkplanDAOImpl) augmentedNameSelect() string {
 	return `COALESCE(lv.value, t.name) || COALESCE(
 		(SELECT '(' || COALESCE(tlv.value, tos.description) || ')'
@@ -189,7 +203,7 @@ func (d *WorkplanDAOImpl) augmentedNameSelect() string {
 		   JOIN clinlims.type_of_sample AS tos ON tos.id = tost.sample_type_id
 		   LEFT JOIN clinlims.localization AS tl ON tl.id = tos.name_localization_id
 		   LEFT JOIN clinlims.localization_value AS tlv
-		          ON tlv.localization_id = tl.id AND tlv.locale = '` + d.Locale() + `'
+		          ON tlv.localization_id = tl.id AND tlv.locale = @loc
 		  WHERE tost.test_id = t.id
 		    AND tos.local_abbrev IS DISTINCT FROM 'Variable'
 		  ORDER BY tost.ctid LIMIT 1), '')`
@@ -226,7 +240,7 @@ func (d *WorkplanDAOImpl) ByTestSectionAugmented(sectionID string) ([]WorkplanAn
 			a.test_id::text AS test_id,
 			`+d.augmentedNameSelect()+` AS test_name,
 			s.accession_number AS accession_number,
-			to_char(s.received_date, 'DD/MM/YYYY HH24:MI') AS received_date`).
+			to_char(s.received_date, 'DD/MM/YYYY HH24:MI') AS received_date`, map[string]any{"loc": d.Locale()}).
 		Joins("JOIN clinlims.sample_item AS si ON si.id = a.sampitem_id").
 		Joins("JOIN clinlims.sample AS s ON s.id = si.samp_id").
 		Joins("JOIN clinlims.test AS t ON t.id = a.test_id").

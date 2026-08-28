@@ -37,6 +37,7 @@ type LogbookRow struct {
 
 	AnalysisID       string  `gorm:"column:analysis_id"`
 	AnalysisStatusID string  `gorm:"column:analysis_status_id"`
+	StatusIsRejected bool    `gorm:"column:status_is_rejected"`
 	AnalysisType     *string `gorm:"column:analysis_type"`
 	IsReportable     *string `gorm:"column:is_reportable"`
 
@@ -56,6 +57,8 @@ type LogbookRow struct {
 	HighNormal     *float64 `gorm:"column:high_normal"`
 	LowValid       *float64 `gorm:"column:low_valid"`
 	HighValid      *float64 `gorm:"column:high_valid"`
+	LowCritical    *float64 `gorm:"column:low_critical"`
+	HighCritical   *float64 `gorm:"column:high_critical"`
 	LimitSigDigits *int     `gorm:"column:limit_sig_digits"`
 
 	PatientID        *string `gorm:"column:patient_id"`
@@ -93,6 +96,8 @@ const logbookSelect = `s.accession_number AS accession_number,
 	uom.name AS unit_of_measure,
 	a.id::text AS analysis_id,
 	a.status_id::text AS analysis_status_id,
+	(SELECT st.name = 'Technical Rejected' FROM clinlims.status_of_sample st
+	  WHERE st.id = a.status_id AND st.status_type = 'ANALYSIS') AS status_is_rejected,
 	a.analysis_type AS analysis_type,
 	-- reportable is the TEST's column, not the analysis's. Every analysis here
 	-- is is_reportable='Y' while every test is 'N', so reading the wrong one is
@@ -115,6 +120,8 @@ const logbookSelect = `s.accession_number AS accession_number,
 	rl.high_normal AS high_normal,
 	rl.low_valid AS low_valid,
 	rl.high_valid AS high_valid,
+	rl.low_critical AS low_critical,
+	rl.high_critical AS high_critical,
 	(SELECT tr.significant_digits FROM clinlims.test_result tr
 	  WHERE tr.test_id = t.id ORDER BY tr.id LIMIT 1) AS limit_sig_digits,
 	pa.id::text AS patient_id,
@@ -182,6 +189,22 @@ func (d *ResultDAOImpl) ByAccessionNumber(accessionNumber string) ([]LogbookRow,
 	return rows, err
 }
 
+// CurrentDate is DateUtil.getCurrentDateAsText — dd/MM/yyyy — read from the
+// DATABASE clock rather than the Go process's.
+//
+// time.Now() takes the process's local zone, and Go on Windows does not honour
+// the TZ environment variable, so the port rendered tomorrow's date for the
+// nine hours after local midnight while Java, in UTC, was still on today.
+// Reading the same clock Java formats from removes the question.
+func (d *ResultDAOImpl) CurrentDate() (string, error) {
+	values := []string{}
+	err := d.DB.Raw("SELECT to_char(now(), 'DD/MM/YYYY')").Scan(&values).Error
+	if err != nil || len(values) == 0 {
+		return "", err
+	}
+	return values[0], nil
+}
+
 // ByTest returns every analysis of one test.
 //
 // A single analysis sitting on a sample item with a NULL typeosamp_id makes
@@ -191,12 +214,21 @@ func (d *ResultDAOImpl) ByTest(testID string) ([]LogbookRow, error) {
 	rows := []LogbookRow{}
 	err := d.base().
 		Where("a.test_id = ?", testID).
-		// DESCENDING accession. ResultsLoadUtility picks between
-		// sortByAccessionAndSequence and reverseSortByAccessionAndSequence, and
-		// this path takes the reverse one — only the ACCESSION is reversed, the
-		// tie-break is not. COLLATE "C" because Java compares with
-		// String.compareTo, which is byte order, not the DB collation.
-		Order(`s.accession_number COLLATE "C" DESC, a.id DESC`).
+		// DESCENDING on the SEQUENCE ACCESSION — accession plus the sample item's
+		// sequence, not the accession alone. reverseSortByAccessionAndSequence
+		// compares getSequenceAccessionNumber(), and the difference is visible
+		// whenever one order has several items:
+		//
+		//   E2E-EDIT-01 items 1 and 2 come back 2-then-1, reversed
+		//   E2E-RES-01's two analyses share item 1, tie, and keep scan order
+		//
+		// An earlier version of this ordering used `a.id DESC`, derived from a
+		// two-row sample where the two happened to agree. Adding a third analysis
+		// separated them.
+		//
+		// COLLATE "C" because Java compares with String.compareTo — byte order,
+		// not the database collation. ctid last, for the stable sort's tie.
+		Order(`(s.accession_number || '-' || si.sort_order) COLLATE "C" DESC, a.ctid`).
 		Scan(&rows).Error
 	return rows, err
 }

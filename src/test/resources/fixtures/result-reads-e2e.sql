@@ -78,6 +78,13 @@ DECLARE
     test_clean      NUMERIC;   -- a test in a section NO type-less item touches
     sect_clean      NUMERIC;
     an_clean        NUMERIC;
+    an_banded       NUMERIC;   -- TechnicalAcceptance on a MULTI-BAND test
+    an_rejected     NUMERIC;   -- Technical Rejected, for the config-gated status
+    st_techreject   NUMERIC;
+    ref_analysis    NUMERIC;   -- an existing referred-out analysis
+    ana_table       NUMERIC;   -- reference_tables id for ANALYSIS
+    banded_test     NUMERIC;   -- a test with MORE THAN ONE result_limits band
+    banded_section  NUMERIC;
 BEGIN
     -- ---- cleanup, children first -------------------------------------------
     DELETE FROM clinlims.result
@@ -113,6 +120,22 @@ BEGIN
                                   WHERE status_type = 'ANALYSIS' AND name = 'Not Tested' LIMIT 1;
     SELECT id INTO st_techaccept FROM clinlims.status_of_sample
                                   WHERE status_type = 'ANALYSIS' AND name = 'Technical Acceptance' LIMIT 1;
+    SELECT id INTO st_techreject FROM clinlims.status_of_sample
+                                  WHERE status_type = 'ANALYSIS' AND name = 'Technical Rejected' LIMIT 1;
+
+    -- A test carrying MORE THAN ONE result_limits row. result_limits is keyed
+    -- by test AND by age band (min_age/max_age in DAYS) and optionally gender,
+    -- so a naive join on test_id alone multiplies the analysis by its band
+    -- count. Every analysis seeded before this sat on a SINGLE-band test, which
+    -- is why that mistake still produced a byte-identical response.
+    SELECT rl.test_id, t.test_section_id INTO banded_test, banded_section
+      FROM clinlims.result_limits rl
+      JOIN clinlims.test t ON t.id = rl.test_id
+     GROUP BY rl.test_id, t.test_section_id
+    HAVING count(*) > 1
+     ORDER BY rl.test_id LIMIT 1;
+
+    SELECT id INTO ana_table FROM clinlims.reference_tables WHERE name = 'ANALYSIS' LIMIT 1;
 
     -- A panel with at least two tests, and those two tests.
     --
@@ -239,6 +262,78 @@ BEGIN
         INSERT INTO clinlims.result
             (id, analysis_id, sort_order, is_reportable, result_type, value, lastupdated)
         VALUES (nextval('clinlims.result_seq'), an_dict, 1, 'Y', 'D', dict_value::text, now());
+    END IF;
+
+    -- ---- analyses the review found unreachable ------------------------------
+
+    -- (a) TechnicalAcceptance on a MULTI-BAND test, so AccessionValidation has
+    --     to pick ONE result_limits row rather than joining them all.
+    IF banded_test IS NOT NULL AND st_techaccept IS NOT NULL THEN
+        an_banded := nextval('clinlims.analysis_seq');
+        INSERT INTO clinlims.analysis
+            (id, sampitem_id, test_id, test_sect_id, status_id,
+             analysis_type, entry_date, is_reportable, revision, lastupdated)
+        VALUES
+            (an_banded, it_b, banded_test, banded_section, st_techaccept,
+             'MANUAL', now(), 'Y', 0, now());
+        INSERT INTO clinlims.result
+            (id, analysis_id, sort_order, is_reportable, result_type, value,
+             min_normal, max_normal, significant_digits, lastupdated)
+        VALUES (nextval('clinlims.result_seq'), an_banded, 1, 'Y', 'N', '6.5', 4, 10, 2, now());
+    END IF;
+
+    -- (b) Technical Rejected. AccessionValidation adds this status ONLY when
+    --     site_information validateTechnicalRejection is true, and NOTHING in
+    --     the dataset was in it — so neither branch of that condition was
+    --     observable and a port that ignored the setting matched anyway.
+    IF st_techreject IS NOT NULL THEN
+        an_rejected := nextval('clinlims.analysis_seq');
+        INSERT INTO clinlims.analysis
+            (id, sampitem_id, test_id, test_sect_id, status_id,
+             analysis_type, entry_date, is_reportable, revision, lastupdated)
+        VALUES
+            (an_rejected, it_a, test_y, sect_y, st_techreject,
+             'MANUAL', now(), 'Y', 0, now());
+        INSERT INTO clinlims.result
+            (id, analysis_id, sort_order, is_reportable, result_type, value,
+             min_normal, max_normal, significant_digits, lastupdated)
+        VALUES (nextval('clinlims.result_seq'), an_rejected, 1, 'Y', 'N', '99', 1, 9, 0, now());
+    END IF;
+
+    -- (c) started_date on one analysis. AccessionValidation's third search
+    --     branch is `date`, which filters getAnalysisStartedOn — and no
+    --     analysis in the dataset had a started_date, so that branch could
+    --     only ever return nothing and its absence from the port was invisible.
+    UPDATE clinlims.analysis SET started_date = DATE '2025-08-01'
+     WHERE id = an_validate;
+
+    -- (d) A result and a NOTE on an already-referred analysis. Java's
+    --     convertToDisplayItem fills referralResultsDisplay, resultDate and
+    --     notes only when those exist; every seeded referral had neither, so
+    --     three fields were unreachable.
+    SELECT a.id INTO ref_analysis
+      FROM clinlims.referral r
+      JOIN clinlims.analysis a ON a.id = r.analysis_id
+      JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+      JOIN clinlims.sample s ON s.id = si.samp_id
+     WHERE s.accession_number = 'E2E-REF-01'
+     ORDER BY a.id LIMIT 1;
+    IF ref_analysis IS NOT NULL THEN
+        DELETE FROM clinlims.result WHERE analysis_id = ref_analysis;
+        INSERT INTO clinlims.result
+            (id, analysis_id, sort_order, is_reportable, result_type, value,
+             min_normal, max_normal, significant_digits, lastupdated)
+        VALUES (nextval('clinlims.result_seq'), ref_analysis, 1, 'Y', 'N', '13.75', 1, 9, 2, now());
+        UPDATE clinlims.analysis SET completed_date = DATE '2025-05-20' WHERE id = ref_analysis;
+        IF ana_table IS NOT NULL THEN
+            DELETE FROM clinlims.note
+             WHERE reference_table = ana_table AND reference_id = ref_analysis
+               AND subject = 'E2E-REFERRAL-NOTE';
+            INSERT INTO clinlims.note
+                (id, sys_user_id, reference_id, reference_table, note_type, subject, text, lastupdated)
+            VALUES (nextval('clinlims.note_seq'), 1, ref_analysis, ana_table, 'I',
+                    'E2E-REFERRAL-NOTE', 'E2E referral note text', now());
+        END IF;
     END IF;
 
     RAISE NOTICE 'result-reads-e2e: seeded E2E-RES-01 (sample %) — panel %, tests %/%, sections %/%, clean section % (test %), results',

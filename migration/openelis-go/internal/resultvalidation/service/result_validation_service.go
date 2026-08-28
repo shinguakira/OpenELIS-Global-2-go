@@ -4,6 +4,7 @@ package service
 
 import (
 	"fmt"
+	"math"
 
 	"openelis-go/internal/common/util"
 	"strconv"
@@ -26,10 +27,23 @@ type ResultValidationService struct {
 // accessionNumber, then date, then unitType — so supplying two silently uses
 // the first. doRange then picks between a RANGE search and an exact one; see
 // ByAccessionRange for why that distinction is visible to a caller.
-func (s *ResultValidationService) Load(accessionNumber, date, unitType string, doRange bool) (*form.ResultValidationForm, error) {
+func (s *ResultValidationService) Load(systemUserID, accessionNumber, date, unitType string, doRange bool) (*form.ResultValidationForm, error) {
 	f := form.NewResultValidationForm()
 
-	sections, err := s.DAO.UserTestSections()
+	// The caller's lab units bound BOTH lists below. Java resolves them with
+	// getUserTestSections(user, ROLE_VALIDATION) and then filters the results
+	// with filterAnalysisResultsByLabUnitRoles — two separate calls, and a port
+	// that skips them serves every section and every result to every caller.
+	roleID, err := s.DAO.RoleIDByName(roleValidation)
+	if err != nil {
+		return nil, err
+	}
+	units, err := s.DAO.UserLabUnits(systemUserID, roleID)
+	if err != nil {
+		return nil, err
+	}
+
+	sections, err := s.DAO.UserTestSections(units)
 	if err != nil {
 		return nil, err
 	}
@@ -62,10 +76,7 @@ func (s *ResultValidationService) Load(accessionNumber, date, unitType string, d
 		case accessionNumber != "":
 			rows, err = s.DAO.ByAccessionRange(accessionNumber)
 		default:
-			// The date branch is not ported: no analysis in this dataset has a
-			// started_date to search on, so there is nothing to verify an
-			// implementation against and guessing at it would be untested code.
-			rows = nil
+			rows, err = s.DAO.ByStartedDate(date)
 		}
 	} else if accessionNumber != "" {
 		rows, err = s.DAO.BySample(accessionNumber)
@@ -73,6 +84,10 @@ func (s *ResultValidationService) Load(accessionNumber, date, unitType string, d
 	if err != nil {
 		return nil, err
 	}
+
+	// filterAnalysisResultsByLabUnitRoles. The section list above is what the
+	// screen offers; this is what it may actually show.
+	rows = filterByLabUnits(rows, units)
 
 	f.ResultList = buildItems(rows)
 	f.Paging.SearchTermToPage = searchTermToPage(f.ResultList)
@@ -124,7 +139,10 @@ func buildItem(r daoimpl.ValidationRow) form.AnalysisItemDTO {
 		item.ResultID = *r.ResultID
 	}
 	if r.ResultValue != nil {
-		item.Result = *r.ResultValue
+		// getFormattedResult runs the value through getResultValue, which pads a
+		// numeric result to the RESULT row's significant digits — 6.5 on a
+		// 2-digit result goes out as "6.50".
+		item.Result = fmtFixedValue(*r.ResultValue, derefI(r.SigDigits))
 	}
 	if r.ResultType != nil {
 		item.ResultType = *r.ResultType
@@ -153,13 +171,77 @@ func buildItem(r daoimpl.ValidationRow) form.AnalysisItemDTO {
 	item.Units = augmentUOMWithRange(deref(r.UnitOfMeasure), r.MinNormal, r.MaxNormal, r.SigDigits)
 	item.NormalRange = displayReferenceRange(r.LimitLowNormal, r.LimitHighNormal, r.LimitSigDigits, " - ")
 
-	// low/high critical are ±Infinity in result_limits and are mapped to 0
-	// rather than emitted as infinities, which JSON cannot represent anyway.
-	item.LowerCritical = 0
-	item.HigherCritical = 0
+	// The criticals, and the reason a numeric field can answer with the JSON
+	// STRING "Infinity".
+	//
+	// setResultLimitDependencies folds the sentinels to zero:
+	//
+	//     lowCritical  == NEGATIVE_INFINITY ? 0 : lowCritical
+	//     highCritical == POSITIVE_INFINITY ? 0 : highCritical
+	//
+	// Every stored row here holds exactly those sentinels, so a resolved limit
+	// yields 0 and 0 — which is why a port that hardcoded both to 0 agreed with
+	// Java on every row until a test with age bands was seeded.
+	//
+	// The third case is the defect. getResultLimitForTestAndPatient does NOT
+	// return null when the test HAS limits but none is the default band:
+	// defaultResultLimit falls through to `return new ResultLimit()`, and that
+	// bean initialises
+	//
+	//     private double lowCritical = Double.POSITIVE_INFINITY;
+	//
+	// where every other low bound on it is NEGATIVE_INFINITY. The guard tests
+	// for NEGATIVE_INFINITY, misses, and +Infinity reaches Jackson — which has
+	// no JSON number for it and writes the string "Infinity". highCritical
+	// carries the same initialiser and IS caught, so it comes back 0: one row,
+	// two bounds, and they disagree about what an unset critical looks like.
+	//
+	// A test with NO result_limits rows returns null instead, the dependencies
+	// are never set, and both stay at the bean default 0.
+	switch {
+	case r.HasDefaultLimit:
+		item.LowerCritical = criticalOrZero(r.LimitLowCritical, math.Inf(-1))
+		item.HigherCritical = criticalOrZero(r.LimitHighCritical, math.Inf(1))
+	case r.HasAnyLimit:
+		item.LowerCritical = util.JavaDouble(math.Inf(1))
+		item.HigherCritical = 0
+	default:
+		item.LowerCritical = 0
+		item.HigherCritical = 0
+	}
 
-	item.Normal = true
+	// nonconforming is set for a technically REJECTED analysis:
+	//   testResultItem.isNonconforming() || matches(statusId, TechnicalRejected)
+	item.Nonconforming = r.StatusIsRejected
+
+	// normal compares the value against the RESOLVED limit. With no limit — the
+	// age-banded case where this endpoint resolves none — there is nothing to be
+	// abnormal against, so it stays true.
+	item.Normal = isNormalResult(r)
 	return item
+}
+
+// criticalOrZero folds one sentinel to zero and passes everything else through,
+// including the OTHER infinity — the asymmetry is the point.
+func criticalOrZero(v *float64, sentinel float64) util.JavaDouble {
+	if v == nil || *v == sentinel {
+		return 0
+	}
+	return util.JavaDouble(*v)
+}
+
+// isNormalResult ports ResultsValidationUtility.isNormalResult for the numeric
+// case: inside the limit's normal range is normal, outside is not. A missing
+// limit or a non-numeric value is normal.
+func isNormalResult(r daoimpl.ValidationRow) bool {
+	if r.LimitLowNormal == nil || r.LimitHighNormal == nil || r.ResultValue == nil {
+		return true
+	}
+	v, err := strconv.ParseFloat(*r.ResultValue, 64)
+	if err != nil {
+		return true
+	}
+	return v >= *r.LimitLowNormal && v <= *r.LimitHighNormal
 }
 
 func augmentUOMWithRange(uom string, min, max *float64, sig *int) string {
@@ -181,6 +263,19 @@ func displayReferenceRange(low, high *float64, sig *int, sep string) string {
 		digits = *sig
 	}
 	return fmtFixed(*low, digits) + sep + fmtFixed(*high, digits)
+}
+
+// fmtFixedValue pads a numeric result string to the given decimals, passing
+// through anything non-numeric or unpadded.
+func fmtFixedValue(v string, digits int) string {
+	if digits <= 0 || v == "" {
+		return v
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return v
+	}
+	return fmt.Sprintf("%.*f", digits, f)
 }
 
 func fmtFixed(v float64, digits int) string {
@@ -212,4 +307,36 @@ func searchTermToPage(items []form.AnalysisItemDTO) []util.IdValuePair {
 		out = append(out, util.IdValuePair{Id: it.AccessionNumber, Value: "1"})
 	}
 	return out
+}
+
+// roleValidation is Constants.ROLE_VALIDATION — the role whose lab-unit grants
+// decide what this endpoint may return.
+const roleValidation = "Validation"
+
+// filterByLabUnits ports filterAnalysisResultsByLabUnitRoles: keep only the
+// analyses whose test section is one the caller holds the role on. A caller
+// with the AllLabUnits sentinel keeps everything.
+func filterByLabUnits(rows []daoimpl.ValidationRow, units []string) []daoimpl.ValidationRow {
+	if daoimpl.HasAllLabUnits(units) {
+		return rows
+	}
+	allowed := make(map[string]bool, len(units))
+	for _, u := range units {
+		allowed[u] = true
+	}
+	out := make([]daoimpl.ValidationRow, 0, len(rows))
+	for _, r := range rows {
+		if r.TestSectionID != nil && allowed[*r.TestSectionID] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// derefI is zero for a nil count.
+func derefI(i *int) int {
+	if i == nil {
+		return 0
+	}
+	return *i
 }

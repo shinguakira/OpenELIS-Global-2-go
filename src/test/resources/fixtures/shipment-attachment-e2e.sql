@@ -126,6 +126,13 @@ BEGIN
     -- unrelated endpoints (WorkPlanByTest 500s on the resulting NPE).
     SELECT id INTO order_status FROM clinlims.status_of_sample
      WHERE status_type = 'ORDER' AND name = 'Test Entered' LIMIT 1;
+    IF order_status IS NULL THEN
+        -- Fail LOUDLY rather than seeding NULL statuses again: a NULL here is
+        -- what made WorkPlanByTest 500 for every test id, and it was invisible
+        -- until the c3 wave went looking.
+        RAISE NOTICE 'shipment-attachment-e2e: ORDER status "Test Entered" missing; nothing seeded.';
+        RETURN;
+    END IF;
     -- ---- cleanup, children first -------------------------------------------
     DELETE FROM clinlims.box_sample_item
      WHERE sample_item_id IN (
@@ -142,6 +149,27 @@ BEGIN
     DELETE FROM clinlims.order_attachment
      WHERE sample_id IN (SELECT id FROM clinlims.sample
                           WHERE accession_number LIKE 'E2E-REF-%' OR accession_number = 'E2E-ATT-01');
+    -- result and note hang off analysis and must go FIRST.
+    --
+    -- They were not here originally because nothing ever attached a result to
+    -- a referred analysis. result-reads-e2e.sql now does, to make the
+    -- referralResultsDisplay/resultDate/notes fields reachable, and this
+    -- cleanup started failing on result_analysis_fk the next time it ran.
+    -- A fixture that only cleans what it itself writes breaks as soon as
+    -- another one writes a child row.
+    DELETE FROM clinlims.result
+     WHERE analysis_id IN (
+        SELECT a.id FROM clinlims.analysis a
+          JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+          JOIN clinlims.sample s ON s.id = si.samp_id
+         WHERE s.accession_number LIKE 'E2E-REF-%' OR s.accession_number = 'E2E-ATT-01');
+    DELETE FROM clinlims.note
+     WHERE reference_table = (SELECT id FROM clinlims.reference_tables WHERE name = 'ANALYSIS')
+       AND reference_id IN (
+        SELECT a.id FROM clinlims.analysis a
+          JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+          JOIN clinlims.sample s ON s.id = si.samp_id
+         WHERE s.accession_number LIKE 'E2E-REF-%' OR s.accession_number = 'E2E-ATT-01');
     DELETE FROM clinlims.analysis
      WHERE sampitem_id IN (
         SELECT si.id FROM clinlims.sample_item si

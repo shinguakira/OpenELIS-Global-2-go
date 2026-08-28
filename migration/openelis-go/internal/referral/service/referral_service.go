@@ -128,6 +128,30 @@ func convert(rows []daoimpl.ReferralDisplayRow) []form.ReferralDisplayItemDTO {
 			name := *r.OrganizationName
 			item.ReferenceLabDisplay = &name
 		}
+
+		// The two result-dependent fields, set TOGETHER inside
+		// `if (!resultList.isEmpty())`. A numeric result is rendered with its
+		// UNIT appended — getAppropriateResultValue returns "13.75 UI/L", not the
+		// bare number — so the unit is part of the value rather than a field of
+		// its own.
+		if r.ResultValue != nil && *r.ResultValue != "" {
+			display := *r.ResultValue
+			if r.UnitOfMeasure != nil && *r.UnitOfMeasure != "" {
+				display += " " + *r.UnitOfMeasure
+			}
+			item.ReferralResultsDisplay = &display
+			if r.CompletedDate != nil {
+				d := *r.CompletedDate
+				item.ResultDate = &d
+			}
+		}
+
+		// notes is INDEPENDENT of the result: getNotesAsString runs either way
+		// and returns null when the analysis carries none.
+		if r.Notes != nil && *r.Notes != "" {
+			n := *r.Notes
+			item.Notes = &n
+		}
 		out = append(out, item)
 	}
 	return out

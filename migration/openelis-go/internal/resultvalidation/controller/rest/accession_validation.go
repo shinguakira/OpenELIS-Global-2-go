@@ -3,6 +3,9 @@ package rest
 
 import (
 	"net/http"
+	"strconv"
+
+	"openelis-go/internal/auth/middleware"
 
 	"openelis-go/internal/common/web"
 	"openelis-go/internal/resultvalidation/service"
@@ -29,10 +32,23 @@ func (c *AccessionValidationRestController) get(w http.ResponseWriter, r *http.R
 		doRange = !(v == "false" || v == "0" || v == "off" || v == "no")
 	}
 
-	f, err := c.Service.Load(q.Get("accessionNumber"), q.Get("date"), q.Get("unitType"), doRange)
+	// The AUTHENTICATED caller, not a fixed id: their lab-unit grants decide
+	// which sections and which results this endpoint may return.
+	f, err := c.Service.Load(sysUserID(r), q.Get("accessionNumber"), q.Get("date"), q.Get("unitType"), doRange)
 	if err != nil {
 		web.WriteJSON(w, http.StatusInternalServerError, web.ServletError(http.StatusInternalServerError))
 		return
 	}
 	web.WriteJSON(w, http.StatusOK, f)
+}
+
+// sysUserID is the authenticated principal, or the empty string when there is
+// none. These routes are default-deny so that cannot happen; returning empty
+// rather than a fallback id keeps a future open route from serving one
+// caller's lab-unit scope to another.
+func sysUserID(r *http.Request) string {
+	if p, ok := middleware.FromContext(r.Context()); ok {
+		return strconv.FormatInt(p.SystemUserID, 10)
+	}
+	return ""
 }

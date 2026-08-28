@@ -8,7 +8,6 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 
 	"openelis-go/internal/common/util"
 	"openelis-go/internal/result/daoimpl"
@@ -30,10 +29,13 @@ var ErrTypelessSampleItem = errors.New("analysis on a sample item with no type o
 // that only made that call could assert nothing about the rows.
 func (s *ResultService) Logbook(labNumber, selectedTest string) (*form.LogbookResultsForm, error) {
 	f := form.NewLogbookResultsForm()
-	f.CurrentDate = currentDate()
+	today, err := s.DAO.CurrentDate()
+	if err != nil {
+		return nil, err
+	}
+	f.CurrentDate = today
 
 	var rows []daoimpl.LogbookRow
-	var err error
 	switch {
 	case labNumber != "":
 		acc := labNumber
@@ -164,14 +166,32 @@ func buildRow(r daoimpl.LogbookRow) form.TestResultRowDTO {
 	// The normal range is emitted BOTH as two numbers and as a formatted
 	// string, and the string is rounded to the test_result significant digits
 	// while the numbers are raw.
-	row.LowerNormalRange = derefF(r.LowNormal)
-	row.UpperNormalRange = derefF(r.HighNormal)
+	//
+	// Each bound is folded to zero when it holds ITS OWN sentinel and passed
+	// through otherwise — setResultLimitDependencies tests the LOW bounds
+	// against NEGATIVE_INFINITY and the HIGH bounds against POSITIVE_INFINITY,
+	// never the other way round. An unbounded range therefore reads as 0, while
+	// the opposite infinity (which the schema permits) would survive to the wire
+	// as the string "Infinity". Every seeded row holds the matching sentinel, so
+	// nothing here distinguishes the fold from a hardcoded zero — which is
+	// precisely how the criticals below stayed hardcoded until measured.
+	row.LowerNormalRange = foldSentinel(r.LowNormal, math.Inf(-1))
+	row.UpperNormalRange = foldSentinel(r.HighNormal, math.Inf(1))
 	// The "abnormal" pair is result_limits' VALID range, not a separate
 	// abnormal one — low_valid/high_valid under a different name.
-	row.LowerAbnormalRange = derefF(r.LowValid)
-	row.UpperAbnormalRange = derefF(r.HighValid)
+	row.LowerAbnormalRange = foldSentinel(r.LowValid, math.Inf(-1))
+	row.UpperAbnormalRange = foldSentinel(r.HighValid, math.Inf(1))
+	row.LowerCritical = foldSentinel(r.LowCritical, math.Inf(-1))
+	row.HigherCritical = foldSentinel(r.HighCritical, math.Inf(1))
 	row.NormalRange = displayRange(r.LowNormal, r.HighNormal, r.LimitSigDigits)
 	row.ResultLimitID = deref(r.LimitID)
+
+	// nonconforming is set for a technically REJECTED analysis:
+	//   testResultItem.isNonconforming() || statusService.matches(statusId,
+	//                                        AnalysisStatus.TechnicalRejected)
+	// Nothing in the dataset was in that status until the fixture added one, so
+	// this flag was false on every row and a port that never set it agreed.
+	row.Nonconforming = r.StatusIsRejected
 
 	// significantDigits comes from TEST_RESULT, not from the result row —
 	// AccessionValidation reads the result's own value for the same-named
@@ -208,16 +228,24 @@ func buildRow(r daoimpl.LogbookRow) form.TestResultRowDTO {
 	if r.ResultID != nil {
 		row.ResultID = *r.ResultID
 		row.ResultType = deref(r.ResultType)
-		row.ResultValue = deref(r.ResultValue)
+		// getResultValue formats a numeric result to the TEST_RESULT significant
+		// digits, so a stored 6.5 on a 2-digit test goes out as "6.50". With zero
+		// digits the stored text is emitted unchanged — 42.5 stays 42.5 rather
+		// than rounding to 43.
+		row.ResultValue = formatResultValue(deref(r.ResultValue), derefI(r.LimitSigDigits))
 		// shadowResultValue is the same value under a second key — the form
 		// keeps a copy to detect edits.
 		row.ShadowResultValue = row.ResultValue
 		row.ResultValueLog = logOf(row.ResultValue)
+		// The nested object's significantDigits and grouping are ZERO on every
+		// row, whatever the result or the test_result says — measured across all
+		// six analyses of an order, including one whose own significantDigits is
+		// 2. The Result instance Jackson reaches here is not the loaded row.
 		row.Result = &form.ResultRefDTO{
 			IsActive:          "Y",
 			ID:                *r.ResultID,
-			SignificantDigits: derefI(r.LimitSigDigits),
-			Grouping:          derefI(r.Grouping),
+			SignificantDigits: 0,
+			Grouping:          0,
 		}
 	}
 	return row
@@ -234,11 +262,10 @@ func logOf(v string) string {
 		}
 		return "--"
 	}
-	l := math.Log10(f)
-	if l == math.Trunc(l) {
-		return strconv.FormatFloat(l, 'f', -1, 64)
-	}
-	return fmt.Sprintf("%.2f", l)
+	// Two decimals, then trailing zeros stripped: log10(99) is 1.9956, which
+	// renders "2.00" and is emitted as "2" — while log10(42.5) keeps both
+	// digits as "1.63".
+	return trimTrailingZeros(fmt.Sprintf("%.2f", math.Log10(f)))
 }
 
 func displayRange(low, high *float64, sig *int) string {
@@ -269,8 +296,37 @@ func searchTermToPage(items []form.TestResultRowDTO) []util.IdValuePair {
 	return out
 }
 
-// currentDate is DateUtil.getCurrentDateAsText — dd/MM/yyyy.
-func currentDate() string { return time.Now().Format("02/01/2006") }
+// foldSentinel is the ternary setResultLimitDependencies applies to every
+// result_limits bound: this bound's own infinity means "unset" and becomes
+// zero; anything else, including the OTHER infinity, passes through.
+func foldSentinel(v *float64, sentinel float64) util.JavaDouble {
+	if v == nil || *v == sentinel {
+		return 0
+	}
+	return util.JavaDouble(*v)
+}
+
+// formatResultValue applies the significant digits a numeric result is
+// rendered with. A non-numeric value, or zero digits, is passed through.
+func formatResultValue(v string, digits int) string {
+	if digits <= 0 || v == "" {
+		return v
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return v
+	}
+	return fmt.Sprintf("%.*f", digits, f)
+}
+
+// trimTrailingZeros turns "2.00" into "2" and leaves "1.63" alone.
+func trimTrailingZeros(s string) string {
+	if !strings.Contains(s, ".") {
+		return s
+	}
+	s = strings.TrimRight(s, "0")
+	return strings.TrimSuffix(s, ".")
+}
 
 func deref(s *string) string {
 	if s == nil {

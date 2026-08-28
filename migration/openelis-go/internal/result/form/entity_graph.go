@@ -12,6 +12,8 @@
 // needs for itself.
 package form
 
+import "openelis-go/internal/common/util"
+
 // LocalizedValueDTO is one Localization.values entry.
 type LocalizedValueDTO struct {
 	Lastupdated *int64 `json:"lastupdated,omitempty"`
@@ -198,9 +200,16 @@ type AnalysisEntityDTO struct {
 	TestSection  *TestSectionDTO      `json:"testSection,omitempty"`
 	Test         *TestEntityDTO       `json:"test,omitempty"`
 	Revision     string               `json:"revision"`
-	EnteredDate  *int64               `json:"enteredDate,omitempty"`
-	IsReportable string               `json:"isReportable"`
-	Panel        *PanelDTO            `json:"panel,omitempty"`
+	// startedDate FIRST: Jackson emits the analysis fields in this order and
+	// the byte comparison sees the swap even though every value agrees.
+	StartedDate *int64 `json:"startedDate,omitempty"`
+	EnteredDate *int64 `json:"enteredDate,omitempty"`
+	// startedDateForDisplay is emitted only for an analysis that has actually
+	// been started — the column is NULL on every analysis that has not, and
+	// NON_NULL drops it along with startedDate above.
+	StartedDateForDisplay *string   `json:"startedDateForDisplay,omitempty"`
+	IsReportable          string    `json:"isReportable"`
+	Panel                 *PanelDTO `json:"panel,omitempty"`
 
 	TriggeredReflex             bool   `json:"triggeredReflex"`
 	StatusID                    string `json:"statusId"`
@@ -223,8 +232,8 @@ type ResultEntityDTO struct {
 	IsReportable      string             `json:"isReportable"`
 	ResultType        string             `json:"resultType"`
 	Value             string             `json:"value"`
-	MinNormal         *float64           `json:"minNormal,omitempty"`
-	MaxNormal         *float64           `json:"maxNormal,omitempty"`
+	MinNormal         *util.JavaDouble   `json:"minNormal,omitempty"`
+	MaxNormal         *util.JavaDouble   `json:"maxNormal,omitempty"`
 	SignificantDigits int                `json:"significantDigits"`
 	Grouping          int                `json:"grouping"`
 	FhirUUIDAsString  string             `json:"fhirUuidAsString"`

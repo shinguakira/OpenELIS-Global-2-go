@@ -34,11 +34,23 @@ func (d JavaDouble) MarshalJSON() ([]byte, error) {
 
 // JavaDoubleString renders v as Java's Double.toString would.
 func JavaDoubleString(v float64) string {
-	// NaN and the infinities have no JSON representation and Jackson refuses
-	// them outright; no column this port reads can hold one. Rendering them as
-	// null keeps the output valid JSON instead of emitting a bare NaN token.
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return "null"
+	// NaN and the infinities have no JSON number, and Jackson does NOT refuse
+	// them — QUOTE_NON_NUMERIC_NUMBERS is on by default, so it writes each as a
+	// STRING and a field declared `double` answers with "Infinity".
+	//
+	// Measured, not assumed: AccessionValidation returns
+	//     "lowerCritical":"Infinity","higherCritical":0.0
+	// on one row, because ResultLimit initialises lowCritical to POSITIVE_INFINITY
+	// and only the NEGATIVE sentinel is folded to zero. An earlier version of this
+	// function rendered null there — a value no Java deployment can produce.
+	if math.IsNaN(v) {
+		return `"NaN"`
+	}
+	if math.IsInf(v, 1) {
+		return `"Infinity"`
+	}
+	if math.IsInf(v, -1) {
+		return `"-Infinity"`
 	}
 	if v == 0 {
 		if math.Signbit(v) {

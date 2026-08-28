@@ -135,6 +135,13 @@ BEGIN
     -- unrelated endpoints (WorkPlanByTest 500s on the resulting NPE).
     SELECT id INTO order_status FROM clinlims.status_of_sample
      WHERE status_type = 'ORDER' AND name = 'Test Entered' LIMIT 1;
+    IF order_status IS NULL THEN
+        -- Fail LOUDLY rather than seeding NULL statuses again: a NULL here is
+        -- what made WorkPlanByTest 500 for every test id, and it was invisible
+        -- until the c3 wave went looking.
+        RAISE NOTICE 'order-search-full-e2e: ORDER status "Test Entered" missing; nothing seeded.';
+        RETURN;
+    END IF;
     -- ---- cleanup, children first -------------------------------------------
     DELETE FROM clinlims.observation_history
      WHERE sample_id IN (SELECT id FROM clinlims.sample WHERE accession_number LIKE 'E2E-FULL-%');

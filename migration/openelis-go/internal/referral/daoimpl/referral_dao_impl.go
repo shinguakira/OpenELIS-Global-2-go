@@ -3,10 +3,41 @@
 package daoimpl
 
 import (
+	"fmt"
+	"strings"
+
+	"openelis-go/internal/common/i18n"
 	"openelis-go/internal/common/util"
 
 	"gorm.io/gorm"
 )
+
+// noteTypes are Note.INTERNAL/EXTERNAL/REJECT_REASON/NON_CONFORMITY, in the
+// order getNotePrefix tests them. Fixed order because the slice builds SQL and
+// a map would emit a different string on every run.
+var noteTypes = []struct{ Code, Key string }{
+	{"I", "note.type.internal"},
+	{"E", "note.type.external"},
+	{"R", "note.type.rejectReason"},
+	{"N", "note.type.nonConformity"},
+}
+
+// notePrefixCase is getNotePrefix as a SQL expression: the localized label for
+// a known note type, the empty string for anything else.
+//
+// The labels come from the message bundle rather than being spelled out here,
+// because they ARE message keys in Java and a port that hardcodes "Internal"
+// has quietly made the field untranslatable.
+func notePrefixCase() string {
+	msgs := i18n.Messages()
+	var b strings.Builder
+	b.WriteString("CASE n.note_type")
+	for _, t := range noteTypes {
+		fmt.Fprintf(&b, " WHEN '%s' THEN '%s'", t.Code, strings.ReplaceAll(msgs[t.Key], "'", "''"))
+	}
+	b.WriteString(" ELSE '' END")
+	return b.String()
+}
 
 // ReferralDAOImpl backs rest/ReferredOutTests (Wave 5.4).
 type ReferralDAOImpl struct {
@@ -34,7 +65,26 @@ type ReferralDisplayRow struct {
 	TestName         *string `gorm:"column:test_name"`
 	OrganizationName *string `gorm:"column:organization_name"`
 	AnalysisID       string  `gorm:"column:analysis_id"`
-	ResultCount      int64   `gorm:"column:result_count"`
+	// notes is getNotesAsString(analysis, prefixType=true, prefixTimestamp=true,
+	// "<br/>", excludeExternPrefix=false), which is NOT the bare note text:
+	//
+	//     <type label> <dd/MM/yyyy HH:mm> : <text>
+	//
+	// notesToString appends the type, a space, the timestamp, a space, then the
+	// literal ": " — so an unknown note type, whose label is the empty string,
+	// still contributes its space and the line opens with one.
+	//
+	// Chronological by lastupdated, per getNotesChronologicallyByRefIdAndRefTable.
+	//
+	// The referral's returned result and the analysis notes. convertToDisplayItem
+	// sets referralResultsDisplay and resultDate only inside
+	// `if (!resultList.isEmpty())`, and notes come from getNotesAsString — every
+	// seeded referral had neither, so all three fields were unreachable.
+	ResultValue   *string `gorm:"column:result_value"`
+	ResultType    *string `gorm:"column:result_type"`
+	UnitOfMeasure *string `gorm:"column:unit_of_measure"`
+	CompletedDate *string `gorm:"column:completed_date"`
+	Notes         *string `gorm:"column:notes"`
 }
 
 // ByAccessionNumber ports getReferralsByAccessionNumber, then the per-referral
@@ -56,7 +106,16 @@ func (d *ReferralDAOImpl) ByAccessionNumber(accessionNumber string) ([]ReferralD
 			COALESCE(lv.value, t.name) AS test_name,
 			o.name AS organization_name,
 			a.id::text AS analysis_id,
-			(SELECT count(*) FROM clinlims.result res WHERE res.analysis_id = a.id) AS result_count`).
+			res.value AS result_value,
+			res.result_type AS result_type,
+			uom.name AS unit_of_measure,
+			to_char(a.completed_date, 'DD/MM/YYYY') AS completed_date,
+			(SELECT string_agg(`+notePrefixCase()+` || ' '
+			          || to_char(n.lastupdated, 'DD/MM/YYYY HH24:MI') || ' : ' || n.text,
+			        '<br/>' ORDER BY n.lastupdated)
+			   FROM clinlims.note n
+			   JOIN clinlims.reference_tables rt ON rt.id = n.reference_table
+			  WHERE rt.name = 'ANALYSIS' AND n.reference_id = a.id) AS notes`).
 		Joins("JOIN clinlims.analysis AS a ON a.id = r.analysis_id").
 		Joins("JOIN clinlims.sample_item AS si ON si.id = a.sampitem_id").
 		Joins("JOIN clinlims.sample AS s ON s.id = si.samp_id").
@@ -67,6 +126,10 @@ func (d *ReferralDAOImpl) ByAccessionNumber(accessionNumber string) ([]ReferralD
 		Joins("LEFT JOIN clinlims.sample_human AS sh ON sh.samp_id = s.id").
 		Joins("LEFT JOIN clinlims.patient AS pa ON pa.id = sh.patient_id").
 		Joins("LEFT JOIN clinlims.person AS pe ON pe.id = pa.person_id").
+		// res and uom come LAST: they reference a and t, and Postgres needs the
+		// aliases defined earlier in the FROM chain.
+		Joins("LEFT JOIN clinlims.result AS res ON res.analysis_id = a.id").
+		Joins("LEFT JOIN clinlims.unit_of_measure AS uom ON uom.id = t.uom_id").
 		Where("s.accession_number = ?", accessionNumber).
 		Order("r.ctid").
 		Scan(&rows).Error
@@ -82,22 +145,37 @@ func (d *ReferralDAOImpl) ByAccessionNumber(accessionNumber string) ([]ReferralD
 // punctuation and would order this list differently.
 func (d *ReferralDAOImpl) AllActiveTests() ([]util.IdValuePair, error) {
 	rows := []util.IdValuePair{}
+	// The locale is BOUND, not concatenated. It comes from site_information
+	// rather than from a caller, so this is not a live injection path — but the
+	// value still reaches the query as SQL text, and the sibling result DAO
+	// already shows the parameterised form. Keeping one pattern is cheaper than
+	// arguing about which strings are safe.
 	augmented := `COALESCE(lv.value, t.name) || COALESCE(
 		(SELECT '(' || COALESCE(tlv.value, tos.description) || ')'
 		   FROM clinlims.sampletype_test AS tost
 		   JOIN clinlims.type_of_sample AS tos ON tos.id = tost.sample_type_id
 		   LEFT JOIN clinlims.localization AS tl ON tl.id = tos.name_localization_id
 		   LEFT JOIN clinlims.localization_value AS tlv
-		          ON tlv.localization_id = tl.id AND tlv.locale = '` + d.Locale() + `'
+		          ON tlv.localization_id = tl.id AND tlv.locale = @loc
 		  WHERE tost.test_id = t.id
 		    AND tos.local_abbrev IS DISTINCT FROM 'Variable'
 		  ORDER BY tost.ctid LIMIT 1), '')`
-	err := d.DB.Table("clinlims.test AS t").
-		Select("t.id::text AS id, "+augmented+" AS value").
+	// The expression is needed twice — once to produce the value and once to
+	// sort it — but a named parameter can only be bound on the SELECT. Ordering
+	// by the output alias directly is not an option either: Postgres accepts a
+	// bare output name in ORDER BY but not one inside an expression, so
+	// `ORDER BY value COLLATE "C"` is a missing-column error.
+	//
+	// A derived table solves both: the locale binds once, and the outer query
+	// sorts a real column.
+	inner := d.DB.Table("clinlims.test AS t").
+		Select("t.id::text AS id, "+augmented+" AS value", map[string]any{"loc": d.Locale()}).
 		Joins("LEFT JOIN clinlims.localization AS l ON l.id = t.name_localization_id").
 		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = l.id AND lv.locale = ?", d.Locale()).
-		Where("t.is_active = ?", "Y").
-		Order(`(` + augmented + `) COLLATE "C"`).
+		Where("t.is_active = ?", "Y")
+	err := d.DB.Table("(?) AS x", inner).
+		Select("x.id, x.value").
+		Order(`x.value COLLATE "C"`).
 		Scan(&rows).Error
 	return rows, err
 }

@@ -238,6 +238,97 @@ the unit of measure.
 
 ---
 
+## 12. `AccessionValidation` shows no reference range where the logbook shows one
+
+`ResultsValidationUtility.createTestResultItem` resolves the reference range
+with `getResultLimitForTestAndPatient(test, currentPatient)`, and on that path
+the patient carries neither a birth date nor a gender — so the service takes
+its `patient == null` branch and returns `defaultResultLimit`, which only ever
+matches a row whose gender is BLANK and whose age limits are the defaults
+`0..Infinity`.
+
+A test whose `result_limits` rows are all age-banded therefore has NO default
+row, gets no limit, and its `normalRange` comes out empty — while
+`rest/LogbookResults` resolves the SAME analysis through
+`getResultLimitForAnalysis`, picks the age-appropriate band, and renders it.
+
+Measured on one analysis, both endpoints, same request:
+
+| endpoint | resultLimitId | normalRange |
+|---|---|---|
+| `LogbookResults` | 11 | `4.00 - 10.00` |
+| `AccessionValidation` | — | `""` |
+
+So the validation screen — the one where a biologist decides whether a result
+is acceptable — is the screen that shows no reference range for any
+age-banded test.
+
+- **Pinned by:** `c3-result-reads.spec.ts`, "ONE result_limits band per
+  analysis, chosen by the patient's age".
+
+---
+
+## 13. `lowerCritical` answers with the STRING `"Infinity"` from a field declared `double`
+
+`ResultLimit` initialises its bounds in the valueholder, and one of them is
+initialised to the wrong infinity:
+
+```java
+private double highCritical = Double.POSITIVE_INFINITY;
+private double lowCritical  = Double.POSITIVE_INFINITY;   // <- every other LOW bound is NEGATIVE
+private double lowNormal    = Double.NEGATIVE_INFINITY;
+private double lowValid     = Double.NEGATIVE_INFINITY;
+private double lowReportingRange = Double.NEGATIVE_INFINITY;
+```
+
+That initialiser is normally invisible, because a limit loaded from the table
+overwrites every field. It becomes reachable through
+`ResultLimitServiceImpl.defaultResultLimit`, which does **not** return null
+when a test has limits but none of them is the default band:
+
+```java
+for (ResultLimit limit : resultLimits) {
+    if (isBlankOrNull(limit.getGender()) && limit.ageLimitsAreDefault()) return limit;
+}
+return new ResultLimit();          // <- a SYNTHESIZED limit, all fields at their initialisers
+```
+
+`setResultLimitDependencies` then folds each bound against **its own**
+sentinel:
+
+```java
+testItem.setLowerCritical( resultLimit.getLowCritical()  == Double.NEGATIVE_INFINITY ? 0 : ... );
+testItem.setHigherCritical(resultLimit.getHighCritical() == Double.POSITIVE_INFINITY ? 0 : ... );
+```
+
+`highCritical` matches its sentinel and folds to 0. `lowCritical` holds
+`POSITIVE_INFINITY`, does not match `NEGATIVE_INFINITY`, and survives to
+Jackson — which has no JSON number for an infinity and, with
+`QUOTE_NON_NUMERIC_NUMBERS` on by default, writes it as a **string**.
+
+Measured on one `AccessionValidation` response, three rows of one order:
+
+| analysis | default band resolved? | `lowerCritical` | `higherCritical` |
+|---|---|---|---|
+| 173 | yes | `0.0` | `0.0` |
+| 176 | yes | `0.0` | `0.0` |
+| 175 | **no** (age-banded only) | `"Infinity"` | `0.0` |
+
+So a field the DTO declares as `double` changes JSON **type** depending on
+which rows exist in `result_limits`, and the two bounds of the same row
+disagree about what "unset" looks like. Any consumer that parses
+`lowerCritical` as a number fails on exactly the age-banded tests — the same
+rows that already carry [defect 12](#12-accessionvalidation-shows-no-reference-range-where-the-logbook-shows-one)'s
+empty `normalRange`.
+
+A test with **no** `result_limits` rows at all is a third case:
+`getResultLimitForTestAndPatient` returns null, the dependencies are never
+set, and both bounds stay at the bean default `0.0`.
+
+- **Pinned by:** `c3-result-reads.spec.ts`, "a test with bands but NO default
+  band answers lowerCritical \"Infinity\"".
+
+
 ## Not defects — deliberate asymmetries worth knowing
 
 - **`result` is TWO different objects under one key.** `LogbookResults` nests a

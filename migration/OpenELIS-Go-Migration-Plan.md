@@ -347,6 +347,16 @@ version with the incident that motivated it:**
   built from a `HashMap`, whose iteration order is a function of the JVM string
   hash — so normalise key order and compare everything else exactly.
 
+  **And normalise key order by SORTING KEYS, not by re-serialising.** The byte
+  gate decided "key order only" by parsing both sides, sorting, and
+  re-stringifying — which re-renders every number and destroys exactly the
+  difference the gate exists to catch. `util.JavaDouble` had been written for
+  this in an earlier wave, and c3’s new forms still declared bare `float64`;
+  the gate reported "キー順のみ相違" on six fields × eighteen rows while the
+  two documents differed by 216 bytes. A verdict of "values are identical"
+  that is computed from re-encoded values is not evidence about bytes.
+  Byte lengths that DIFFER under a key-order-only verdict are the tell.
+
 - **A Java lookup keyed on a NAME may not read the table the name implies.**
   `getProgrammeSampleBySample` picks a JPA entity CLASS from the program name,
   and those classes are `TABLE_PER_CLASS` — so naming a subclass sends the

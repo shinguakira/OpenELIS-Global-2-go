@@ -33,11 +33,21 @@ const SAMPLE_PATIENT_ENTRY = "rest/SamplePatientEntry";
 const SAMPLE_EDIT = "rest/SampleEdit";
 const BATCH_ENTRY_SETUP = "rest/SampleBatchEntrySetup";
 
-/** dd/MM/yyyy, the format DateUtil.getCurrentDateAsText produces. */
+/**
+ * dd/MM/yyyy, the format DateUtil.getCurrentDateAsText produces — read from
+ * the DATABASE clock, not the test runner's.
+ *
+ * Using `new Date()` compared the SERVER's date against the RUNNER's, and the
+ * two are in different zones: the runner here is UTC+9 while the server is
+ * UTC, so for the nine hours after local midnight they disagree and every
+ * assertion on currentDate failed. A daily nine-hour window in which four
+ * tests go red for no reason anyone changed.
+ *
+ * The database is the same clock Java formats from, which makes it the oracle
+ * — the same discipline every other date assertion in this suite uses.
+ */
 function todayDDMMYYYY(): string {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+  return query("SELECT to_char(now(), 'DD/MM/YYYY')")[0][0];
 }
 
 /** Every {id,value} row, sorted, for order-independent comparison. */

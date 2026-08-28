@@ -2,6 +2,7 @@
 package rest
 
 import (
+	"log"
 	"net/http"
 	"time"
 
@@ -45,6 +46,10 @@ func (c *ReferredOutTestsRestController) get(w http.ResponseWriter, r *http.Requ
 
 	f, err := c.Service.Load(searchType, r.URL.Query().Get("labNumber"))
 	if err != nil {
+		// Java answers 500 here too, but it LOGS the cause. Swallowing it made a
+		// broken query indistinguishable from the reproduced TEST_AND_DATES
+		// defect.
+		log.Printf("ReferredOutTests: %v", err)
 		web.WriteJSON(w, http.StatusInternalServerError, web.ServletError(http.StatusInternalServerError))
 		return
 	}

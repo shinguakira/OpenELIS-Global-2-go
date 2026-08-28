@@ -73,14 +73,18 @@ type TestResultItemDTO struct {
 	TestID               string  `json:"testId"`
 	TestKitInactive      bool    `json:"testKitInactive"`
 
-	UpperNormalRange   float64 `json:"upperNormalRange"`
-	LowerNormalRange   float64 `json:"lowerNormalRange"`
-	UpperAbnormalRange float64 `json:"upperAbnormalRange"`
-	LowerAbnormalRange float64 `json:"lowerAbnormalRange"`
-	NormalRange        string  `json:"normalRange"`
-	LowerCritical      float64 `json:"lowerCritical"`
-	HigherCritical     float64 `json:"higherCritical"`
-	SignificantDigits  int     `json:"significantDigits"`
+	// util.JavaDouble, not float64. Jackson writes a `double` 40.0 as `40.0`
+	// and Go writes `40`; both parse to the same number, so a differ that
+	// unmarshals reports parity and only the raw bytes disagree. Six fields ×
+	// eighteen rows is a 216-byte Content-Length difference on one response.
+	UpperNormalRange   util.JavaDouble `json:"upperNormalRange"`
+	LowerNormalRange   util.JavaDouble `json:"lowerNormalRange"`
+	UpperAbnormalRange util.JavaDouble `json:"upperAbnormalRange"`
+	LowerAbnormalRange util.JavaDouble `json:"lowerAbnormalRange"`
+	NormalRange        string          `json:"normalRange"`
+	LowerCritical      util.JavaDouble `json:"lowerCritical"`
+	HigherCritical     util.JavaDouble `json:"higherCritical"`
+	SignificantDigits  int             `json:"significantDigits"`
 
 	Reportable        string  `json:"reportable"`
 	PatientName       *string `json:"patientName,omitempty"`

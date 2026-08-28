@@ -1,6 +1,7 @@
 package service
 
 import (
+	"openelis-go/internal/common/util"
 	"strings"
 
 	"openelis-go/internal/result/daoimpl"
@@ -247,21 +248,23 @@ func buildResultEntity(
 	}
 
 	analysis := &form.AnalysisEntityDTO{
-		Lastupdated:  r.AnalysisLastupdated,
-		ID:           r.AnalysisID,
-		SampleItem:   item,
-		AnalysisType: deref(r.AnalysisType),
-		TestSection:  section,
-		Test:         test,
-		Revision:     deref(r.AnalysisRevision),
-		EnteredDate:  r.AnalysisEnteredDate,
-		IsReportable: deref(r.AnalysisReportable),
-		Panel:        panel,
-		StatusID:     deref(r.AnalysisStatusID),
-		ReferredOut:  derefB(r.AnalysisReferredOut),
-		ObjectID:     r.AnalysisID,
-		BoundTo:      "ANALYSIS",
-		TableID:      "4",
+		Lastupdated:           r.AnalysisLastupdated,
+		ID:                    r.AnalysisID,
+		SampleItem:            item,
+		AnalysisType:          deref(r.AnalysisType),
+		TestSection:           section,
+		Test:                  test,
+		Revision:              deref(r.AnalysisRevision),
+		EnteredDate:           r.AnalysisEnteredDate,
+		StartedDate:           r.AnalysisStartedDate,
+		StartedDateForDisplay: r.AnalysisStartedDisplay,
+		IsReportable:          deref(r.AnalysisReportable),
+		Panel:                 panel,
+		StatusID:              deref(r.AnalysisStatusID),
+		ReferredOut:           derefB(r.AnalysisReferredOut),
+		ObjectID:              r.AnalysisID,
+		BoundTo:               "ANALYSIS",
+		TableID:               "4",
 	}
 
 	return &form.ResultEntityDTO{
@@ -273,8 +276,8 @@ func buildResultEntity(
 		IsReportable:      deref(r.ResultReportable),
 		ResultType:        deref(r.ResultType),
 		Value:             deref(r.ResultValue),
-		MinNormal:         r.ResultMinNormal,
-		MaxNormal:         r.ResultMaxNormal,
+		MinNormal:         util.JavaDoublePtr(r.ResultMinNormal),
+		MaxNormal:         util.JavaDoublePtr(r.ResultMaxNormal),
 		SignificantDigits: derefI(r.ResultSigDigits),
 		Grouping:          derefI(r.ResultGrouping),
 	}
