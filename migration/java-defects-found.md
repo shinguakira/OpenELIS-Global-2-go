@@ -148,7 +148,86 @@ Seeded and pinned as `E2E-FULL-02`: `program_sample.program_id = 2`
 
 ---
 
+## 7. A type-less sample item NPEs two result endpoints (c3)
+
+`AnalysisServiceImpl.getTestDisplayName` calls
+`sampleItem.getTypeOfSampleId().equals(...)` with no null check. Java's OWN
+unassigned-sample HQL LEFT JOINs `type_of_sample` and COALESCEs the
+description — it is written to tolerate a NULL `typeosamp_id` — so the two
+code paths disagree about whether that state is legal.
+
+Reachable from at least two endpoints, which is how it was found:
+`rest/LogbookResults?selectedTest=N` and
+`rest/WorkPlanByTestSection?test_section_id=N` both 500 as soon as one
+matching analysis sits on such an item. A test or section with none answers
+200 with rows.
+
+- **Pinned by:** `c3-result-reads.spec.ts`, "a type-less sample item 500s
+  WorkPlanByTestSection and LogbookResults alike", with the 200-plus-rows
+  inversion beside it.
+
+---
+
+## 8. `AccessionValidation` returns a DIFFERENT accession's results by default
+
+`showAccessionValidationRange` takes
+`@RequestParam(defaultValue = "true") Boolean doRange`, and the two branches
+are not variations on one search:
+
+| `doRange` | behaviour |
+|---|---|
+| `true` (default) | `getResultValidationList(status, section, accessionNumber, date)` — a RANGE search |
+| `false` | `getSample(accessionNumber)`, then that sample's analyses; empty when no such sample |
+
+Measured: asking for `E2E-ATT-01` — an order with no analyses of its own —
+returns one row whose own `accessionNumber` is `E2E-RES-01`, while the form
+still echoes `E2E-ATT-01`. A clinical screen showing another order's result
+under the requested accession is worth raising on its own; for the port it
+means the obvious exact-match reading is wrong and looks right on every other
+input.
+
+- **Pinned by:** `c3-result-reads.spec.ts`, "AccessionValidation: only
+  TechnicalAcceptance analyses are up for validation".
+
+---
+
+## 9. `ReferredOutTests?searchType=TEST_AND_DATES` 500s instead of validating
+
+`SearchType` is `TEST_AND_DATES` / `LAB_NUMBER` / `PATIENT`. A value outside
+the enum is a clean 400 from Spring's converter, but the in-enum
+`TEST_AND_DATES` with no dates supplied throws instead of reporting a
+validation error.
+
+- **Pinned by:** `c3-result-reads.spec.ts`, "ReferredOutTests: searchType
+  drives the search, and one of its values 500s".
+
+---
+
+## 10. `QAService.nonconformingByDepricatedStatus` NPEs on a NULL sample status
+
+`Sample.getStatusId()` is dereferenced with no null check, so any endpoint
+reaching that code 500s for a sample whose `status_id` is NULL — found via
+`rest/WorkPlanByTest`, which returned 500 for every `test_id` that had
+analyses. Every stock sample carries a status, so this only fires on data
+written outside the app.
+
+---
+
 ## Not defects — deliberate asymmetries worth knowing
+
+- **`WorkPlanByPanel` expands the panel to its TESTS; it does not read
+  `analysis.panel_id`.** `getWorkplanByPanel` reads `panel_item` for the panel
+  and calls `getAllAnalysisByTestAndStatus` once per member test,
+  concatenating. An analysis on a member test appears with its own `panel_id`
+  NULL, and the response is strictly larger than the set of analyses carrying
+  that `panel_id`.
+- **`getAllAnalysisByTestSectionAndStatus`'s third parameter is dead.**
+  `sortedByDateAndAccession` guards a block whose entire body is commented
+  out, so passing `true` applies no ordering. The callers pass `true`.
+- **`WorkPlanByTestSection` filters `analysis.test_sect_id`, not
+  `test.test_section_id`.** The column on `analysis` is a denormalised copy
+  that `AnalysisServiceImpl` fills at creation time. Joining through `test`
+  agrees whenever the two match and diverges the moment they do not.
 
 These look like bugs, are not, and are pinned so a port does not "tidy" them:
 

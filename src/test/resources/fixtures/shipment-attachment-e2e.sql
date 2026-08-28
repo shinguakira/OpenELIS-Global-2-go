@@ -260,20 +260,24 @@ BEGIN
     an_boxed    := nextval('clinlims.analysis_seq');
     an_nullstat := nextval('clinlims.analysis_seq');
     an_voided   := nextval('clinlims.analysis_seq');
+    -- test_sect_id は test.test_section_id の非正規化コピー。
+    -- AnalysisServiceImpl が analysis 生成時に必ず setTestSection する列で、
+    -- これが NULL だと rest/WorkPlanByTestSection が 0 行になる（その HQL は
+    -- test 側ではなく analysis 側のこの列で絞る）。
     INSERT INTO clinlims.analysis
-        (id, sampitem_id, test_id, status_id, analysis_type, entry_date, is_reportable, revision, lastupdated)
+        (id, sampitem_id, test_id, test_sect_id, status_id, analysis_type, entry_date, is_reportable, revision, lastupdated)
     VALUES
         -- an_1a and an_1b BOTH hang off it_1a, which is what gives that one
         -- sample item two referralTests entries.
-        (an_1a,       it_1a,       test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_1b,       it_1a,       test_b, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_1b_item,  it_1b,       test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_2a,       it_2a,       test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_lost,     it_lost,     test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_cancel,   it_cancel,   test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_boxed,    it_boxed,    test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_nullstat, it_nullstat, test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_voided,   it_voided,   test_a, ana_status, 'MANUAL', now(), 'N', 0, now());
+        (an_1a,       it_1a,       test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_1b,       it_1a,       test_b, (SELECT test_section_id FROM clinlims.test WHERE id = test_b), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_1b_item,  it_1b,       test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_2a,       it_2a,       test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_lost,     it_lost,     test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_cancel,   it_cancel,   test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_boxed,    it_boxed,    test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_nullstat, it_nullstat, test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_voided,   it_voided,   test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now());
 
     -- ---- shipping box, for the "already assigned" exclusion ------------------
     box_pk := nextval('clinlims.shipping_box_seq');

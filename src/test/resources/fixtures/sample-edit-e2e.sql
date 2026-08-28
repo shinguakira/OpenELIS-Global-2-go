@@ -164,13 +164,17 @@ BEGIN
     -- them. With one analysis per item every row is a "first", so that rule is
     -- invisible and a port setting the header fields on every row passes.
     -- Two analyses on one item is the smallest shape that tells them apart.
+    -- test_sect_id は test.test_section_id の非正規化コピー。
+    -- AnalysisServiceImpl が analysis 生成時に必ず setTestSection する列で、
+    -- これが NULL だと rest/WorkPlanByTestSection が 0 行になる（その HQL は
+    -- test 側ではなく analysis 側のこの列で絞る）。
     INSERT INTO clinlims.analysis
-        (id, sampitem_id, test_id, status_id, analysis_type, entry_date, is_reportable, revision, lastupdated)
+        (id, sampitem_id, test_id, test_sect_id, status_id, analysis_type, entry_date, is_reportable, revision, lastupdated)
     VALUES
-        (nextval('clinlims.analysis_seq'), it_1a, test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (nextval('clinlims.analysis_seq'), it_1a, test_b, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (nextval('clinlims.analysis_seq'), it_1b, test_b, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (nextval('clinlims.analysis_seq'), it_2a, test_a, ana_status, 'MANUAL', now(), 'N', 0, now());
+        (nextval('clinlims.analysis_seq'), it_1a, test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (nextval('clinlims.analysis_seq'), it_1a, test_b, (SELECT test_section_id FROM clinlims.test WHERE id = test_b), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (nextval('clinlims.analysis_seq'), it_1b, test_b, (SELECT test_section_id FROM clinlims.test WHERE id = test_b), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (nextval('clinlims.analysis_seq'), it_2a, test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now());
 
     RAISE NOTICE 'sample-edit-e2e: seeded E2E-EDIT-01 (2 entered items) and E2E-EDIT-02 (1 entered, 1 disposed)';
 END $BODY$;

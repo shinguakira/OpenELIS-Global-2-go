@@ -32,6 +32,7 @@ ORDER_SEARCH_E2E_SQL="$SCRIPT_DIR/fixtures/order-search-e2e.sql"
 SHIPMENT_ATTACHMENT_E2E_SQL="$SCRIPT_DIR/fixtures/shipment-attachment-e2e.sql"
 SAMPLE_EDIT_E2E_SQL="$SCRIPT_DIR/fixtures/sample-edit-e2e.sql"
 ORDER_SEARCH_FULL_E2E_SQL="$SCRIPT_DIR/fixtures/order-search-full-e2e.sql"
+RESULT_READS_E2E_SQL="$SCRIPT_DIR/fixtures/result-reads-e2e.sql"
 RESET_SCRIPT="$SCRIPT_DIR/reset-test-database.sh"
 
 RESET=false
@@ -445,6 +446,18 @@ load_profile_lane_fixtures() {
     if [ -f "$ORDER_SEARCH_FULL_E2E_SQL" ]; then
         load_sql_file "$ORDER_SEARCH_FULL_E2E_SQL" \
             "order-search-full-e2e.sql (fully-populated order)" "fatal"
+    fi
+
+    # Result-side data for Wave 5: the result table was EMPTY, no analysis
+    # carried a panel_id, and nothing sat in Technical Acceptance — so every c3
+    # endpoint answered with an empty envelope and the baseline spec pinned that
+    # emptiness as the contract.
+    #
+    # MUST run last: it resolves a test section that no type-less sample item
+    # touches, which depends on shipment-attachment-e2e.sql having already run.
+    if [ -f "$RESULT_READS_E2E_SQL" ]; then
+        load_sql_file "$RESULT_READS_E2E_SQL" \\
+            "result-reads-e2e.sql (results, panel, validation-pending)" "fatal"
     fi
 }
 

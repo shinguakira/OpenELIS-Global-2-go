@@ -140,11 +140,16 @@ BEGIN
     -- item, so it reports 0; a port that counts analyses straight from
     -- sample_item reports 1.
     IF analysis_test IS NOT NULL AND analysis_status IS NOT NULL THEN
+        -- test_sect_id は test.test_section_id の非正規化コピー。
+        -- AnalysisServiceImpl が analysis 生成時に必ず setTestSection する列で、
+        -- これが NULL だと rest/WorkPlanByTestSection が 0 行になる（その HQL は
+        -- test 側ではなく analysis 側のこの列で絞る）。
         INSERT INTO clinlims.analysis
-            (id, sampitem_id, test_id, status_id, analysis_type,
+            (id, sampitem_id, test_id, test_sect_id, status_id, analysis_type,
              entry_date, is_reportable, revision, lastupdated)
         VALUES
             (nextval('clinlims.analysis_seq'), voided_item_id, analysis_test,
+             (SELECT test_section_id FROM clinlims.test WHERE id = analysis_test),
              analysis_status, 'MANUAL', now(), 'N', 0, now());
     ELSE
         RAISE NOTICE 'order-search-e2e: no usable test/status; totalResults coverage skipped.';

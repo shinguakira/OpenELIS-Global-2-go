@@ -49,6 +49,36 @@ function expectFormEnvelope(body: any, formName: string, label: string): void {
   expect(typeof body.submitOnCancel, `${label} submitOnCancel is boolean`).toBe("boolean");
 }
 
+/** A panel that actually has member tests with analyses behind them. */
+function panelWithAnalyses(): string {
+  const rows = query(
+    `SELECT pi.panel_id
+       FROM clinlims.panel_item pi
+       JOIN clinlims.analysis a ON a.test_id = pi.test_id
+      GROUP BY pi.panel_id ORDER BY count(*) DESC LIMIT 1`,
+  );
+  return rows[0][0];
+}
+
+/**
+ * A test section whose analyses all sit on TYPED sample items.
+ *
+ * The one section the stock analyses live in also holds the deliberately
+ * type-less item, and Java NPEs on it — so the success path of
+ * WorkPlanByTestSection is only reachable through a section without one.
+ */
+function cleanSection(): string {
+  const rows = query(
+    `SELECT a.test_sect_id
+       FROM clinlims.analysis a
+       JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+      WHERE a.test_sect_id IS NOT NULL
+      GROUP BY a.test_sect_id
+     HAVING count(*) FILTER (WHERE si.typeosamp_id IS NULL) = 0
+      ORDER BY a.test_sect_id LIMIT 1`,
+  );
+  return rows[0][0];
+}
 test.describe("c3 — result reads (clinical)", () => {
   // ── The four WorkPlan endpoints ─────────────────────────────────────────
 
@@ -246,6 +276,350 @@ test.describe("c3 — result reads (clinical)", () => {
     } finally {
       await anon.dispose();
     }
+  });
+  // ── The four WorkPlan endpoints, PARAMETERISED ──────────────────────────
+  //
+  // The test above proves the four are byte-identical when UNPARAMETERISED.
+  // That is true and worth pinning, but on its own it is also the shape a port
+  // could satisfy by returning a constant. Everything below drives each
+  // endpoint with its own parameter, where they stop agreeing.
+
+  test("WorkPlanBy*: each takes a DIFFERENT param name, and ignores the others", async ({ request }) => {
+    // Four routes, four parameter names, none of them shared:
+    //   WorkPlanByTest         test_id
+    //   WorkPlanByPanel        panel_id
+    //   WorkPlanByTestSection  test_section_id
+    //   WorkPlanByPriority     priority        (an OrderPriority ENUM, not an id)
+    //
+    // All four default to the empty form rather than 400ing, so a wrong guess
+    // reads as "no data" — the same silent-ignore trap as c2's labNumber.
+    const testId = query(
+      "SELECT test_id FROM clinlims.analysis WHERE test_id IS NOT NULL GROUP BY 1 ORDER BY count(*) DESC LIMIT 1",
+    )[0][0];
+
+    const cross = [
+      { path: "rest/WorkPlanByPanel", own: `panel_id=${panelWithAnalyses()}`, foreign: `test_id=${testId}` },
+      { path: "rest/WorkPlanByPriority", own: "priority=ROUTINE", foreign: `test_id=${testId}` },
+    ];
+    for (const c of cross) {
+      const populated = await readJson(await request.get(`${c.path}?${c.own}`), `${c.path} own param`);
+      expect(populated.workplanTests.length, `${c.path}?${c.own} returns rows`).toBeGreaterThan(0);
+
+      const ignored = await readJson(await request.get(`${c.path}?${c.foreign}`), `${c.path} foreign param`);
+      expect(
+        ignored.workplanTests.length,
+        `${c.path} silently ignores ${c.foreign} rather than rejecting it`,
+      ).toBe(0);
+    }
+  });
+
+  test("WorkPlanByPanel: expands the panel to its TESTS, it does not read analysis.panel_id", async ({
+    request,
+  }) => {
+    // The obvious reading — "return the analyses whose panel_id is this panel" —
+    // is wrong. getWorkplanByPanel reads panel_item for the panel and then calls
+    // getAllAnalysisByTestAndStatus once PER MEMBER TEST, concatenating.
+    //
+    // The difference is observable: analyses carrying panel_id are a strict
+    // subset of what comes back, and an analysis on a member test appears even
+    // with its own panel_id NULL.
+    const panelId = panelWithAnalyses();
+    const body = await readJson(await request.get(`rest/WorkPlanByPanel?panel_id=${panelId}`), "WorkPlanByPanel");
+
+    const memberTests = query(
+      `SELECT test_id FROM clinlims.panel_item WHERE panel_id = ${Number(panelId)} ORDER BY test_id`,
+    ).map((r) => r[0]);
+    expect(memberTests.length, "the panel has member tests").toBeGreaterThan(0);
+
+    // Every row's testId is a member test of the panel.
+    for (const row of body.workplanTests) {
+      expect(memberTests.includes(row.testId), `workplan row test ${row.testId} is a panel member`).toBe(true);
+    }
+
+    // And the count is the sum over member tests of that test's matching
+    // analyses — which is what "expand to tests" means, as opposed to filtering
+    // on the column.
+    const byPanelColumn = Number(
+      query(
+        `SELECT count(*) FROM clinlims.analysis WHERE panel_id = ${Number(panelId)}`,
+      )[0][0],
+    );
+    expect(byPanelColumn, "some analyses DO carry panel_id, so the two readings differ").toBeGreaterThan(0);
+    expect(
+      body.workplanTests.length,
+      "the response is larger than the analysis.panel_id set — it expanded the panel to its tests",
+    ).toBeGreaterThan(byPanelColumn);
+  });
+
+  test("WorkPlanByTestSection: filters on analysis.test_sect_id, NOT test.test_section_id", async ({
+    request,
+  }) => {
+    // getAllAnalysisByTestSectionAndStatus is
+    //   from Analysis a where a.testSection.id = :testSectionId
+    // — the DENORMALISED column on analysis, which AnalysisServiceImpl fills
+    // from the test at creation time. A port that joined through test and read
+    // test.test_section_id would agree whenever the two match and diverge the
+    // moment they do not.
+    //
+    // The section used here is one no type-less sample item touches; see the
+    // 500 test below for why that matters.
+    const section = cleanSection();
+    const body = await readJson(
+      await request.get(`rest/WorkPlanByTestSection?test_section_id=${section}`),
+      "WorkPlanByTestSection",
+    );
+    expect(body.workplanTests.length, "the clean section has workplan rows").toBeGreaterThan(0);
+
+    const expectedAccessions = query(
+      `SELECT s.accession_number
+         FROM clinlims.analysis a
+         JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+         JOIN clinlims.sample s ON s.id = si.samp_id
+        WHERE a.test_sect_id = ${Number(section)}
+        ORDER BY s.accession_number`,
+    ).map((r) => r[0]);
+    expect(expectedAccessions.length, "the DB agrees the section has analyses").toBeGreaterThan(0);
+    for (const row of body.workplanTests) {
+      expect(
+        expectedAccessions.includes(row.accessionNumber),
+        `row ${row.accessionNumber} comes from an analysis whose test_sect_id is ${section}`,
+      ).toBe(true);
+    }
+
+    // The third argument to the DAO method is sortedByDateAndAccession, and its
+    // entire body is commented out — passing true does nothing. Pinned as a
+    // reminder that the name promises an ordering the code does not apply.
+    expect(true, "sortedByDateAndAccession is a dead parameter in Java").toBe(true);
+  });
+
+  test("WorkPlanByPriority: the param is an OrderPriority ENUM, not an id", async ({ request }) => {
+    // @RequestParam(name = "priority") OrderPriority priority — Spring converts
+    // the string to the enum, so an unknown value is a BINDING failure (400),
+    // not an empty result. That is the opposite of how the other three behave
+    // with a bad parameter, and it is the only one of the four that can 400.
+    const ok = await readJson(await request.get("rest/WorkPlanByPriority?priority=ROUTINE"), "WorkPlanByPriority");
+    expect(ok.workplanTests.length, "ROUTINE returns rows").toBeGreaterThan(0);
+
+    const routineAccessions = query(
+      `SELECT DISTINCT s.accession_number FROM clinlims.sample s WHERE s.order_priority = 'ROUTINE'`,
+    ).map((r) => r[0]);
+    for (const row of ok.workplanTests) {
+      expect(
+        routineAccessions.includes(row.accessionNumber),
+        `row ${row.accessionNumber} is on a ROUTINE order`,
+      ).toBe(true);
+    }
+
+    // A priority that exists in the enum but on no order: 200, empty.
+    const empty = await readJson(
+      await request.get("rest/WorkPlanByPriority?priority=FUTURE_STAT"),
+      "WorkPlanByPriority FUTURE_STAT",
+    );
+    expect(empty.workplanTests.length, "an unused enum value gives an empty list, not a 400").toBe(0);
+
+    // A value outside the enum: 400 from the converter.
+    const bad = await request.get("rest/WorkPlanByPriority?priority=NOT_A_PRIORITY");
+    expect(bad.status(), "an unknown priority fails BINDING with 400").toBe(400);
+  });
+
+  // ── The shared NPE: one Java defect, two endpoints ──────────────────────
+
+  test("a type-less sample item 500s WorkPlanByTestSection and LogbookResults alike", async ({ request }) => {
+    // AnalysisServiceImpl.getTestDisplayName calls
+    //   sampleItem.getTypeOfSampleId().equals(...)
+    // with no null check. shipment-attachment-e2e.sql deliberately seeds one
+    // sample_item with a NULL typeosamp_id, because c2 established that Java's
+    // OWN unassigned-sample HQL LEFT JOINs type_of_sample and COALESCEs the
+    // description — that query is written to tolerate the state this one dies
+    // on. Java is internally inconsistent about whether a type-less sample item
+    // is legal.
+    //
+    // MIGRATION POLICY: this is reproduced, not fixed. The port must 500 on
+    // exactly the same inputs.
+    const nullTypeItems = query(
+      `SELECT a.test_id, t.test_section_id
+         FROM clinlims.analysis a
+         JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+         JOIN clinlims.test t ON t.id = a.test_id
+        WHERE si.typeosamp_id IS NULL`,
+    );
+    expect(nullTypeItems.length, "the fixture still seeds a type-less sample item").toBeGreaterThan(0);
+    const poisonTest = nullTypeItems[0][0];
+    const poisonSection = query(
+      `SELECT a.test_sect_id
+         FROM clinlims.analysis a
+         JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+        WHERE si.typeosamp_id IS NULL AND a.test_sect_id IS NOT NULL LIMIT 1`,
+    );
+
+    const byTest = await request.get(`${LOGBOOK}?selectedTest=${poisonTest}`);
+    expect(byTest.status(), `LogbookResults?selectedTest=${poisonTest} 500s on the NPE`).toBe(500);
+
+    if (poisonSection.length > 0) {
+      const bySection = await request.get(`rest/WorkPlanByTestSection?test_section_id=${poisonSection[0][0]}`);
+      expect(
+        bySection.status(),
+        `WorkPlanByTestSection?test_section_id=${poisonSection[0][0]} 500s on the SAME NPE`,
+      ).toBe(500);
+    }
+
+    // INVERSION — without this the assertions above would also hold for an
+    // endpoint that simply always 500s. A test with no analysis on a type-less
+    // item answers 200 WITH ROWS.
+    const cleanTest = query(
+      `SELECT a.test_id
+         FROM clinlims.analysis a
+         JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+        GROUP BY a.test_id
+        HAVING count(*) FILTER (WHERE si.typeosamp_id IS NULL) = 0
+        ORDER BY count(*) DESC LIMIT 1`,
+    );
+    expect(cleanTest.length, "some test has no analysis on a type-less item").toBe(1);
+    const clean = await readJson(
+      await request.get(`${LOGBOOK}?selectedTest=${cleanTest[0][0]}`),
+      "LogbookResults clean test",
+    );
+    expect(clean.testResult.length, "the same endpoint returns rows for a clean test").toBeGreaterThan(0);
+  });
+
+  // ── Result-carrying reads, now that results exist ───────────────────────
+
+  test("accession-results: rows carry real result values, numeric and dictionary", async ({ request }) => {
+    // result was an EMPTY table until result-reads-e2e.sql, so every c3
+    // assertion about a value was previously vacuous — a port emitting "" for
+    // every field agreed with Java on all of them.
+    const body = await readJson(
+      await request.get(`${ACCESSION_RESULTS}?accessionNumber=E2E-RES-01`),
+      `${ACCESSION_RESULTS} E2E-RES-01`,
+    );
+    expect(body.testResult.length, "E2E-RES-01 has analyses").toBeGreaterThan(0);
+
+    const stored = new Map(
+      query(
+        `SELECT r.analysis_id, r.value
+           FROM clinlims.result r
+           JOIN clinlims.analysis a ON a.id = r.analysis_id
+           JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+           JOIN clinlims.sample s ON s.id = si.samp_id
+          WHERE s.accession_number = 'E2E-RES-01'`,
+      ).map((r) => [r[0], r[1]]),
+    );
+    expect(stored.size, "E2E-RES-01 carries stored results").toBeGreaterThan(0);
+
+    // At least one row must surface a stored value. Asserted as "some row",
+    // not "every row", because analyses without a result legitimately render
+    // blank — the point is that a value reaches the response at all.
+    const rendered = body.testResult.map((r: any) => String(r.resultValue ?? ""));
+    const anyMatch = [...stored.values()].some((v) => rendered.includes(String(v)));
+    expect(anyMatch, "a stored result value reaches the response").toBe(true);
+  });
+
+  test("AccessionValidation: only TechnicalAcceptance analyses are up for validation", async ({ request }) => {
+    // The endpoint collects analyses awaiting biologist sign-off, which is the
+    // status named "Technical Acceptance" — NOT a rejection status, despite the
+    // sibling endpoint filing the same status under a key called notValidated.
+    // Nothing in the dataset was in that status, so this list could only ever
+    // be empty.
+    const pending = query(
+      `SELECT s.accession_number, a.id
+         FROM clinlims.analysis a
+         JOIN clinlims.status_of_sample st ON st.id = a.status_id
+         JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+         JOIN clinlims.sample s ON s.id = si.samp_id
+        WHERE st.status_type = 'ANALYSIS' AND st.name = 'Technical Acceptance'`,
+    );
+    expect(pending.length, "something is awaiting validation").toBeGreaterThan(0);
+    const accession = pending[0][0];
+
+    const body = await readJson(
+      await request.get(`${ACCESSION_VALIDATION}?accessionNumber=${accession}`),
+      `${ACCESSION_VALIDATION} ${accession}`,
+    );
+    expectFormEnvelope(body, "ResultValidationForm", ACCESSION_VALIDATION);
+    expect(body.resultList.length, "the validation list is populated").toBeGreaterThan(0);
+
+    // ── doRange: the accession is a RANGE BOUND by default, not a match ───
+    //
+    // @RequestParam(defaultValue = "true") Boolean doRange picks between two
+    // completely different searches:
+    //
+    //   doRange=true  (DEFAULT) getResultValidationList(status, section,
+    //                           accessionNumber, date) — a RANGE search, which
+    //                           can return analyses belonging to a DIFFERENT
+    //                           accession than the one asked for
+    //   doRange=false           getSample(accessionNumber) then that sample's
+    //                           analyses, or empty when no such sample exists
+    //
+    // Measured, and clinically significant: asking about E2E-ATT-01 — an order
+    // with no analyses of its own — returns a row whose own accessionNumber is
+    // E2E-RES-01. A port that implemented the obvious exact-match reading would
+    // return nothing there and look correct on every other input.
+    const bystander = query(
+      `SELECT s.accession_number
+         FROM clinlims.sample s
+        WHERE s.accession_number LIKE 'E2E-%'
+          AND NOT EXISTS (
+            SELECT 1 FROM clinlims.sample_item si
+              JOIN clinlims.analysis a ON a.sampitem_id = si.id
+             WHERE si.samp_id = s.id)
+        ORDER BY s.accession_number LIMIT 1`,
+    );
+    expect(bystander.length, "some order has no analyses at all").toBe(1);
+    const other = bystander[0][0];
+
+    const ranged = await readJson(
+      await request.get(`${ACCESSION_VALIDATION}?accessionNumber=${other}`),
+      `${ACCESSION_VALIDATION} ${other} ranged`,
+    );
+    const exact = await readJson(
+      await request.get(`${ACCESSION_VALIDATION}?accessionNumber=${other}&doRange=false`),
+      `${ACCESSION_VALIDATION} ${other} exact`,
+    );
+    expect(exact.resultList.length, "doRange=false on an order with no analyses is empty").toBe(0);
+    expect(
+      ranged.resultList.length,
+      "the DEFAULT range search returns rows for that same order anyway",
+    ).toBeGreaterThan(0);
+    expect(
+      ranged.resultList.every((r: any) => r.accessionNumber !== other),
+      "...and none of them belong to the accession that was asked for",
+    ).toBe(true);
+
+    // The form still echoes what was requested, so the mismatch is only visible
+    // by comparing the echo against the rows.
+    expect(ranged.accessionNumber, "the form echoes the REQUESTED accession").toBe(other);
+  });
+
+  test("ReferredOutTests: searchType drives the search, and one of its values 500s", async ({ request }) => {
+    // setupPageForDisplay only searches when form.getSearchType() != null, so
+    // the unparameterised call this file used to make could never return items.
+    // The enum is TEST_AND_DATES / LAB_NUMBER / PATIENT — a value outside it is
+    // a 400 from the converter.
+    const bad = await request.get(`${REFERRED_OUT}?searchType=REFERRAL_PENDING`);
+    expect(bad.status(), "a value outside the SearchType enum is a 400").toBe(400);
+
+    const body = await readJson(
+      await request.get(`${REFERRED_OUT}?searchType=LAB_NUMBER&labNumber=E2E-REF-01`),
+      `${REFERRED_OUT} LAB_NUMBER`,
+    );
+    expect(body.searchFinished, "a search actually ran").toBe(true);
+    expect(body.referralDisplayItems.length, "E2E-REF-01 has referrals to show").toBeGreaterThan(0);
+
+    const dbCount = Number(
+      query(
+        `SELECT count(*) FROM clinlims.referral r
+           JOIN clinlims.analysis a ON a.id = r.analysis_id
+           JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+           JOIN clinlims.sample s ON s.id = si.samp_id
+          WHERE s.accession_number = 'E2E-REF-01'`,
+      )[0][0],
+    );
+    expect(dbCount, "E2E-REF-01 really has referrals").toBeGreaterThan(0);
+
+    // JAVA DEFECT, pinned: TEST_AND_DATES with no dates 500s rather than
+    // validating. Reproduced, not fixed.
+    const broken = await request.get(`${REFERRED_OUT}?searchType=TEST_AND_DATES`);
+    expect(broken.status(), "TEST_AND_DATES with no dates is a 500, not a 400").toBe(500);
   });
 });
 
