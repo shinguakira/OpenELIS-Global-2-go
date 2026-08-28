@@ -12,6 +12,7 @@ package middleware
 
 import (
 	"context"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -260,10 +261,20 @@ func submittedToken(r *http.Request) string {
 // path-dependent shape.
 func DenyAccess(w http.ResponseWriter, r *http.Request, message string) {
 	if isRestPath(r.URL.Path) {
-		web.WriteJSON(w, http.StatusForbidden, map[string]any{
-			"status":  403,
-			"message": message,
-		})
+		// Hand-built, not marshalled, because Java hand-builds it too:
+		//
+		//   response.getWriter().write("{ \"status\": 403, \"message\": \"" + message + "\" }")
+		//
+		// so the body carries a space after each brace and after each colon, and
+		// puts status BEFORE message. A marshalled map produces neither — it
+		// sorts the keys and emits no spaces.
+		//
+		// This shipped wrong from p0 and stayed invisible for four waves: the
+		// body is only reachable on a denial, and until e1 no ported route had a
+		// state-changing verb to be denied on.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, "{ \"status\": 403, \"message\": \""+message+"\" }")
 		return
 	}
 	session.Redirect(w, r, "/Home?access=denied")

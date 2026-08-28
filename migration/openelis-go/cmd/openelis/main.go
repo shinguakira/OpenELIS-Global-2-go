@@ -35,6 +35,11 @@ import (
 	batchentryrest "openelis-go/internal/samplebatchentry/controller/rest"
 	batchentryservice "openelis-go/internal/samplebatchentry/service"
 
+	// siteinformation layers (e1)
+	siteinforest "openelis-go/internal/siteinformation/controller/rest"
+	siteinfodaoimpl "openelis-go/internal/siteinformation/daoimpl"
+	siteinfoservice "openelis-go/internal/siteinformation/service"
+
 	genericsamplerest "openelis-go/internal/genericsample/controller/rest"
 	genericsampleservice "openelis-go/internal/genericsample/service"
 
@@ -428,7 +433,21 @@ func main() {
 	batchentryrest.Routes(mux, &batchentryrest.BatchEntrySetupRestController{
 		Service: &batchentryservice.BatchEntrySetupService{Lists: displayLists, Zone: sampleservice.DisplayZone()},
 	})
-	log.Printf("DB-backed routes enabled (c2: sample reads)")
+
+	// -----------------------------------------------------------------------
+	// e1: admin config CRUD — the first WRITE wave.
+	//
+	// One controller pair in Java serves nine configuration domains, so this
+	// single registration mounts ~52 paths. web.Register supplies the auth,
+	// CSRF and module checks the write path needs; they landed with p0.
+	// -----------------------------------------------------------------------
+	siteinforest.Routes(mux, &siteinforest.SiteInformationRestController{
+		Service: &siteinfoservice.SiteInformationService{
+			DAO:  &siteinfodaoimpl.SiteInformationDAOImpl{DB: gormDB},
+			Msgs: msgs,
+		},
+	})
+	log.Printf("DB-backed routes enabled (c2: sample reads; e1: config CRUD)")
 
 	srv := &http.Server{Addr: addr, Handler: mux}
 	log.Printf("openelis-go listening on %s", addr)
