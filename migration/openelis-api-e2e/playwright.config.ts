@@ -52,12 +52,16 @@ export default defineConfig({
     // jar. p0-auth.spec.ts drives its own anonymous contexts and ignores it.
     {
       name: "go-parity",
+      // b1-testcatalog was ported and green long before it appeared here — the
+      // ledger entry was simply never added, so nothing guarded b1 against
+      // regression. If a spec passes against Go, it belongs in this list.
+      //
       // Includes one mutating spec on purpose: b2-organization-sitecode
       // exercises generate-site-code, which consumes a DB sequence, so it
       // cannot live in tests/readonly/ — but the Go port still needs the
       // coverage (it pins the UTC-vs-host-local site-code date fix).
       testMatch:
-        /(readonly[\\/](p0-auth|p0-authz|a1-server-time|a2-static-reads|b2-organization|b2-provider|c1-patient-reads|c2-sample-order-reads|c2-sample-form-loads|c3-result-reads)|mutating[\\/](b2-organization-sitecode|c1-patient-edge-cases))\.spec\.ts/,
+        /(readonly[\\/](p0-auth|p0-authz|a1-server-time|a2-static-reads|b1-testcatalog|b2-organization|b2-provider|c1-patient-reads|c2-sample-order-reads|c2-sample-form-loads|c3-result-reads)|mutating[\\/](b2-organization-sitecode|c1-patient-edge-cases))\.spec\.ts/,
       dependencies: ["setup-go"],
       use: {
         baseURL: GO_BASE_URL,
