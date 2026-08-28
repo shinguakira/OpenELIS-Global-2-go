@@ -11,7 +11,7 @@ import (
 // DictionaryCategoryDAOImpl ports DictionaryCategoryDAOImpl — reads
 // clinlims.dictionary_category via GORM's query builder (Select + Find), the
 // same auto-generated-SQL path Hibernate uses for simple entity reads. The
-// Select() fragment is needed only for the COALESCE(...,'') null-guards — the
+// Select() fragment is needed only for the COALESCE(...,”) null-guards — the
 // FROM clause comes from DictionaryCategory.TableName(), not a manual string.
 type DictionaryCategoryDAOImpl struct {
 	DB *gorm.DB

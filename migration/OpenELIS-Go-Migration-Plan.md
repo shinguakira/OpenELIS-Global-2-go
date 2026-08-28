@@ -207,30 +207,217 @@ fields, accession/uniqueness) before moving on.
 - **Accession numbering & sequences.** Order/accession generation has
   concurrency and format rules driven by site configuration — build the config
   plumbing early (Foundations).
+- **Controller URL mapping — a class-level `@RequestMapping` prefix is easy to
+  miss and easy to get wrong from memory.** Spring controllers commonly
+  declare `@RequestMapping("/rest")` (or similar) once at the class level;
+  every `@GetMapping`/`@PostMapping` in that file is relative to it — the
+  method-level annotation alone does not tell you the real path. **Real,
+  confirmed incident**: the b2 wave registered 3 Go routes
+  (`Provider/raw/{id}`, `Provider/Person/{id}`, `provider/search`) without
+  the `/rest` prefix `ProviderRestController` actually requires — copied from
+  a wrong path listing in `openelis-api-e2e.md` itself (now fixed) — and
+  every one of them 404'd on every real call until caught by live-testing
+  against Java directly (source review and unit-level Go testing both missed
+  it; only a live side-by-side request against the real Java server
+  surfaced it). See `b2-org-provider-migration.md` §3.1. **Before registering
+  any Go route for any future wave**: grep the target Java controller file
+  for its class-level `@RequestMapping` yourself — do not trust a prior
+  wave's doc, a remembered path, or a method-level annotation in isolation.
+  Also affects: server timezone assumptions (see `time.Now()` vs
+  `time.Now().UTC()` in the same doc, §3.1 #7) — anything derived from "how
+  Java behaves" needs to be read from Java's actual source or observed live,
+  never assumed.
 
 ---
 
 ## 5. Parity & testing strategy — reuse this workspace's e2e harness
 
-The `e2e/` folder in this workspace is a **language-neutral, black-box
-Playwright (API-mode) parity oracle**, currently scaffolded for the OpenMRS REST
-contract (`e2e.md`). **Extend the same pattern to OpenELIS:**
+`migration/openelis-api-e2e/` is the **language-neutral, black-box Playwright
+(API-mode) parity oracle** for this migration (plan: `openelis-api-e2e.md`;
+the OpenMRS analog was the original template, `e2e.md`, now superseded for
+OpenELIS by this dedicated suite — it is **not** empty, it's the active,
+growing gate: 479 tests as of the b2 wave). **What "parity-verified" requires
+— non-negotiable, see `openelis-api-e2e.md`'s Principle section for the full
+version with the incident that motivated it:**
 
-- **Golden-master / parity harness.** Seed a Postgres DB (the OpenELIS DB image
-  / test fixtures under `src/test/resources/testdata/`); run the same request
-  against Java and Go; assert identical JSON (REST + FHIR) or identical DB state
-  (writes). Primary gate.
-- **Author the OpenELIS parity suite** (the `e2e/tests/` dir is empty today —
-  see §E2E status). Target both the **FHIR R4 API** (port 8081) and the
-  React-facing **REST controllers** (`/api/OpenELIS-Global`).
-- **Port high-value unit tests.** Result validation, reference-range limits,
-  accession formatting, identifier rules translate to Go table tests — cheap and
-  they encode the rules.
+- **No mocking, ever.** Every assertion runs against the real, live Java
+  webapp and the real, live Postgres it's connected to. A Go endpoint checked
+  only in isolation, or against assumed/remembered Java behavior, is a guess,
+  not a verification — say so plainly if that's all that's been done for a
+  given endpoint, don't call it "verified."
+- **Assert real field-by-field response data, not just HTTP status.** `200`
+  proves reachability, nothing about correctness.
+- **Mine the target controller's own JUnit test first**
+  (`*RestControllerTest.java`, `openelis-api-e2e.md` §16) before writing any
+  Go — it's the fastest path to Java's real URL, request shape, and edge
+  cases, and skipping it has already let a real bug (b2's wrong route
+  prefix, `b2-org-provider-migration.md` §3.1) go undetected past
+  implementation and into a "looks done" state.
+- **Golden-master / parity harness.** Same live request against Java and Go;
+  assert identical JSON (REST + FHIR) or identical DB state (writes). Primary
+  gate — see `go-parity` project in `playwright.config.ts`; a spec isn't
+  "parity-verified" until it's matched by that project's `testMatch` *and*
+  has actually been run and passed there, not merely written.
+- Target both the **FHIR R4 API** and the React-facing **REST controllers**
+  (`/api/OpenELIS-Global`).
+- **NO GO UNIT TESTS. Every test in this migration is an e2e test.** This
+  supersedes an earlier version of this bullet, which said to "port high-value
+  unit tests … to Go table tests." That was wrong and it has already misled
+  work: `migration/openelis-go` contains **zero** `*_test.go` files, and that is
+  the intended state, not a gap to fill.
+
+  **Why:** a Go unit test asserts what the person writing it *believes* Java
+  does. It has no oracle. The entire value of this migration's test suite is
+  that **Java and Go are checked against each other**, on the same live request,
+  in the same run — which only an e2e test in
+  `migration/openelis-api-e2e/` can do. A green Go unit test proves the port
+  matches its author's assumption; it proves nothing about parity, and it makes
+  a wrong assumption look verified. That is worse than no test.
+
+  Consequence to accept, not work around: **a behavior with no Java-observable
+  counterpart gets no test.** Internal-only concerns (memory reclamation,
+  startup configuration refusal) are fixed and *documented as untested*, never
+  given a Go unit test to make the change feel covered.
+- **Missing data is not a scope boundary — SEED IT. Writing the fixture is part
+  of porting the endpoint, not a follow-up.** If an endpoint cannot be verified
+  because the table it reads is empty, the work is not "blocked on data" and it
+  is not done: the fixture is written, loaded, and wired into
+  `src/test/resources/load-test-fixtures.sh` in the *same* unit of work as the
+  port. Do not report an endpoint as ported, do not list the gap as a known
+  limitation, and do not ask which gap to close first.
+
+  **Why:** an empty table makes a test that cannot fail. `expect(Array.isArray(body))`
+  passes on `[]` forever, so the row shape — the only part that carries the
+  parity risk — is never compared against Java at all. Every such gap found so
+  far was closed by seeding, and every one of them was hiding a real defect:
+
+  - `patient-media-e2e.sql` (c1) — `patient_photo` / `patient_id_document` /
+    `image` were all empty. Seeding them exposed that
+    `/rest/patient-photos/{id}/false` returns a full `data:` URI while
+    `/true` returns BARE base64.
+  - `order-search-e2e.sql` (c2) — every `sample_item` in the dataset had
+    `voided = FALSE`, so deleting `voided = false` from the Go DAO left the
+    suite green. Seeding one voided row killed that mutant *and* exposed two
+    further divergences: `patient/merge/details` counted voided items in both
+    `totalSamples` and `totalResults`, in the port and in the c1 DB oracle
+    alike.
+
+  The corollary: when a spec has to fall back to envelope-only assertions,
+  that is a **bug report against the fixtures**, not a documented limitation.
+  `test.skip` on an empty collection is the same failure mode wearing a
+  different hat — it turns "never verified" into a green run.
+  - `order-search-full-e2e.sql` (c2) — no sample in the dataset carried a
+    provider, a requester organization, a program or any observation history,
+    so `buildSampleOrderItems` returned six of its ~25 keys and a port that
+    built exactly those six passed. Seeding three orders that trip every
+    branch exposed four divergences at once: the whole conditional half of the
+    map, `quantity`'s three shapes, the program resolution described below,
+    and a `samples[]` ORDER that no existing assertion looked at because it
+    sorted both sides first.
+
+- **A DAO method that orders is not evidence the endpoint orders. Read the
+  method the CONTROLLER calls.** `SampleItemDAOImpl.getSampleItemsBySampleId`
+  ends `order by sampleItem.sortOrder`.
+  `SampleItemServiceImpl.getSampleItemsBySampleId` — same name, and the one
+  the controller actually calls — ignores it entirely and runs an unordered
+  `getAllMatching`. Porting from the DAO gives `ORDER BY sort_order`, which
+  reverses the array on the stock dataset.
+
+  Where Java issues no `ORDER BY`, the faithful port is `ORDER BY ctid`, not
+  `ORDER BY id`. `id` is an ordering the original does not have; ctid
+  reproduces the scan order Postgres actually returns, which is what the Java
+  response contains. This also applies where the Go query adds JOINs that Java
+  resolves lazily per row — the extra joins let the planner reorder, so an
+  unordered Go query is not equivalent to an unordered Java one.
+
+- **A JSON-level diff cannot certify byte parity, because it decodes both
+  sides first.** Anything that survives a round trip is invisible to it, and
+  two such differences shipped through a suite that reported "完全一致" on
+  every endpoint:
+
+  - `json.Encoder.Encode` appends a trailing newline; Jackson does not. Every
+    response was one byte longer than Java's, with a different
+    `Content-Length`.
+  - Go renders a `float64` 5.0 as `5`; Jackson renders the same
+    `java.lang.Double` as `5.0`. `5 === 5.0` after parsing, so a field-by-field
+    comparison reports parity.
+
+  Compare the RAW bytes and the status code as well as the decoded values.
+  Key ORDER is the one difference to tolerate — several of these responses are
+  built from a `HashMap`, whose iteration order is a function of the JVM string
+  hash — so normalise key order and compare everything else exactly.
+
+- **A Java lookup keyed on a NAME may not read the table the name implies.**
+  `getProgrammeSampleBySample` picks a JPA entity CLASS from the program name,
+  and those classes are `TABLE_PER_CLASS` — so naming a subclass sends the
+  query to a different TABLE, it finds nothing, and the controller silently
+  falls back to a name lookup that ignores the row the sample actually points
+  at. Three branches, one of which contradicts the database. A port that reads
+  the obvious column agrees on the common case and is wrong on the other two,
+  and only a fixture whose two sources DISAGREE can tell them apart.
+- **Finish the endpoint before it enters the gate, and never commit the gate
+  red.** `go-parity`'s `testMatch` is the ledger of what is ported AND verified.
+  A spec joins it when the Go side passes — not earlier.
+
+  Committing with it red breaks the branch for everyone and writes a false entry
+  in the ledger. There is no version of this that is acceptable: not
+  "temporarily", not to checkpoint progress, and specifically not on the
+  argument that visible failures make the remaining work transparent. That
+  argument has been made here and it was wrong — it is an unfinished deliverable
+  with a justification attached. Finish the work, or leave the spec out of
+  `testMatch` and say plainly the endpoint is not ported.
+- **Never bend the implementation to make a test pass.** When a parity test
+  fails, exactly one of two things is true:
+
+  | Cause | Fix |
+  |---|---|
+  | The port does not match Java | Fix the port |
+  | The test asserts something Java does not do | Re-measure live Java, then fix the test |
+
+  There is no third option. Do not special-case an input, hardcode the value the
+  test checks, weaken an assertion, or drop a filter until the counts agree. A
+  green run obtained that way certifies a parity that does not exist, which is
+  strictly worse than a red one. "What should this return?" is answered by
+  measuring the running Java server — never by reading the Java source alone,
+  and never by asking what would make the test pass.
+- **The port REPRODUCES Java's bugs. It never fixes them.** This is a migration,
+  not a bug-fix pass. Where Java returns the wrong status, an empty body, a
+  hardcoded counter, paging that does not page, or two endpoints that do "the
+  same thing" inconsistently, the Go implementation does exactly the same.
+
+  **Why:** the entire value of this work is that Go and Java answer the same live
+  request identically. A port that quietly corrects a defect makes the two
+  disagree in production — the one outcome this migration must not produce.
+  Whether the Java behavior should change is the maintainers' decision, on their
+  schedule, not something that rides in on a port.
+
+  **How:** pin the behavior in the e2e spec with a comment saying it is pinned
+  and not fixed, implement it in Go, and record it in
+  [java-defects-found.md](java-defects-found.md) so it can be raised separately.
+  Record the symptom and how to reproduce it — do NOT write a proposed fix for
+  the Java side, which is outside this migration's scope.
+
+  Two cases look alike and are not:
+
+  | Situation | Correct action |
+  |---|---|
+  | Java is wrong, Go matches Java | Keep it. That is the job. |
+  | Go is wrong, Go is changed to match Java | Also correct — that is not "fixing Java" |
+
+  The second row covers things like the Go session cookie emitting
+  `SameSite=Lax` where Tomcat sends no SameSite attribute: removing it is
+  matching Java, not repairing a Java defect.
+
+  Examples currently pinned rather than fixed: `unassigned-by-accession` (500 on
+  every input, invalid HQL), `unassigned-sample/items` and `GenericSampleOrder`
+  (500 as soon as anything matches), `order/dashboard` (request pageSize never
+  bounds the result), and the attachment split where a soft-deleted id is 404
+  while a missing one is 500.
 - **Keep the existing Playwright suite** (42 specs in `frontend/playwright`)
   running against the strangler proxy as a full-stack regression net during
   coexistence.
-- Wire CI (`e2e-playwright.yml`) to run parity + Go unit tests per context as it
-  lands.
+- Wire CI (`e2e-playwright.yml`) to run the parity projects per context as it
+  lands — `api-readonly` (Java) and `go-parity` (Go) over the same specs.
 
 ---
 

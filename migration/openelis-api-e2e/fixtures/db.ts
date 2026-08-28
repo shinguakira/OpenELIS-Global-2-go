@@ -2,6 +2,8 @@
 // Portable: uses `docker exec` directly on CI/Linux, or wraps via wsl.exe on
 // this Windows dev host (where the Docker daemon lives inside WSL).
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { expect } from "@playwright/test";
 import { DB_CONTAINER, DOCKER_MODE, WSL_DISTRO } from "./env";
 
@@ -59,3 +61,42 @@ export const BASELINE = {
   dictionary: 701,
   typeOfSample: 15,
 };
+
+/** Absolute path of a fixture SQL file, from the repo root. */
+export function fixturePath(name: string): string {
+  return `src/test/resources/fixtures/${name}`;
+}
+
+/**
+ * Execute a fixture SQL file against the same database the API is using.
+ *
+ * Streams the file through psql's stdin rather than `-f <path>`: the file lives
+ * on the test runner's filesystem, which on this dev host is NOT the filesystem
+ * the database container sees. Runs with ON_ERROR_STOP so a broken fixture
+ * fails the test instead of silently half-applying.
+ */
+export function runSqlFile(relativePath: string): string {
+  const sql = readFileSync(resolve(process.cwd(), "..", "..", relativePath), "utf8");
+  const psql = [
+    "docker", "exec", "-i", DB_CONTAINER,
+    "psql", "-U", "clinlims", "-d", "clinlims", "-v", "ON_ERROR_STOP=1", "-f", "-",
+  ];
+  try {
+    if (DOCKER_MODE === "docker") {
+      return execFileSync(psql[0], psql.slice(1), { encoding: "utf8", input: sql });
+    }
+    return execFileSync("wsl.exe", ["-d", WSL_DISTRO, "--", ...psql], {
+      encoding: "utf8",
+      input: sql,
+    });
+  } catch (e: any) {
+    throw new Error(
+      `fixture failed: ${relativePath}\n${e.stderr?.toString?.() || e.message}`,
+    );
+  }
+}
+
+/** Run arbitrary SQL for setup/teardown; throws on error. */
+export function exec(sql: string): void {
+  query(sql.trimEnd().endsWith(";") ? sql : sql + ";");
+}
