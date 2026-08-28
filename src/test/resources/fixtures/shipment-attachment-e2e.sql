@@ -80,6 +80,7 @@
 
 DO $BODY$
 DECLARE
+    order_status    NUMERIC;   -- status_of_sample, status_type='ORDER'
     org_a           NUMERIC;
     org_b           NUMERIC;
     ref_type        NUMERIC;
@@ -119,6 +120,12 @@ DECLARE
     pdf_bytes       BYTEA;
     bin_bytes       BYTEA;
 BEGIN
+    -- sample.status_id is the ORDER-level status (status_type='ORDER'), NOT
+    -- the SAMPLE-level one used by sample_item. Every stock sample carries it,
+    -- and Java dereferences it without a null check, so leaving it NULL breaks
+    -- unrelated endpoints (WorkPlanByTest 500s on the resulting NPE).
+    SELECT id INTO order_status FROM clinlims.status_of_sample
+     WHERE status_type = 'ORDER' AND name = 'Test Entered' LIMIT 1;
     -- ---- cleanup, children first -------------------------------------------
     DELETE FROM clinlims.box_sample_item
      WHERE sample_item_id IN (
@@ -153,8 +160,21 @@ BEGIN
     -- ---- reference data, resolved at load time ------------------------------
     -- Two DISTINCT organizations: by-facility/{id} is only a real filter if at
     -- least one included row belongs to a different facility.
-    SELECT id INTO org_a FROM clinlims.organization ORDER BY id LIMIT 1;
-    SELECT id INTO org_b FROM clinlims.organization ORDER BY id OFFSET 1 LIMIT 1;
+    -- 送り先の組織2件。'ORDER BY id LIMIT/OFFSET' で素朴に選んでは いけない:
+    -- organization は他の fixture も書き込むテーブルで、1件挿入されただけで
+    -- どの組織が選ばれるかがずれる。実際 order-search-full-e2e.sql が
+    -- E2E-DEPT を低い id で作った時に org_b がそれに化け、その fixture が次の
+    -- ロードで delete+create した時点で referral.organization_id が NULL に落ち、
+    -- 可視 referral が 10→9、施設が 2→1 になった。
+    --
+    -- このスイートが所有する組織（short_name が 'E2E-' 始まり）を除外して、
+    -- デプロイ本来の組織だけから選ぶ。
+    SELECT id INTO org_a FROM clinlims.organization
+     WHERE short_name IS NULL OR short_name NOT LIKE 'E2E-%'
+     ORDER BY id LIMIT 1;
+    SELECT id INTO org_b FROM clinlims.organization
+     WHERE short_name IS NULL OR short_name NOT LIKE 'E2E-%'
+     ORDER BY id OFFSET 1 LIMIT 1;
     SELECT id INTO ref_type    FROM clinlims.referral_type   ORDER BY id LIMIT 1;
     SELECT id INTO ref_reason  FROM clinlims.referral_reason ORDER BY id LIMIT 1;
     SELECT id INTO tos_id      FROM clinlims.type_of_sample  ORDER BY id LIMIT 1;
@@ -186,12 +206,12 @@ BEGIN
     s_excl := nextval('clinlims.sample_seq');
     s_att  := nextval('clinlims.sample_seq');
     INSERT INTO clinlims.sample
-        (id, accession_number, entered_date, received_date, collection_date, lastupdated, is_confirmation)
+        (id, accession_number, entered_date, received_date, collection_date, lastupdated, is_confirmation, status_id)
     VALUES
-        (s_ref1, 'E2E-REF-01', now(), now(), TIMESTAMP '2025-05-01 09:15:00', now(), false),
-        (s_ref2, 'E2E-REF-02', now(), now(), TIMESTAMP '2025-05-02 09:15:00', now(), false),
-        (s_excl, 'E2E-REF-03', now(), now(), TIMESTAMP '2025-05-03 09:15:00', now(), false),
-        (s_att,  'E2E-ATT-01', now(), now(), TIMESTAMP '2025-05-04 09:15:00', now(), false);
+        (s_ref1, 'E2E-REF-01', now(), now(), TIMESTAMP '2025-05-01 09:15:00', now(), false, order_status),
+        (s_ref2, 'E2E-REF-02', now(), now(), TIMESTAMP '2025-05-02 09:15:00', now(), false, order_status),
+        (s_excl, 'E2E-REF-03', now(), now(), TIMESTAMP '2025-05-03 09:15:00', now(), false, order_status),
+        (s_att,  'E2E-ATT-01', now(), now(), TIMESTAMP '2025-05-04 09:15:00', now(), false, order_status);
 
     -- s_excl is deliberately left patient-less: the exclusion rows must not
     -- shift any patient-keyed count (patient/merge/details in particular --

@@ -99,6 +99,7 @@
 
 DO $BODY$
 DECLARE
+    order_status    NUMERIC;   -- status_of_sample, status_type='ORDER'
     target_patient  NUMERIC;
     v_person        NUMERIC;
     v_provider      NUMERIC;
@@ -128,6 +129,12 @@ DECLARE
     t_diagnosis     NUMERIC;
     t_program       NUMERIC;
 BEGIN
+    -- sample.status_id is the ORDER-level status (status_type='ORDER'), NOT
+    -- the SAMPLE-level one used by sample_item. Every stock sample carries it,
+    -- and Java dereferences it without a null check, so leaving it NULL breaks
+    -- unrelated endpoints (WorkPlanByTest 500s on the resulting NPE).
+    SELECT id INTO order_status FROM clinlims.status_of_sample
+     WHERE status_type = 'ORDER' AND name = 'Test Entered' LIMIT 1;
     -- ---- cleanup, children first -------------------------------------------
     DELETE FROM clinlims.observation_history
      WHERE sample_id IN (SELECT id FROM clinlims.sample WHERE accession_number LIKE 'E2E-FULL-%');
@@ -152,9 +159,10 @@ BEGIN
     DELETE FROM clinlims.provider
      WHERE person_id IN (SELECT id FROM clinlims.person WHERE email = 'e2e.full.provider@example.test');
     DELETE FROM clinlims.person WHERE email = 'e2e.full.provider@example.test';
-    DELETE FROM clinlims.organization_organization_type
-     WHERE org_id IN (SELECT id FROM clinlims.organization WHERE short_name = 'E2E-DEPT');
-    DELETE FROM clinlims.organization WHERE short_name = 'E2E-DEPT';
+    -- 部門組織は DELETE しない。毎回作り直すと nextval で id が動き、この
+    -- 組織を指している他の fixture の行（referral.organization_id など）が
+    -- 宙に浮く。実際それで shipment fixture の可視 referral が 1件減った。
+    -- 下で「あれば再利用、無ければ作成」する。
 
     -- ---- reference data, resolved at load time ------------------------------
     SELECT id INTO target_patient FROM clinlims.patient ORDER BY id LIMIT 1;
@@ -246,11 +254,17 @@ BEGIN
     -- every row. A NULL here fails that spec — which is the fixture's bug, not
     -- the spec's. The value is fixed rather than gen_random_uuid() so re-runs
     -- stay idempotent; 'dea7' keeps it hex while still reading as a marker.
-    dept_org := nextval('clinlims.organization_seq');
-    INSERT INTO clinlims.organization
-        (id, name, short_name, mls_sentinel_lab_flag, is_active, fhir_uuid, lastupdated)
-    VALUES (dept_org, 'E2E Full Order Department', 'E2E-DEPT', 'N', 'Y',
-            'e2e0dea7-0000-4000-8000-000000000001'::uuid, now());
+    SELECT id INTO dept_org FROM clinlims.organization WHERE short_name = 'E2E-DEPT' LIMIT 1;
+    IF dept_org IS NULL THEN
+        dept_org := nextval('clinlims.organization_seq');
+        INSERT INTO clinlims.organization
+            (id, name, short_name, mls_sentinel_lab_flag, is_active, fhir_uuid, lastupdated)
+        VALUES (dept_org, 'E2E Full Order Department', 'E2E-DEPT', 'N', 'Y',
+                'e2e0dea7-0000-4000-8000-000000000001'::uuid, now());
+    END IF;
+    -- 型の紐付けだけは冪等に貼り直す（組織行そのものは残す）。
+    DELETE FROM clinlims.organization_organization_type
+     WHERE org_id = dept_org AND org_type_id = dept_type;
     INSERT INTO clinlims.organization_organization_type (org_id, org_type_id)
     VALUES (dept_org, dept_type);
 
@@ -262,10 +276,10 @@ BEGIN
     s_full := nextval('clinlims.sample_seq');
     INSERT INTO clinlims.sample
         (id, accession_number, entered_date, received_date, collection_date,
-         order_priority, lastupdated, is_confirmation)
+         order_priority, lastupdated, is_confirmation, status_id)
     VALUES
         (s_full, 'E2E-FULL-01', now(), TIMESTAMP '2025-07-01 08:30:00',
-         TIMESTAMP '2025-07-01 08:00:00', 'STAT', now(), false);
+         TIMESTAMP '2025-07-01 08:00:00', 'STAT', now(), false, order_status);
 
     -- provider_id on sample_human is what getProviderForSample reads. Every
     -- other sample_human row in the dataset leaves it NULL, which is why the
@@ -334,10 +348,10 @@ BEGIN
         s_sub := nextval('clinlims.sample_seq');
         INSERT INTO clinlims.sample
             (id, accession_number, entered_date, received_date, collection_date,
-             lastupdated, is_confirmation)
+             lastupdated, is_confirmation, status_id)
         VALUES
             (s_sub, 'E2E-FULL-02', now(), TIMESTAMP '2025-07-02 08:30:00',
-             TIMESTAMP '2025-07-02 08:00:00', now(), false);
+             TIMESTAMP '2025-07-02 08:00:00', now(), false, order_status);
         INSERT INTO clinlims.sample_human (id, samp_id, patient_id)
         VALUES (nextval('clinlims.sample_human_seq'), s_sub, target_patient);
         INSERT INTO clinlims.sample_item
@@ -379,10 +393,10 @@ BEGIN
     -- makes the key's ABSENCE observable at all.
     INSERT INTO clinlims.sample
         (id, accession_number, entered_date, received_date, collection_date,
-         order_priority, lastupdated, is_confirmation)
+         order_priority, lastupdated, is_confirmation, status_id)
     VALUES
         (s_noobs, 'E2E-FULL-03', now(), TIMESTAMP '2025-07-03 08:30:00',
-         TIMESTAMP '2025-07-03 08:00:00', NULL, now(), false);
+         TIMESTAMP '2025-07-03 08:00:00', NULL, now(), false, order_status);
     INSERT INTO clinlims.sample_human (id, samp_id, patient_id)
     VALUES (nextval('clinlims.sample_human_seq'), s_noobs, target_patient);
     INSERT INTO clinlims.sample_item

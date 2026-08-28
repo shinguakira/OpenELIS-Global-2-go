@@ -40,6 +40,7 @@
 
 DO $$
 DECLARE
+    order_status    NUMERIC;   -- status_of_sample, status_type='ORDER'
     target_patient  NUMERIC;
     new_sample_id   NUMERIC;
     sample_type_id  NUMERIC;
@@ -48,6 +49,12 @@ DECLARE
     analysis_status NUMERIC;
     analysis_test   NUMERIC;
 BEGIN
+    -- sample.status_id is the ORDER-level status (status_type='ORDER'), NOT
+    -- the SAMPLE-level one used by sample_item. Every stock sample carries it,
+    -- and Java dereferences it without a null check, so leaving it NULL breaks
+    -- unrelated endpoints (WorkPlanByTest 500s on the resulting NPE).
+    SELECT id INTO order_status FROM clinlims.status_of_sample
+     WHERE status_type = 'ORDER' AND name = 'Test Entered' LIMIT 1;
     -- Cleanup FIRST, before the patient is chosen: the choice below is a
     -- count over sample_human, and this fixture's own row from a previous run
     -- would otherwise be counted, letting the winner drift between loads.
@@ -105,9 +112,9 @@ BEGIN
     new_sample_id := nextval('clinlims.sample_seq');
 
     INSERT INTO clinlims.sample
-        (id, accession_number, entered_date, received_date, lastupdated, is_confirmation)
+        (id, accession_number, entered_date, received_date, lastupdated, is_confirmation, status_id)
     VALUES
-        (new_sample_id, 'E2E-VOIDED-01', now(), now(), now(), false);
+        (new_sample_id, 'E2E-VOIDED-01', now(), now(), now(), false, order_status);
 
     INSERT INTO clinlims.sample_human (id, samp_id, patient_id)
     VALUES (nextval('clinlims.sample_human_seq'), new_sample_id, target_patient);

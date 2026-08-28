@@ -65,6 +65,7 @@
 
 DO $BODY$
 DECLARE
+    order_status    NUMERIC;   -- status_of_sample, status_type='ORDER'
     target_patient  NUMERIC;
     tos_id          NUMERIC;
     entered_status  NUMERIC;
@@ -80,6 +81,12 @@ DECLARE
     it_2a           NUMERIC;
     it_2b           NUMERIC;
 BEGIN
+    -- sample.status_id is the ORDER-level status (status_type='ORDER'), NOT
+    -- the SAMPLE-level one used by sample_item. Every stock sample carries it,
+    -- and Java dereferences it without a null check, so leaving it NULL breaks
+    -- unrelated endpoints (WorkPlanByTest 500s on the resulting NPE).
+    SELECT id INTO order_status FROM clinlims.status_of_sample
+     WHERE status_type = 'ORDER' AND name = 'Test Entered' LIMIT 1;
     -- ---- cleanup, children first -------------------------------------------
     DELETE FROM clinlims.analysis
      WHERE sampitem_id IN (
@@ -119,10 +126,10 @@ BEGIN
     s_edit1 := nextval('clinlims.sample_seq');
     s_edit2 := nextval('clinlims.sample_seq');
     INSERT INTO clinlims.sample
-        (id, accession_number, entered_date, received_date, collection_date, lastupdated, is_confirmation)
+        (id, accession_number, entered_date, received_date, collection_date, lastupdated, is_confirmation, status_id)
     VALUES
-        (s_edit1, 'E2E-EDIT-01', now(), now(), TIMESTAMP '2025-06-01 09:00:00', now(), false),
-        (s_edit2, 'E2E-EDIT-02', now(), now(), TIMESTAMP '2025-06-02 09:00:00', now(), false);
+        (s_edit1, 'E2E-EDIT-01', now(), now(), TIMESTAMP '2025-06-01 09:00:00', now(), false, order_status),
+        (s_edit2, 'E2E-EDIT-02', now(), now(), TIMESTAMP '2025-06-02 09:00:00', now(), false, order_status);
 
     IF target_patient IS NOT NULL THEN
         INSERT INTO clinlims.sample_human (id, samp_id, patient_id) VALUES
