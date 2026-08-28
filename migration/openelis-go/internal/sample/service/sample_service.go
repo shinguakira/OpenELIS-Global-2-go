@@ -5,7 +5,9 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"openelis-go/internal/sample/daoimpl"
 	"openelis-go/internal/sample/form"
@@ -130,4 +132,61 @@ func normalizeAccession(accessionNumber string) string {
 		return accessionNumber[:i]
 	}
 	return accessionNumber
+}
+
+// GetOrderAttachments backs GET rest/order/{accessionNumber}/attachments,
+// mirroring OrderAttachmentRestController.listAttachments.
+//
+// Returns (nil, nil) when the accession resolves to no sample — the controller
+// turns that into 404 with Map.of("error","Order not found"), NOT a bodiless
+// 404 and not a 200 []. The sample lookup is the same truncating one
+// all-by-accession uses, so "E2E001.1" finds E2E001's attachments.
+func (s *SampleService) GetOrderAttachments(accessionNumber string) ([]form.OrderAttachmentDTO, error) {
+	if strings.TrimSpace(accessionNumber) == "" {
+		return nil, nil
+	}
+	sample, err := s.DAO.GetByAccessionNumber(normalizeAccession(accessionNumber))
+	if err != nil || sample == nil {
+		return nil, err
+	}
+	rows, err := s.DAO.ActiveAttachmentsBySampleID(sample.ID)
+	if err != nil {
+		return nil, err
+	}
+	dtos := make([]form.OrderAttachmentDTO, 0, len(rows))
+	for _, r := range rows {
+		dto := form.OrderAttachmentDTO{ID: r.ID, FileName: r.FileName}
+		// Java coalesces each nullable field because Map.of rejects nulls:
+		// fileType -> "", fileSizeBytes -> 0L, uploadedAt -> "".
+		if r.FileType != nil {
+			dto.FileType = *r.FileType
+		}
+		if r.FileSizeBytes != nil {
+			dto.FileSizeBytes = *r.FileSizeBytes
+		}
+		if r.UploadedAt != nil {
+			// java.sql.Timestamp.toString(): "yyyy-mm-dd hh:mm:ss.f...", a
+			// space separator and a fractional part with trailing zeros
+			// trimmed but at least one digit. Not RFC3339.
+			dto.UploadedAt = formatSQLTimestamp(*r.UploadedAt)
+		}
+		dtos = append(dtos, dto)
+	}
+	return dtos, nil
+}
+
+// formatSQLTimestamp renders a time the way java.sql.Timestamp.toString() does:
+// "2026-08-28 09:15:22.123". Java always emits a fractional part — at least one
+// digit — and trims trailing zeros beyond that.
+func formatSQLTimestamp(t time.Time) string {
+	base := t.Format("2006-01-02 15:04:05")
+	nanos := t.Nanosecond()
+	if nanos == 0 {
+		return base + ".0"
+	}
+	frac := strings.TrimRight(fmt.Sprintf("%09d", nanos), "0")
+	if frac == "" {
+		frac = "0"
+	}
+	return base + "." + frac
 }

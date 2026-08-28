@@ -4,6 +4,7 @@ package daoimpl
 
 import (
 	"errors"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -109,6 +110,38 @@ func (d *SampleDAOImpl) AnalysesByTestAndStatus(testID string, statusIDs []strin
 		Joins("JOIN clinlims.sample AS s ON s.id = si.samp_id").
 		Where("a.test_id = ? AND a.status_id IN (?)", testID, statusIDs).
 		Order("s.accession_number ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// OrderAttachmentRow is one clinlims.order_attachment row, minus file_content —
+// the blob is never exposed by the list endpoint (it has its own
+// download/view routes) and pulling it would move megabytes per request.
+type OrderAttachmentRow struct {
+	ID            int64      `gorm:"column:id"`
+	FileName      string     `gorm:"column:original_file_name"`
+	FileType      *string    `gorm:"column:file_type"`
+	FileSizeBytes *int64     `gorm:"column:file_size_bytes"`
+	UploadedAt    *time.Time `gorm:"column:uploaded_at"`
+}
+
+// ActiveAttachmentsBySampleID mirrors
+// OrderAttachmentDAOImpl.findActiveBySampleId:
+//
+//	from OrderAttachment oa where oa.sampleId = :sampleId
+//	and oa.isDeleted = false order by oa.uploadedAt desc
+//
+// The ORDER BY is Java's, and it is DESC — newest first. Soft-deleted rows are
+// excluded here rather than in the service, matching where Java puts it.
+func (d *SampleDAOImpl) ActiveAttachmentsBySampleID(sampleID int64) ([]OrderAttachmentRow, error) {
+	rows := []OrderAttachmentRow{}
+	err := d.DB.Table("clinlims.order_attachment").
+		Select("id, original_file_name, file_type, file_size_bytes, uploaded_at").
+		Where("sample_id = ? AND is_deleted = false", sampleID).
+		Order("uploaded_at DESC").
 		Scan(&rows).Error
 	if err != nil {
 		return nil, err

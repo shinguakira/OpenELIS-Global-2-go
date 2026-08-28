@@ -329,6 +329,13 @@ func main() {
 			Status: statusSvc,
 		},
 	})
+	samplerest.OrderAttachmentRoutes(mux, &samplerest.OrderAttachmentRestController{Service: sampleSvc})
+	samplerest.UnassignedSampleRoutes(mux, &samplerest.UnassignedSampleRestController{
+		Service: &sampleservice.UnassignedSampleService{DAO: &sampledaoimpl.UnassignedSampleDAOImpl{DB: gormDB}},
+	})
+	samplerest.OrderDashboardRoutes(mux, &samplerest.OrderDashboardRestController{
+		Service: &sampleservice.OrderDashboardService{DAO: &sampledaoimpl.SampleDAOImpl{DB: gormDB}},
+	})
 	log.Printf("DB-backed routes enabled (c2: sample reads)")
 
 	srv := &http.Server{Addr: addr, Handler: mux}
