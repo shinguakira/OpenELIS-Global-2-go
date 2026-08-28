@@ -40,7 +40,6 @@ Full context in [e1-config-crud-migration.md](e1-config-crud-migration.md).
 
 | # | What | Found by | What it takes |
 |---|---|---|---|
-| e1-1 | **Writes leave no audit row.** Java writes a `clinlims.history` row for every insert, update and delete — activity `I`/`U`/`D` plus `sys_user_id` — and the port writes none. The table already holds 18 such rows for `site_information`, and the three left by this wave's own Java probe are ids 847/848/849. | **measured** | Port the audit write into the DAO's three mutating methods, and teach the write probe to compare `history` as well as the target table (see e1-12). |
 | e1-2 | **The POST validators are not ported.** `SiteInformationFormValidator` checks `valueType`, `siteInfoDomainName` and `tag` against allow-lists; the port accepts anything. Note the domain list here is a THIRD list — it includes `externalConnections` and `validationConfig`, which the delete validator's list does not. | source-read | Three allow-lists plus the `errors` envelope Java returns on rejection. Measure the rejection shape first — it is a `@Valid` form, so likely the per-field `errors` map rather than the ObjectError array the delete uses. |
 | e1-3 | **The localization POST branch is not ported.** `if ("localization".equals(form.getTag()))` sends the write to `validateAndUpdateLocalization`, which updates the **localization** table and never touches `site_information`. The port writes `site_information.value` regardless. Reachable today: `bannerHeading` (id 82) is tagged `localization`. | source-read | Port `validateAndUpdateLocalization`, including `languageChanged` and the per-locale update. Measure against id 82 with a restorable value. |
 | e1-4 | **`isValid` is not ported.** A blank `paramName` is rejected by Java (`error.SiteInformation.name.required`), as are malformed values for `phone format`, `phone format label`, `phone international format label` and `phone international validation`. The port stores them. | source-read | Port the four checks and `PhoneNumberService.validatePhoneFormat`. |
@@ -69,12 +68,23 @@ Full context in [e1-config-crud-migration.md](e1-config-crud-migration.md).
 
 ---
 
-## Harness and ledger
+## Closed
 
-| # | What | Effect |
+| # | What | How |
 |---|---|---|
-| e1-11 | **e1 has no e2e spec.** Every check in this wave was an ad-hoc script under the session scratchpad — a field diff, a byte diff and a write probe — none of which is part of any gate. Until a spec exists and its filename is added to `go-parity`'s `testMatch` in `playwright.config.ts`, nothing guards e1 against regression. This is exactly the state b1 was found in. | ⚪ |
-| e1-12 | **The write probe compares only the target table.** It reads `site_information` before and after each step and never looks at `history`, which is how e1-1 went unnoticed through a run that reported "書き込み一致". A write-parity check has to compare every table the write touches, not the obvious one. | ⚪ |
+| e1-1 | Writes left no audit row. Java writes a `clinlims.history` row for every insert, update and delete; the port now writes the same three, with the same payloads. | Ported `internal/common/audittrail` — shared, because every future write wave needs it. The payload is the row's state BEFORE the write: NULL on insert, `<value>old</value>` on update, the nine-field row dump on delete. Verified byte-identical against Java apart from the wall-clock `<lastupdated>`. |
+| e1-11 | e1 had no e2e spec and was not in the gate. | `tests/mutating/e1-config-crud.spec.ts`, eight tests, added to the `go-parity` `testMatch`. Written audit-assertion-first: it passed against Java and FAILED against Go on "insert leaves an I audit row" before the port was fixed. |
+| e1-12 | The write probe compared only the target table. | It now dumps `history` at each step. |
+
+Two things surfaced only because those checks existed:
+
+- **An update that changes nothing writes nothing** — not the row, not
+  `lastupdated`, not an audit row. The port had been stamping
+  `lastupdated = now()` unconditionally, so every save button press moved it.
+- **Java's `history.id` is not chronological.** Hibernate hands ids out of a
+  cached sequence block, so an insert's audit row can carry a HIGHER id than
+  the update that followed it — 866 (I) against 845 (U) and 846 (D) on one row.
+  Anything reading the audit trail has to order by `timestamp`.
 
 ---
 
@@ -90,11 +100,9 @@ Full context in [e1-config-crud-migration.md](e1-config-crud-migration.md).
 
 ## Suggested order
 
-1. **e1-11** — write the e1 spec and get the wave into the ledger. Everything
-   else on this list is unguarded until that exists.
-2. **e1-12 then e1-1** — teach the probe to compare `history`, watch it go red,
-   then port the audit write. In that order, so the test fails first.
-3. **e1-2, e1-4, e1-5** — the validation and error envelopes, which share one
-   measurement.
-4. **e1-3** — the localization write branch.
-5. **e1-6** — jasypt, once a JDK is available.
+1. **e1-2, e1-4, e1-5** — the validators and the error envelopes, which share
+   one measurement of Java's rejection shape.
+2. **e1-3** — the localization write branch. Reachable today through
+   `bannerHeading`, and it writes to a different table entirely.
+3. **e1-8** — the display-list cache the port never invalidates.
+4. **e1-6** — jasypt, once a JDK is available.

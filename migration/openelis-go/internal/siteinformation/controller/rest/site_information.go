@@ -13,11 +13,13 @@ package rest
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
 	authmw "openelis-go/internal/auth/middleware"
 	"openelis-go/internal/common/web"
+	"openelis-go/internal/siteinformation/daoimpl"
 	"openelis-go/internal/siteinformation/form"
 	"openelis-go/internal/siteinformation/service"
 )
@@ -146,12 +148,29 @@ func (c *SiteInformationRestController) update(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	f, err := c.Service.Update(post, r.URL.Query().Get("ID"))
+	f, err := c.Service.Update(post, r.URL.Query().Get("ID"), actingUser(r))
+	if errors.Is(err, daoimpl.ErrNoSuchRow) {
+		// Updating an id that does not exist: Java loads null and dereferences
+		// it on the next line, so this is Tomcat's 500 page — the same answer
+		// the GET gives for an unknown ID, and for the same reason.
+		web.WriteJSON(w, http.StatusInternalServerError, web.ServletError(http.StatusInternalServerError))
+		return
+	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	web.WriteJSON(w, http.StatusOK, f)
+}
+
+// actingUser is getSysUserId(request) — the id every audit row is attributed
+// to. The guard has already refused an unauthenticated caller, so the principal
+// is always present on these routes.
+func actingUser(r *http.Request) int64 {
+	if p, ok := authmw.FromContext(r.Context()); ok {
+		return p.SystemUserID
+	}
+	return 0
 }
 
 func (c *SiteInformationRestController) cancel(w http.ResponseWriter, r *http.Request) {
@@ -192,7 +211,7 @@ func (c *SiteInformationRestController) delete(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if err := c.Service.Delete(req.SelectedIDs); err != nil {
+	if err := c.Service.Delete(req.SelectedIDs, actingUser(r)); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

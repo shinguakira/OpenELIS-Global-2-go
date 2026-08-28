@@ -303,7 +303,7 @@ func toMenuItem(row *valueholder.SiteInformation) form.MenuItem {
 //
 // The returned form is the REQUEST BODY over the bean defaults, because the
 // POST path never calls setupFormForRequest.
-func (s *SiteInformationService) Update(post form.SiteInformationPost, id string) (*form.SiteInformationForm, error) {
+func (s *SiteInformationService) Update(post form.SiteInformationPost, id string, sysUserID int64) (*form.SiteInformationForm, error) {
 	isNew := id == "" || id == "0"
 	name := derefStr(post.ParamName)
 	value := post.Value
@@ -322,11 +322,11 @@ func (s *SiteInformationService) Update(post form.SiteInformationPost, id string
 			DomainID:    &domainID,
 			ValueType:   "text",
 		}
-		if err := s.DAO.Insert(row); err != nil {
+		if err := s.DAO.Insert(row, sysUserID); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := s.DAO.UpdateValue(id, value); err != nil {
+		if err := s.DAO.UpdateValue(id, value, sysUserID); err != nil {
 			return nil, err
 		}
 	}
@@ -370,8 +370,8 @@ func echoForm(post form.SiteInformationPost) *form.SiteInformationForm {
 }
 
 // Delete ports showDeleteSiteInformation's happy path.
-func (s *SiteInformationService) Delete(ids []string) error {
-	return s.DAO.DeleteAll(ids)
+func (s *SiteInformationService) Delete(ids []string, sysUserID int64) error {
+	return s.DAO.DeleteAll(ids, sysUserID)
 }
 
 // localization loads and assembles the nested Localization object.

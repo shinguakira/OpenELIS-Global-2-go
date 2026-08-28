@@ -36,6 +36,7 @@ import (
 	batchentryservice "openelis-go/internal/samplebatchentry/service"
 
 	// siteinformation layers (e1)
+	"openelis-go/internal/common/audittrail"
 	siteinforest "openelis-go/internal/siteinformation/controller/rest"
 	siteinfodaoimpl "openelis-go/internal/siteinformation/daoimpl"
 	siteinfoservice "openelis-go/internal/siteinformation/service"
@@ -443,7 +444,7 @@ func main() {
 	// -----------------------------------------------------------------------
 	siteinforest.Routes(mux, &siteinforest.SiteInformationRestController{
 		Service: &siteinfoservice.SiteInformationService{
-			DAO:  &siteinfodaoimpl.SiteInformationDAOImpl{DB: gormDB},
+			DAO:  &siteinfodaoimpl.SiteInformationDAOImpl{DB: gormDB, Audit: &audittrail.Service{}},
 			Msgs: msgs,
 		},
 	})
