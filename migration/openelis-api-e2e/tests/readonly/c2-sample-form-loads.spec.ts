@@ -375,6 +375,96 @@ test.describe("c2 form loads — SamplePatientEntry", () => {
       expect(row.id, `priority ${row.id} is a non-numeric enum name`).toMatch(/^[A-Z_]+$/);
     }
   });
+
+  test("SamplePatientEntry: list ORDER, not just membership", async ({ request }) => {
+    // Added after a Java-vs-Go response diff showed 179 differences on this
+    // endpoint while every existing test here passed. Almost all of them were
+    // ORDERING and the is_active filter — things a set comparison cannot see.
+    // Each assertion below encodes the rule Java actually uses.
+    const body = await readJson(await request.get(SAMPLE_PATIENT_ENTRY), SAMPLE_PATIENT_ENTRY);
+
+    // rejectReasonList is ordered by dictionary.sort_order, NOT by id. They
+    // usually agree, but 1160/1161 carry sort orders that place them between
+    // 1152 and 1153, so an id sort puts them at the end.
+    const rejectBySort = query(
+      "SELECT d.id FROM clinlims.dictionary d" +
+        " JOIN clinlims.dictionary_category c ON c.id = d.dictionary_category_id" +
+        " WHERE c.name = 'resultRejectionReasons' AND d.is_active = 'Y'" +
+        " ORDER BY d.sort_order",
+    ).map((r) => r[0]);
+    expect(body.rejectReasonList.map((r: any) => r.id), "rejectReasonList is sort_order order").toEqual(
+      rejectBySort,
+    );
+    // Non-vacuous: prove the two orders really differ on this data, so the
+    // assertion is testing something.
+    const rejectById = [...rejectBySort].sort((a, b) => Number(a) - Number(b));
+    expect(rejectBySort, "sort_order and id order genuinely differ here").not.toEqual(rejectById);
+
+    // initialSampleConditionList is re-sorted by the LOCALIZED NAME, in BYTE
+    // order — Java uses String.compareTo, so uppercase sorts before lowercase.
+    // Postgres' default collation is case-insensitive and would interleave
+    // them, which is why the oracle pins COLLATE "C".
+    const conditionsByName = query(
+      "SELECT d.id FROM clinlims.dictionary d" +
+        " JOIN clinlims.dictionary_category c ON c.id = d.dictionary_category_id" +
+        " LEFT JOIN clinlims.localization_value lv" +
+        "   ON lv.localization_id = d.name_localization_id AND lv.locale = 'en'" +
+        " WHERE c.name = 'specimen reception condition' AND d.is_active = 'Y'" +
+        ` ORDER BY COALESCE(NULLIF(lv.value, ''), d.dict_entry) COLLATE "C"`,
+    ).map((r) => r[0]);
+    expect(
+      body.initialSampleConditionList.map((r: any) => r.id),
+      "initialSampleConditionList is localized-name order, byte-wise",
+    ).toEqual(conditionsByName);
+
+    // patientTypes is ordered by the TYPE CODE (E, H, P, R, U), not by id.
+    const typesByCode = query("SELECT id FROM clinlims.patient_type ORDER BY type").map((r) => r[0]);
+    expect(
+      body.patientProperties.patientTypes.map((p: any) => p.id),
+      "patientTypes is type-code order",
+    ).toEqual(typesByCode);
+    expect(typesByCode, "type-code order differs from id order here").not.toEqual(
+      [...typesByCode].sort((a, b) => Number(a) - Number(b)),
+    );
+
+    // genders uses the CONTEXTUAL message: the bundle ships gender.male ("Male")
+    // AND gender.male.CI ("1 = Male"), and site_information.stringContext picks
+    // the second. A port resolving the bare key returns "Male".
+    for (const g of body.patientProperties.genders) {
+      expect(g.value, `gender ${g.id} uses the contextual label`).toMatch(/^\d+ = /);
+    }
+
+    // A missing message key resolves to the KEY ITSELF, not to invented English
+    // — Spring's MessageSource behaviour, visible in the live response.
+    const lastFirst = body.patientSearch.searchCriteria.find((c: any) => c.id === "3");
+    expect(lastFirst.value, "an absent key renders as the key").toBe(
+      "3. label.select.last.first.name",
+    );
+    // And a value that CONTINUES ACROSS LINES in the .properties file must be
+    // joined, not truncated at the backslash.
+    const patientID = body.patientSearch.searchCriteria.find((c: any) => c.id === "4");
+    expect(patientID.value, "a continued property value is joined").toBe(
+      "4. Patient identification code",
+    );
+  });
+
+  test("SampleBatchEntrySetup: sampleTypes order survives the tie-heavy sort", async ({
+    request,
+  }) => {
+    // type_of_sample.sort_order has three rows at 0 and seven at
+    // Integer.MAX_VALUE, so most of this list is ties — and Java's HQL does NOT
+    // filter is_active in SQL, it filters in Java afterwards. Putting the
+    // predicate in the SQL changes the plan and therefore the tie order.
+    // Measured: SQL-filtered yields 30,32,31,…; Java yields 31,32,30,….
+    const body = await readJson(await request.get(BATCH_ENTRY_SETUP), BATCH_ENTRY_SETUP);
+    const expected = query(
+      "SELECT id, is_active FROM clinlims.type_of_sample WHERE domain = 'H' ORDER BY sort_order",
+    )
+      .filter((r) => r[1] === "t" || r[1] === "true")
+      .map((r) => r[0]);
+    expect(body.sampleTypes.map((t: any) => t.id), "batch sampleTypes order").toEqual(expected);
+  });
+
 });
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -510,6 +600,22 @@ test.describe("c2 form loads — SampleEdit", () => {
       expect(expectedTests, `${accession} really has tests, so this is not a vacuous check`)
         .toBeGreaterThan(0);
 
+      // Header fields are set ONCE PER SAMPLE ITEM — on the first row of that
+      // item's group after the sort — and left null on the rest, where
+      // Include.NON_NULL drops them. So the number of rows carrying an
+      // accessionNumber is the number of FILTERED sample items, not the number
+      // of analyses.
+      //
+      // sample-edit-e2e.sql gives one item TWO analyses precisely so this is
+      // observable: with one analysis per item every row is a "first", the rule
+      // is invisible, and a port that sets the headers on every row passes. An
+      // earlier version of this test asserted accessionNumber on EVERY row and
+      // was green for exactly that reason.
+      const existingHeaders = body.existingTests.filter((t: any) => "accessionNumber" in t);
+      expect(existingHeaders.length, `${accession} one existingTests header per sample item`).toBe(
+        entered.length,
+      );
+
       for (const item of body.existingTests) {
         expectKeysWithin(
           item,
@@ -517,16 +623,30 @@ test.describe("c2 form loads — SampleEdit", () => {
            "collectionDate", "collectionTime", "hasResults", "id", "removeSample",
            "sampleItemChanged", "sampleItemId", "sampleType", "sortOrder", "status", "testId",
            "testName"],
-          ["accessionNumber", "add", "canCancel", "canRemoveSample", "canceled", "hasResults",
-           "id", "removeSample", "sampleItemChanged", "sampleType", "testId", "testName"],
+          ["add", "analysisId", "canCancel", "canRemoveSample", "canceled", "hasResults",
+           "id", "removeSample", "sampleItemChanged", "sampleItemId", "sortOrder", "status",
+           "testId", "testName"],
           "existingTests row",
         );
-        // accessionNumber inside the row is SUFFIXED with the item's sort
-        // order, unlike the top-level one.
-        expect(item.accessionNumber, "row accessionNumber carries the item suffix").toMatch(
-          new RegExp(`^${accession}-\\d+$`),
-        );
         expect(item.id, "id duplicates testId").toBe(item.testId);
+        // canRemoveSample is a primitive boolean, so unlike the four header
+        // fields it stays PRESENT (false) on non-first rows instead of
+        // disappearing — same "only set on the first row" logic, opposite
+        // serialization outcome.
+        expect(typeof item.canRemoveSample, "canRemoveSample always serializes").toBe("boolean");
+
+        if ("accessionNumber" in item) {
+          // A header row's accessionNumber is SUFFIXED with the item's sort
+          // order, unlike the top-level one.
+          expect(item.accessionNumber, "a header row's accession carries the item suffix").toMatch(
+            new RegExp(`^${accession}-\\d+$`),
+          );
+          expectNonEmptyString(item.sampleType, "a header row carries sampleType");
+        } else {
+          for (const k of ["sampleType", "collectionDate", "collectionTime"]) {
+            expect(k in item, `a non-header existingTests row drops ${k}`).toBe(false);
+          }
+        }
       }
 
       // possibleTests are the ADDABLE tests for the filtered items' sample

@@ -306,6 +306,64 @@ version with the incident that motivated it:**
   that is a **bug report against the fixtures**, not a documented limitation.
   `test.skip` on an empty collection is the same failure mode wearing a
   different hat — it turns "never verified" into a green run.
+- **Finish the endpoint before it enters the gate, and never commit the gate
+  red.** `go-parity`'s `testMatch` is the ledger of what is ported AND verified.
+  A spec joins it when the Go side passes — not earlier.
+
+  Committing with it red breaks the branch for everyone and writes a false entry
+  in the ledger. There is no version of this that is acceptable: not
+  "temporarily", not to checkpoint progress, and specifically not on the
+  argument that visible failures make the remaining work transparent. That
+  argument has been made here and it was wrong — it is an unfinished deliverable
+  with a justification attached. Finish the work, or leave the spec out of
+  `testMatch` and say plainly the endpoint is not ported.
+- **Never bend the implementation to make a test pass.** When a parity test
+  fails, exactly one of two things is true:
+
+  | Cause | Fix |
+  |---|---|
+  | The port does not match Java | Fix the port |
+  | The test asserts something Java does not do | Re-measure live Java, then fix the test |
+
+  There is no third option. Do not special-case an input, hardcode the value the
+  test checks, weaken an assertion, or drop a filter until the counts agree. A
+  green run obtained that way certifies a parity that does not exist, which is
+  strictly worse than a red one. "What should this return?" is answered by
+  measuring the running Java server — never by reading the Java source alone,
+  and never by asking what would make the test pass.
+- **The port REPRODUCES Java's bugs. It never fixes them.** This is a migration,
+  not a bug-fix pass. Where Java returns the wrong status, an empty body, a
+  hardcoded counter, paging that does not page, or two endpoints that do "the
+  same thing" inconsistently, the Go implementation does exactly the same.
+
+  **Why:** the entire value of this work is that Go and Java answer the same live
+  request identically. A port that quietly corrects a defect makes the two
+  disagree in production — the one outcome this migration must not produce.
+  Whether the Java behavior should change is the maintainers' decision, on their
+  schedule, not something that rides in on a port.
+
+  **How:** pin the behavior in the e2e spec with a comment saying it is pinned
+  and not fixed, implement it in Go, and record it in
+  [java-defects-found.md](java-defects-found.md) so it can be raised separately.
+  Record the symptom and how to reproduce it — do NOT write a proposed fix for
+  the Java side, which is outside this migration's scope.
+
+  Two cases look alike and are not:
+
+  | Situation | Correct action |
+  |---|---|
+  | Java is wrong, Go matches Java | Keep it. That is the job. |
+  | Go is wrong, Go is changed to match Java | Also correct — that is not "fixing Java" |
+
+  The second row covers things like the Go session cookie emitting
+  `SameSite=Lax` where Tomcat sends no SameSite attribute: removing it is
+  matching Java, not repairing a Java defect.
+
+  Examples currently pinned rather than fixed: `unassigned-by-accession` (500 on
+  every input, invalid HQL), `unassigned-sample/items` and `GenericSampleOrder`
+  (500 as soon as anything matches), `order/dashboard` (request pageSize never
+  bounds the result), and the attachment split where a soft-deleted id is 404
+  while a missing one is 500.
 - **Keep the existing Playwright suite** (42 specs in `frontend/playwright`)
   running against the strangler proxy as a full-stack regression net during
   coexistence.

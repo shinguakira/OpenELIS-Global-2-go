@@ -26,6 +26,10 @@ const (
 // StatusResolver is the slice of the common StatusService this package needs.
 type StatusResolver interface {
 	IDByName(statusType, name string) string
+	// LabelByName resolves an internal status name to its DISPLAYED label via
+	// display_key -> message bundle. SampleEdit needs it because
+	// getStatusNameFromId emits the localized name, not the column value.
+	LabelByName(statusType, name string) string
 }
 
 // ErrUnassignedByAccessionBroken is returned unconditionally by

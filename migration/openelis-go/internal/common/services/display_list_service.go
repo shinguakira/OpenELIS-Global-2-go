@@ -13,20 +13,52 @@ import (
 // Java caches these in a static map and exposes getList / getFreshList; the
 // distinction is a caching one and has no observable effect on a response, so
 // this port queries每 time and does not model the cache.
+// RoleReception is Constants.ROLE_RECEPTION — the role whose lab units decide
+// which sample types the order-entry forms offer.
+const RoleReception = "Reception"
+
 type DisplayListService struct {
 	DAO *daoimpl.DisplayListDAOImpl
 	// Messages is the message bundle (message_en.properties), used wherever
 	// Java resolves a label through MessageUtil rather than a column.
 	Messages map[string]string
+	// StringContext is site_information.stringContext (here: "CI").
+	// MessageUtil.getContextualMessage appends "." + this to the key and uses
+	// the result WHEN THAT KEY EXISTS, falling back to the bare key otherwise.
+	// It is the difference between gender.male ("Male") and gender.male.CI
+	// ("1 = Male") — the deployment ships both and the form shows the second.
+	StringContext string
 }
 
-// message resolves a bundle key, falling back to the supplied default the way
-// MessageUtil does when a key is absent.
+// message resolves a bundle key.
+//
+// A MISSING key resolves to the KEY ITSELF, which is what Spring's
+// MessageSource does and what the live response shows: the bundle has no
+// label.select.last.first.name, and Java renders that entry as
+// "3. label.select.last.first.name". Substituting invented English there would
+// be a different response.
+//
+// The fallback argument is only for callers that have a genuine non-key
+// default; pass "" to get the key-as-value behaviour.
 func (s *DisplayListService) message(key, fallback string) string {
 	if v, ok := s.Messages[key]; ok && v != "" {
 		return v
 	}
-	return fallback
+	if fallback != "" {
+		return fallback
+	}
+	return key
+}
+
+// contextualMessage ports MessageUtil.getContextualMessage: try the
+// suffixed key first, fall back to the bare key, then to the supplied default.
+func (s *DisplayListService) contextualMessage(key, fallback string) string {
+	if s.StringContext != "" {
+		if v, ok := s.Messages[key+"."+s.StringContext]; ok && v != "" {
+			return v
+		}
+	}
+	return s.message(key, fallback)
 }
 
 // InitialSampleConditionList is ListType.INITIAL_SAMPLE_CONDITION —
@@ -126,6 +158,21 @@ func (s *DisplayListService) ProvidersList() ([]util.IdValuePair, error) {
 // bare organization name otherwise — a conditional label, not a column.
 func (s *DisplayListService) ReferringSiteList() ([]util.IdValuePair, error) {
 	return s.DAO.ReferringClinics()
+}
+
+// UserSampleTypes is getUserSampleTypes(userId, ROLE_RECEPTION) — the
+// ROLE-FILTERED sample types SamplePatientEntry and SampleEdit use, as opposed
+// to ActiveSampleTypes which SampleBatchEntrySetup uses. Same JSON key, two
+// different lists; see the DAO.
+func (s *DisplayListService) UserSampleTypes(systemUserID string) ([]util.IdValuePair, error) {
+	pairs, err := s.DAO.UserSampleTypes(systemUserID, RoleReception)
+	if err != nil {
+		return nil, err
+	}
+	// Java collects the ids into a HashSet and iterates it, so the wire order is
+	// HashMap bucket order rather than anything the query controls. See
+	// JavaHashSetOrder.
+	return JavaHashSetOrder(pairs), nil
 }
 
 // Projects returns the full project entities the form loads emit.

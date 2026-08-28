@@ -70,6 +70,47 @@ Controller → Form)
 
 ---
 
+## Migration Work: Two Non-Negotiables
+
+These apply to the Go migration (`migration/`) and exist because both have been
+violated in practice. Full context:
+[OpenELIS-Go-Migration-Plan.md](migration/OpenELIS-Go-Migration-Plan.md).
+
+### 1. Finish the work. Never commit a failing gate.
+
+The `go-parity` project in `migration/openelis-api-e2e/playwright.config.ts` is
+the ledger of what is **ported AND verified**. A spec file enters its
+`testMatch` when the Go implementation for it is done and passing — not before.
+
+**Do not commit with that gate red.** Not "temporarily", not to save progress,
+and above all not on the theory that leaving failures visible makes the
+remaining work transparent. It does not: it breaks the branch for everyone and
+puts a false entry in the ledger. If the implementation is not finished, finish
+it. If a decision genuinely has to be made first, leave the spec out of
+`testMatch` and say plainly that the endpoint is not ported.
+
+Dressing an unfinished deliverable up as a deliberate choice is worse than
+saying it is unfinished. Do neither — finish it.
+
+### 2. Never bend the implementation to make a test pass.
+
+The Go implementation exists to match Java's live behavior. When a parity test
+fails, exactly one of two things is true, and the fix differs:
+
+| Cause | Fix |
+|---|---|
+| The port does not match Java | Fix the port |
+| The test asserts something Java does not do | Fix the test — after re-measuring Java |
+
+Never a third option. Do not special-case an input, hardcode a value the test
+happens to check, relax an assertion to make it pass, or "simplify" a filter
+until the numbers line up. A green run bought that way is worse than a red one,
+because it certifies parity that does not exist.
+
+Re-measure against the live Java server before changing any assertion. The
+answer to "what should this return?" is never read off the Java source alone and
+never inferred from what would make the test pass.
+
 ## Critical Prerequisites
 
 ### Java Version (MANDATORY)

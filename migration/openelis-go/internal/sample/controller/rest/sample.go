@@ -369,3 +369,49 @@ func OrderSearchRoutes(mux *http.ServeMux, ctrl *OrderSearchRestController) {
 		web.WriteJSON(w, http.StatusOK, dto)
 	})
 }
+
+// SampleEditRestController mirrors
+// org.openelisglobal.sample.controller.rest.SampleEditRestController
+// (@RequestMapping("/rest/") + @GetMapping("SampleEdit")).
+//
+// NOT the MVC SampleEditController, which maps /SampleEdit and sets two extra
+// keys the REST class leaves commented out.
+type SampleEditRestController struct {
+	Service *service.SampleEditService
+}
+
+// SampleEditRoutes registers GET rest/SampleEdit.
+//
+// Both params are @RequestParam(required = false), so every combination is a
+// 200 — this endpoint never 404s, even for an accession that matches nothing.
+func SampleEditRoutes(mux *http.ServeMux, ctrl *SampleEditRestController) {
+	web.Register(mux, "GET", "rest/SampleEdit", func(w http.ResponseWriter, r *http.Request) {
+		dto, err := ctrl.Service.GetSampleEdit(r.URL.Query().Get("accessionNumber"))
+		if err != nil {
+			log.Printf("c2: SampleEdit failed: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		web.WriteJSON(w, http.StatusOK, dto)
+	})
+}
+
+// SamplePatientEntryRestController mirrors
+// org.openelisglobal.sample.controller.rest.SamplePatientEntryRestController
+// (@RequestMapping("/rest/") + @GetMapping("SamplePatientEntry")).
+type SamplePatientEntryRestController struct {
+	Service *service.SamplePatientEntryService
+}
+
+// SamplePatientEntryRoutes registers GET rest/SamplePatientEntry. No params.
+func SamplePatientEntryRoutes(mux *http.ServeMux, ctrl *SamplePatientEntryRestController) {
+	web.Register(mux, "GET", "rest/SamplePatientEntry", func(w http.ResponseWriter, r *http.Request) {
+		dto, err := ctrl.Service.GetForm()
+		if err != nil {
+			log.Printf("c2: SamplePatientEntry failed: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		web.WriteJSON(w, http.StatusOK, dto)
+	})
+}

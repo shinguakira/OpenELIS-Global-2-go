@@ -36,15 +36,15 @@ type SampleEditDTO struct {
 
 	CurrentDate string `json:"currentDate"`
 	// Always true on this form; SamplePatientEntry sets it false.
-	Warning                  bool `json:"warning"`
-	CustomNotificationLogic  bool `json:"customNotificationLogic"`
+	Warning                 bool `json:"warning"`
+	CustomNotificationLogic bool `json:"customNotificationLogic"`
 
 	// Accession-number generator configuration. NUMBERS, not strings.
-	AccessionFormat     string `json:"accessionFormat"`
-	IDSeparator         string `json:"idSeparator"`
-	MaxAccessionLength  int    `json:"maxAccessionLength"`
-	EditableAccession   int    `json:"editableAccession"`
-	NonEditableAccession int   `json:"nonEditableAccession"`
+	AccessionFormat      string `json:"accessionFormat"`
+	IDSeparator          string `json:"idSeparator"`
+	MaxAccessionLength   int    `json:"maxAccessionLength"`
+	EditableAccession    int    `json:"editableAccession"`
+	NonEditableAccession int    `json:"nonEditableAccession"`
 
 	// Search state. Both are primitive booleans, so both always serialize —
 	// including the blank form, where BOTH are false.
@@ -74,10 +74,10 @@ type SampleEditDTO struct {
 	InitialSampleConditionList []util.IdValuePair `json:"initialSampleConditionList"`
 
 	// Found-branch only — null and therefore absent on the other two states.
-	ExistingTests    []SampleEditItemDTO   `json:"existingTests,omitempty"`
-	PossibleTests    []SampleEditItemDTO   `json:"possibleTests,omitempty"`
-	SampleTypes      []util.IdValuePair    `json:"sampleTypes,omitempty"`
-	SampleOrderItems *SampleEditOrderDTO   `json:"sampleOrderItems,omitempty"`
+	ExistingTests    []SampleEditItemDTO `json:"existingTests,omitempty"`
+	PossibleTests    []SampleEditItemDTO `json:"possibleTests,omitempty"`
+	SampleTypes      []util.IdValuePair  `json:"sampleTypes,omitempty"`
+	SampleOrderItems *SampleEditOrderDTO `json:"sampleOrderItems,omitempty"`
 }
 
 // SampleEditItemDTO is one row of existingTests or possibleTests.
@@ -87,10 +87,12 @@ type SampleEditDTO struct {
 //   - existingTests rows carry analysisId, status, collectionDate and
 //     collectionTime; possibleTests rows do not (they describe a test that
 //     could be added, so there is no analysis yet).
-//   - accessionNumber and sampleType are set ONCE PER SAMPLE ITEM in
-//     possibleTests — on the first row of each item's group, as headers for the
-//     frontend — and left null on the rest, where NON_NULL drops them. In
-//     existingTests every row has them.
+//   - The HEADER fields — accessionNumber, sampleType, collectionDate,
+//     collectionTime — are set ONCE PER SAMPLE ITEM on BOTH lists: on the first
+//     row of each item's group after the sort, left null on the rest, where
+//     NON_NULL drops them. canRemoveSample follows the same "first row only"
+//     logic but is a primitive boolean, so it stays present as false instead of
+//     disappearing.
 //
 // `id` duplicates `testId` on both lists, and `sortOrder` is the TEST's sort
 // order rather than the sample item's.
@@ -124,7 +126,7 @@ type SampleEditItemDTO struct {
 //   - order/search       labNo, collectionDate, priority, paymentOptions
 //   - SamplePatientEntry the form LISTS plus requestDate (no labNo — no sample yet)
 //   - SampleEdit         the form lists PLUS labNo/sampleId/priority, and NO
-//                        requestDate
+//     requestDate
 //
 // Sharing one builder across the three gets at least one of them wrong.
 type SampleEditOrderDTO struct {

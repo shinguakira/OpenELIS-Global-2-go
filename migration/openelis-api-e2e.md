@@ -111,6 +111,18 @@ OpenELIS analog of `e2e.md` (the OpenMRS plan).
     Practical rule: after writing a spec, mutate the Go implementation to break
     the behavior it claims to pin. If the suite stays green, the data is
     missing — go seed it.
+  - **Pin Java's bugs; never fix them in the port.** Where Java is wrong, the
+    spec asserts the WRONG behavior — with a comment saying so — and the Go
+    implementation reproduces it. A test that asserts what Java *should* do
+    fails against the baseline it exists to protect, and a port that "improves"
+    a defect makes Go and Java disagree on a live request, which is the one
+    outcome this suite exists to prevent. Defects go in
+    [java-defects-found.md](java-defects-found.md) to be raised separately, as
+    symptom + reproduction only — proposing the Java-side fix is out of scope.
+
+    Distinguish: Java wrong + Go matching Java is CORRECT and stays. Go wrong +
+    Go changed to match Java is also correct, and is not "fixing Java" (the Go
+    cookie that emitted `SameSite=Lax` where Tomcat sends none is that case).
   - **No mocking, ever.** Every assertion in this suite runs against the real,
     live Java webapp (authenticated the same way a real client is) and the
     real, live Postgres it's connected to — never a stub, never a fixture

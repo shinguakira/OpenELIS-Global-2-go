@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -31,6 +32,9 @@ import (
 	dictcatservice "openelis-go/internal/dictionarycategory/service"
 
 	// localization layers (a2)
+	batchentryrest "openelis-go/internal/samplebatchentry/controller/rest"
+	batchentryservice "openelis-go/internal/samplebatchentry/service"
+
 	genericsamplerest "openelis-go/internal/genericsample/controller/rest"
 	genericsampleservice "openelis-go/internal/genericsample/service"
 
@@ -348,6 +352,31 @@ func main() {
 	genericsamplerest.Routes(mux, &genericsamplerest.GenericSampleOrderRestController{
 		Service: &genericsampleservice.GenericSampleOrderService{DB: gormDB},
 	})
+	// c2 4.6-4.8 share the DisplayListService port; 4.7 also needs the
+	// authenticated user, whose lab-unit roles decide the role-filtered
+	// sampleTypes list.
+	displayLists := &commonservices.DisplayListService{
+		DAO:      &commondaoimpl.DisplayListDAOImpl{DB: gormDB},
+		Messages: msgs,
+		// site_information.stringContext — "CI" on this deployment. Read from
+		// the DB rather than hardcoded: it selects which of the two label
+		// variants the message bundle ships for a key.
+		StringContext: siteStringContext(gormDB),
+	}
+	samplerest.SampleEditRoutes(mux, &samplerest.SampleEditRestController{
+		Service: &sampleservice.SampleEditService{
+			DAO:       &sampledaoimpl.SampleEditDAOImpl{DB: gormDB},
+			Lists:     displayLists,
+			SysUserID: "1",
+			Status:    statusSvc,
+		},
+	})
+	samplerest.SamplePatientEntryRoutes(mux, &samplerest.SamplePatientEntryRestController{
+		Service: &sampleservice.SamplePatientEntryService{Lists: displayLists, SysUserID: "1"},
+	})
+	batchentryrest.Routes(mux, &batchentryrest.BatchEntrySetupRestController{
+		Service: &batchentryservice.BatchEntrySetupService{Lists: displayLists, Zone: sampleservice.DisplayZone()},
+	})
 	log.Printf("DB-backed routes enabled (c2: sample reads)")
 
 	srv := &http.Server{Addr: addr, Handler: mux}
@@ -355,4 +384,21 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+// siteStringContext reads site_information.stringContext, which
+// MessageUtil.getContextualMessage appends to a key before looking it up.
+// Empty when the row is absent, which makes every contextual lookup fall back
+// to the bare key — the same thing Java does with a blank property.
+func siteStringContext(db *gorm.DB) string {
+	var value string
+	if err := db.Table("clinlims.site_information").
+		Select("value").
+		Where("name = ?", "stringContext").
+		Limit(1).
+		Scan(&value).Error; err != nil {
+		log.Printf("WARN: could not read site_information.stringContext (%v); contextual labels fall back", err)
+		return ""
+	}
+	return strings.TrimSpace(value)
 }

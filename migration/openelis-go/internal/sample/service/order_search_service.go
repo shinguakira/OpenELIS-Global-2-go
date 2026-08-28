@@ -480,3 +480,8 @@ func reformatEnteredBirthDate(raw string) string {
 // service cannot read the Java container's resolved property; a deployment on
 // the other branch must change it here too.
 const birthDateDisplayFormat = "02/01/2006"
+
+// DisplayZone exposes the display zone to other packages that render the same
+// dates — the batch-entry form load in particular. Kept as an accessor rather
+// than a duplicated resolver so all of c2 renders in one zone.
+func DisplayZone() *time.Location { return displayZone() }

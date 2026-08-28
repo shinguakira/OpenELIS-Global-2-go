@@ -149,10 +149,19 @@ BEGIN
     -- ---- analyses -----------------------------------------------------------
     -- Non-canceled, so getAnalysesBySampleItemsExcludingByStatusIds keeps them
     -- and existingTests is actually populated.
+    -- it_1a deliberately carries TWO analyses.
+    --
+    -- addCurrentTestsToList sets accessionNumber, sampleType, canRemoveSample,
+    -- collectionDate and collectionTime on the FIRST row of each sample item's
+    -- group only, leaving them null on the rest where Include.NON_NULL drops
+    -- them. With one analysis per item every row is a "first", so that rule is
+    -- invisible and a port setting the header fields on every row passes.
+    -- Two analyses on one item is the smallest shape that tells them apart.
     INSERT INTO clinlims.analysis
         (id, sampitem_id, test_id, status_id, analysis_type, entry_date, is_reportable, revision, lastupdated)
     VALUES
         (nextval('clinlims.analysis_seq'), it_1a, test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (nextval('clinlims.analysis_seq'), it_1a, test_b, ana_status, 'MANUAL', now(), 'N', 0, now()),
         (nextval('clinlims.analysis_seq'), it_1b, test_b, ana_status, 'MANUAL', now(), 'N', 0, now()),
         (nextval('clinlims.analysis_seq'), it_2a, test_a, ana_status, 'MANUAL', now(), 'N', 0, now());
 
