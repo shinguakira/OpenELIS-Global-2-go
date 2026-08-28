@@ -1,6 +1,9 @@
 # e1 — Admin config CRUD (scoped migration plan)
 
-Status: **in progress**
+Status: **ported and parity-verified; NOT yet in the gate**
+Open items: [open-items.md](open-items.md) — this wave contributes the largest
+block, including one confirmed divergence (no audit rows are written) and the
+fact that e1 has no e2e spec yet.
 Branch: `migration/e1-config-crud` (from `migration-base`).
 Companion docs:
 [endpoint-migration-order.md](endpoint-migration-order.md) (Wave 6),

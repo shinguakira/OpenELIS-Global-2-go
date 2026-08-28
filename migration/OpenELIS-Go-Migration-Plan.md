@@ -365,6 +365,12 @@ version with the incident that motivated it:**
   at. Three branches, one of which contradicts the database. A port that reads
   the obvious column agrees on the common case and is wrong on the other two,
   and only a fixture whose two sources DISAGREE can tell them apart.
+- **Deferred work goes in the register, not in your head.** Anything the port
+  does not do — an unported branch, a side effect skipped, a validator left
+  out — belongs in [open-items.md](open-items.md) with how it was found
+  (measured or source-read) and whether it diverges today or is merely
+  unreachable. A gap that is only in a commit message is a gap nobody will
+  find again.
 - **Finish the endpoint before it enters the gate, and never commit the gate
   red.** `go-parity`'s `testMatch` is the ledger of what is ported AND verified.
   A spec joins it when the Go side passes — not earlier.
