@@ -90,9 +90,15 @@ import (
 	tosservice "openelis-go/internal/typeofsample/service"
 
 	// unitofmeasure layers
+	referralrest "openelis-go/internal/referral/controller/rest"
+	referraldaoimpl "openelis-go/internal/referral/daoimpl"
+	referralservice "openelis-go/internal/referral/service"
 	uomrest "openelis-go/internal/unitofmeasure/controller/rest"
 	uomdaoimpl "openelis-go/internal/unitofmeasure/daoimpl"
 	uomservice "openelis-go/internal/unitofmeasure/service"
+	workplanrest "openelis-go/internal/workplan/controller/rest"
+	workplandaoimpl "openelis-go/internal/workplan/daoimpl"
+	workplanservice "openelis-go/internal/workplan/service"
 )
 
 func main() {
@@ -372,6 +378,22 @@ func main() {
 		StringContext: siteStringContext(gormDB),
 		DefaultLocale: activeLocale,
 	}
+
+	// -----------------------------------------------------------------------
+	// c3: result reads (clinical).
+	// -----------------------------------------------------------------------
+	workplanrest.Routes(mux, &workplanrest.WorkplanRestController{
+		Service: &workplanservice.WorkplanService{
+			DAO: &workplandaoimpl.WorkplanDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		},
+	})
+	log.Printf("DB-backed routes enabled (c3: WorkPlanBy* — clinical)")
+	referralrest.Routes(mux, &referralrest.ReferredOutTestsRestController{
+		Service: &referralservice.ReferredOutTestsService{
+			DAO:   &referraldaoimpl.ReferralDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+			Lists: displayLists,
+		},
+	})
 	samplerest.SampleEditRoutes(mux, &samplerest.SampleEditRestController{
 		Sessions: sessionStore,
 		Service: &sampleservice.SampleEditService{
