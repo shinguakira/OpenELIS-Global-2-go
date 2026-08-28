@@ -90,9 +90,21 @@ import (
 	tosservice "openelis-go/internal/typeofsample/service"
 
 	// unitofmeasure layers
+	referralrest "openelis-go/internal/referral/controller/rest"
+	referraldaoimpl "openelis-go/internal/referral/daoimpl"
+	referralservice "openelis-go/internal/referral/service"
+	resultrest "openelis-go/internal/result/controller/rest"
+	resultdaoimpl "openelis-go/internal/result/daoimpl"
+	resultservice "openelis-go/internal/result/service"
+	validationrest "openelis-go/internal/resultvalidation/controller/rest"
+	validationdaoimpl "openelis-go/internal/resultvalidation/daoimpl"
+	validationservice "openelis-go/internal/resultvalidation/service"
 	uomrest "openelis-go/internal/unitofmeasure/controller/rest"
 	uomdaoimpl "openelis-go/internal/unitofmeasure/daoimpl"
 	uomservice "openelis-go/internal/unitofmeasure/service"
+	workplanrest "openelis-go/internal/workplan/controller/rest"
+	workplandaoimpl "openelis-go/internal/workplan/daoimpl"
+	workplanservice "openelis-go/internal/workplan/service"
 )
 
 func main() {
@@ -329,6 +341,9 @@ func main() {
 	// stacks read the same rows, so a deployment needs no code change.
 	activeLocale := siteDefaultLocale(gormDB)
 	dateLocale := siteDateLocale(gormDB)
+	// validateTechnicalRejection decides whether technically REJECTED analyses
+	// are offered for validation. Read once, the way ConfigurationProperties does.
+	validateRejected := siteValidateRejected(gormDB)
 	sampleSvc := &sampleservice.SampleService{
 		DAO:    &sampledaoimpl.SampleDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
 		Status: statusSvc,
@@ -372,6 +387,33 @@ func main() {
 		StringContext: siteStringContext(gormDB),
 		DefaultLocale: activeLocale,
 	}
+
+	// -----------------------------------------------------------------------
+	// c3: result reads (clinical).
+	// -----------------------------------------------------------------------
+	workplanrest.Routes(mux, &workplanrest.WorkplanRestController{
+		Service: &workplanservice.WorkplanService{
+			DAO: &workplandaoimpl.WorkplanDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		},
+	})
+	log.Printf("DB-backed routes enabled (c3: WorkPlanBy* — clinical)")
+	resultrest.Routes(mux, &resultrest.ResultRestController{
+		Service: &resultservice.ResultService{
+			DAO: &resultdaoimpl.ResultDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		},
+	})
+	validationrest.Routes(mux, &validationrest.AccessionValidationRestController{
+		Service: &validationservice.ResultValidationService{
+			DAO:      &validationdaoimpl.ResultValidationDAOImpl{DB: gormDB, ActiveLocale: activeLocale, ValidateRejected: validateRejected},
+			Sections: &referraldaoimpl.ReferralDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		},
+	})
+	referralrest.Routes(mux, &referralrest.ReferredOutTestsRestController{
+		Service: &referralservice.ReferredOutTestsService{
+			DAO:   &referraldaoimpl.ReferralDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+			Lists: displayLists,
+		},
+	})
 	samplerest.SampleEditRoutes(mux, &samplerest.SampleEditRestController{
 		Sessions: sessionStore,
 		Service: &sampleservice.SampleEditService{
@@ -446,4 +488,21 @@ func siteDateLocale(db *gorm.DB) string {
 		return ""
 	}
 	return strings.TrimSpace(value)
+}
+
+// siteValidateRejected reads site_information validateTechnicalRejection.
+//
+// Defaults to TRUE when the row is missing, matching
+// ConfigurationProperties' own default for this property — a site that never
+// set it still validates rejections.
+func siteValidateRejected(db *gorm.DB) bool {
+	values := []string{}
+	if err := db.Table("clinlims.site_information").
+		Select("value").
+		Where("name = ?", "validateTechnicalRejection").
+		Limit(1).
+		Scan(&values).Error; err != nil || len(values) == 0 {
+		return true
+	}
+	return values[0] != "false"
 }

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"sync/atomic"
+	"time"
 )
 
 // ContentTypeJSON is the Content-Type Java sends on every JSON response —
@@ -118,4 +119,31 @@ func Register(mux *http.ServeMux, method, restPath string, h http.HandlerFunc) {
 func RegisterOpen(mux *http.ServeMux, method, restPath string, h http.HandlerFunc) {
 	mux.HandleFunc(method+" /api/OpenELIS-Global/"+restPath, h)
 	mux.HandleFunc(method+" /"+restPath, h)
+}
+
+// ServletErrorBody is the body Tomcat's default error page produces for an
+// unhandled exception — the shape Java answers with when a controller throws,
+// as opposed to the RFC 7807 ProblemDetail Spring produces for a BINDING
+// failure. Two error paths, two envelopes, and c3 hits both.
+//
+//	{"timestamp":1787922187266,"status":500,"error":"Internal Server Error"}
+type ServletErrorBody struct {
+	Timestamp int64  `json:"timestamp"`
+	Status    int    `json:"status"`
+	Error     string `json:"error"`
+}
+
+// ServletError builds that body. The timestamp is epoch MILLIS, taken at
+// response time exactly as Tomcat does.
+func ServletError(status int) ServletErrorBody {
+	return ServletErrorBody{
+		Timestamp: nowMillis(),
+		Status:    status,
+		Error:     http.StatusText(status),
+	}
+}
+
+// nowMillis is epoch milliseconds, the unit Tomcat stamps its error body with.
+func nowMillis() int64 {
+	return time.Now().UnixMilli()
 }

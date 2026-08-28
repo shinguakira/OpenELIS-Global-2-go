@@ -65,6 +65,7 @@
 
 DO $BODY$
 DECLARE
+    order_status    NUMERIC;   -- status_of_sample, status_type='ORDER'
     target_patient  NUMERIC;
     tos_id          NUMERIC;
     entered_status  NUMERIC;
@@ -80,6 +81,19 @@ DECLARE
     it_2a           NUMERIC;
     it_2b           NUMERIC;
 BEGIN
+    -- sample.status_id is the ORDER-level status (status_type='ORDER'), NOT
+    -- the SAMPLE-level one used by sample_item. Every stock sample carries it,
+    -- and Java dereferences it without a null check, so leaving it NULL breaks
+    -- unrelated endpoints (WorkPlanByTest 500s on the resulting NPE).
+    SELECT id INTO order_status FROM clinlims.status_of_sample
+     WHERE status_type = 'ORDER' AND name = 'Test Entered' LIMIT 1;
+    IF order_status IS NULL THEN
+        -- Fail LOUDLY rather than seeding NULL statuses again: a NULL here is
+        -- what made WorkPlanByTest 500 for every test id, and it was invisible
+        -- until the c3 wave went looking.
+        RAISE NOTICE 'sample-edit-e2e: ORDER status "Test Entered" missing; nothing seeded.';
+        RETURN;
+    END IF;
     -- ---- cleanup, children first -------------------------------------------
     DELETE FROM clinlims.analysis
      WHERE sampitem_id IN (
@@ -119,10 +133,10 @@ BEGIN
     s_edit1 := nextval('clinlims.sample_seq');
     s_edit2 := nextval('clinlims.sample_seq');
     INSERT INTO clinlims.sample
-        (id, accession_number, entered_date, received_date, collection_date, lastupdated, is_confirmation)
+        (id, accession_number, entered_date, received_date, collection_date, lastupdated, is_confirmation, status_id)
     VALUES
-        (s_edit1, 'E2E-EDIT-01', now(), now(), TIMESTAMP '2025-06-01 09:00:00', now(), false),
-        (s_edit2, 'E2E-EDIT-02', now(), now(), TIMESTAMP '2025-06-02 09:00:00', now(), false);
+        (s_edit1, 'E2E-EDIT-01', now(), now(), TIMESTAMP '2025-06-01 09:00:00', now(), false, order_status),
+        (s_edit2, 'E2E-EDIT-02', now(), now(), TIMESTAMP '2025-06-02 09:00:00', now(), false, order_status);
 
     IF target_patient IS NOT NULL THEN
         INSERT INTO clinlims.sample_human (id, samp_id, patient_id) VALUES
@@ -157,13 +171,17 @@ BEGIN
     -- them. With one analysis per item every row is a "first", so that rule is
     -- invisible and a port setting the header fields on every row passes.
     -- Two analyses on one item is the smallest shape that tells them apart.
+    -- test_sect_id は test.test_section_id の非正規化コピー。
+    -- AnalysisServiceImpl が analysis 生成時に必ず setTestSection する列で、
+    -- これが NULL だと rest/WorkPlanByTestSection が 0 行になる（その HQL は
+    -- test 側ではなく analysis 側のこの列で絞る）。
     INSERT INTO clinlims.analysis
-        (id, sampitem_id, test_id, status_id, analysis_type, entry_date, is_reportable, revision, lastupdated)
+        (id, sampitem_id, test_id, test_sect_id, status_id, analysis_type, entry_date, is_reportable, revision, lastupdated)
     VALUES
-        (nextval('clinlims.analysis_seq'), it_1a, test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (nextval('clinlims.analysis_seq'), it_1a, test_b, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (nextval('clinlims.analysis_seq'), it_1b, test_b, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (nextval('clinlims.analysis_seq'), it_2a, test_a, ana_status, 'MANUAL', now(), 'N', 0, now());
+        (nextval('clinlims.analysis_seq'), it_1a, test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (nextval('clinlims.analysis_seq'), it_1a, test_b, (SELECT test_section_id FROM clinlims.test WHERE id = test_b), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (nextval('clinlims.analysis_seq'), it_1b, test_b, (SELECT test_section_id FROM clinlims.test WHERE id = test_b), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (nextval('clinlims.analysis_seq'), it_2a, test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now());
 
     RAISE NOTICE 'sample-edit-e2e: seeded E2E-EDIT-01 (2 entered items) and E2E-EDIT-02 (1 entered, 1 disposed)';
 END $BODY$;

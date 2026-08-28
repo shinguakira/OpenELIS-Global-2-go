@@ -80,6 +80,7 @@
 
 DO $BODY$
 DECLARE
+    order_status    NUMERIC;   -- status_of_sample, status_type='ORDER'
     org_a           NUMERIC;
     org_b           NUMERIC;
     ref_type        NUMERIC;
@@ -119,6 +120,19 @@ DECLARE
     pdf_bytes       BYTEA;
     bin_bytes       BYTEA;
 BEGIN
+    -- sample.status_id is the ORDER-level status (status_type='ORDER'), NOT
+    -- the SAMPLE-level one used by sample_item. Every stock sample carries it,
+    -- and Java dereferences it without a null check, so leaving it NULL breaks
+    -- unrelated endpoints (WorkPlanByTest 500s on the resulting NPE).
+    SELECT id INTO order_status FROM clinlims.status_of_sample
+     WHERE status_type = 'ORDER' AND name = 'Test Entered' LIMIT 1;
+    IF order_status IS NULL THEN
+        -- Fail LOUDLY rather than seeding NULL statuses again: a NULL here is
+        -- what made WorkPlanByTest 500 for every test id, and it was invisible
+        -- until the c3 wave went looking.
+        RAISE NOTICE 'shipment-attachment-e2e: ORDER status "Test Entered" missing; nothing seeded.';
+        RETURN;
+    END IF;
     -- ---- cleanup, children first -------------------------------------------
     DELETE FROM clinlims.box_sample_item
      WHERE sample_item_id IN (
@@ -135,6 +149,27 @@ BEGIN
     DELETE FROM clinlims.order_attachment
      WHERE sample_id IN (SELECT id FROM clinlims.sample
                           WHERE accession_number LIKE 'E2E-REF-%' OR accession_number = 'E2E-ATT-01');
+    -- result and note hang off analysis and must go FIRST.
+    --
+    -- They were not here originally because nothing ever attached a result to
+    -- a referred analysis. result-reads-e2e.sql now does, to make the
+    -- referralResultsDisplay/resultDate/notes fields reachable, and this
+    -- cleanup started failing on result_analysis_fk the next time it ran.
+    -- A fixture that only cleans what it itself writes breaks as soon as
+    -- another one writes a child row.
+    DELETE FROM clinlims.result
+     WHERE analysis_id IN (
+        SELECT a.id FROM clinlims.analysis a
+          JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+          JOIN clinlims.sample s ON s.id = si.samp_id
+         WHERE s.accession_number LIKE 'E2E-REF-%' OR s.accession_number = 'E2E-ATT-01');
+    DELETE FROM clinlims.note
+     WHERE reference_table = (SELECT id FROM clinlims.reference_tables WHERE name = 'ANALYSIS')
+       AND reference_id IN (
+        SELECT a.id FROM clinlims.analysis a
+          JOIN clinlims.sample_item si ON si.id = a.sampitem_id
+          JOIN clinlims.sample s ON s.id = si.samp_id
+         WHERE s.accession_number LIKE 'E2E-REF-%' OR s.accession_number = 'E2E-ATT-01');
     DELETE FROM clinlims.analysis
      WHERE sampitem_id IN (
         SELECT si.id FROM clinlims.sample_item si
@@ -153,8 +188,21 @@ BEGIN
     -- ---- reference data, resolved at load time ------------------------------
     -- Two DISTINCT organizations: by-facility/{id} is only a real filter if at
     -- least one included row belongs to a different facility.
-    SELECT id INTO org_a FROM clinlims.organization ORDER BY id LIMIT 1;
-    SELECT id INTO org_b FROM clinlims.organization ORDER BY id OFFSET 1 LIMIT 1;
+    -- 送り先の組織2件。'ORDER BY id LIMIT/OFFSET' で素朴に選んでは いけない:
+    -- organization は他の fixture も書き込むテーブルで、1件挿入されただけで
+    -- どの組織が選ばれるかがずれる。実際 order-search-full-e2e.sql が
+    -- E2E-DEPT を低い id で作った時に org_b がそれに化け、その fixture が次の
+    -- ロードで delete+create した時点で referral.organization_id が NULL に落ち、
+    -- 可視 referral が 10→9、施設が 2→1 になった。
+    --
+    -- このスイートが所有する組織（short_name が 'E2E-' 始まり）を除外して、
+    -- デプロイ本来の組織だけから選ぶ。
+    SELECT id INTO org_a FROM clinlims.organization
+     WHERE short_name IS NULL OR short_name NOT LIKE 'E2E-%'
+     ORDER BY id LIMIT 1;
+    SELECT id INTO org_b FROM clinlims.organization
+     WHERE short_name IS NULL OR short_name NOT LIKE 'E2E-%'
+     ORDER BY id OFFSET 1 LIMIT 1;
     SELECT id INTO ref_type    FROM clinlims.referral_type   ORDER BY id LIMIT 1;
     SELECT id INTO ref_reason  FROM clinlims.referral_reason ORDER BY id LIMIT 1;
     SELECT id INTO tos_id      FROM clinlims.type_of_sample  ORDER BY id LIMIT 1;
@@ -186,12 +234,12 @@ BEGIN
     s_excl := nextval('clinlims.sample_seq');
     s_att  := nextval('clinlims.sample_seq');
     INSERT INTO clinlims.sample
-        (id, accession_number, entered_date, received_date, collection_date, lastupdated, is_confirmation)
+        (id, accession_number, entered_date, received_date, collection_date, lastupdated, is_confirmation, status_id)
     VALUES
-        (s_ref1, 'E2E-REF-01', now(), now(), TIMESTAMP '2025-05-01 09:15:00', now(), false),
-        (s_ref2, 'E2E-REF-02', now(), now(), TIMESTAMP '2025-05-02 09:15:00', now(), false),
-        (s_excl, 'E2E-REF-03', now(), now(), TIMESTAMP '2025-05-03 09:15:00', now(), false),
-        (s_att,  'E2E-ATT-01', now(), now(), TIMESTAMP '2025-05-04 09:15:00', now(), false);
+        (s_ref1, 'E2E-REF-01', now(), now(), TIMESTAMP '2025-05-01 09:15:00', now(), false, order_status),
+        (s_ref2, 'E2E-REF-02', now(), now(), TIMESTAMP '2025-05-02 09:15:00', now(), false, order_status),
+        (s_excl, 'E2E-REF-03', now(), now(), TIMESTAMP '2025-05-03 09:15:00', now(), false, order_status),
+        (s_att,  'E2E-ATT-01', now(), now(), TIMESTAMP '2025-05-04 09:15:00', now(), false, order_status);
 
     -- s_excl is deliberately left patient-less: the exclusion rows must not
     -- shift any patient-keyed count (patient/merge/details in particular --
@@ -240,20 +288,24 @@ BEGIN
     an_boxed    := nextval('clinlims.analysis_seq');
     an_nullstat := nextval('clinlims.analysis_seq');
     an_voided   := nextval('clinlims.analysis_seq');
+    -- test_sect_id は test.test_section_id の非正規化コピー。
+    -- AnalysisServiceImpl が analysis 生成時に必ず setTestSection する列で、
+    -- これが NULL だと rest/WorkPlanByTestSection が 0 行になる（その HQL は
+    -- test 側ではなく analysis 側のこの列で絞る）。
     INSERT INTO clinlims.analysis
-        (id, sampitem_id, test_id, status_id, analysis_type, entry_date, is_reportable, revision, lastupdated)
+        (id, sampitem_id, test_id, test_sect_id, status_id, analysis_type, entry_date, is_reportable, revision, lastupdated)
     VALUES
         -- an_1a and an_1b BOTH hang off it_1a, which is what gives that one
         -- sample item two referralTests entries.
-        (an_1a,       it_1a,       test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_1b,       it_1a,       test_b, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_1b_item,  it_1b,       test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_2a,       it_2a,       test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_lost,     it_lost,     test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_cancel,   it_cancel,   test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_boxed,    it_boxed,    test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_nullstat, it_nullstat, test_a, ana_status, 'MANUAL', now(), 'N', 0, now()),
-        (an_voided,   it_voided,   test_a, ana_status, 'MANUAL', now(), 'N', 0, now());
+        (an_1a,       it_1a,       test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_1b,       it_1a,       test_b, (SELECT test_section_id FROM clinlims.test WHERE id = test_b), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_1b_item,  it_1b,       test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_2a,       it_2a,       test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_lost,     it_lost,     test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_cancel,   it_cancel,   test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_boxed,    it_boxed,    test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_nullstat, it_nullstat, test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now()),
+        (an_voided,   it_voided,   test_a, (SELECT test_section_id FROM clinlims.test WHERE id = test_a), ana_status, 'MANUAL', now(), 'N', 0, now());
 
     -- ---- shipping box, for the "already assigned" exclusion ------------------
     box_pk := nextval('clinlims.shipping_box_seq');

@@ -156,9 +156,13 @@ BEGIN
     -- throw StaleStateException — taking rest/order/dashboard from 200 to 500
     -- for the whole table, not just for this row.
     INSERT INTO clinlims.sample
-        (id, accession_number, entered_date, received_date, lastupdated, is_confirmation)
+        (id, accession_number, entered_date, received_date, lastupdated, is_confirmation, status_id)
     VALUES
-        (nextval('clinlims.sample_seq'), 'E2E-NOPAT-01', now(), now(), now(), false);
+    -- status_id はサブクエリで解決する。このブロックには DECLARE が無く、
+    -- 上のブロックのローカル変数はここからは見えない。
+        (nextval('clinlims.sample_seq'), 'E2E-NOPAT-01', now(), now(), now(), false,
+         (SELECT id FROM clinlims.status_of_sample
+           WHERE status_type = 'ORDER' AND name = 'Test Entered' LIMIT 1));
 
     RAISE NOTICE 'patient-media-e2e: seeded patient-less sample E2E-NOPAT-01';
 END $$;
