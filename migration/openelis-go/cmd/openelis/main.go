@@ -49,6 +49,11 @@ import (
 	patientdaoimpl "openelis-go/internal/patient/daoimpl"
 	patientservice "openelis-go/internal/patient/service"
 
+	// sample layers (c2)
+	samplerest "openelis-go/internal/sample/controller/rest"
+	sampledaoimpl "openelis-go/internal/sample/daoimpl"
+	sampleservice "openelis-go/internal/sample/service"
+
 	// provider layers (b2)
 	providerrest "openelis-go/internal/provider/controller/rest"
 	providerdaoimpl "openelis-go/internal/provider/daoimpl"
@@ -309,6 +314,22 @@ func main() {
 		MergeService: patientMergeSvc,
 	})
 	log.Printf("DB-backed routes enabled (c1: patient reads — PHI, authenticated; merge/details additionally requires the Reception role)")
+
+	// -----------------------------------------------------------------------
+	// c2: sample + order reads.
+	// -----------------------------------------------------------------------
+	sampleSvc := &sampleservice.SampleService{
+		DAO:    &sampledaoimpl.SampleDAOImpl{DB: gormDB},
+		Status: statusSvc,
+	}
+	samplerest.Routes(mux, &samplerest.SampleRestController{Service: sampleSvc})
+	samplerest.PendingAnalysisRoutes(mux, &samplerest.PendingAnalysisRestController{
+		Service: &sampleservice.PendingAnalysisService{
+			DAO:    &sampledaoimpl.SampleDAOImpl{DB: gormDB},
+			Status: statusSvc,
+		},
+	})
+	log.Printf("DB-backed routes enabled (c2: sample reads)")
 
 	srv := &http.Server{Addr: addr, Handler: mux}
 	log.Printf("openelis-go listening on %s", addr)
