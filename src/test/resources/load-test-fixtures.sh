@@ -30,6 +30,7 @@ AUTH_E2E_SQL="$SCRIPT_DIR/fixtures/auth-e2e.sql"
 PATIENT_MEDIA_E2E_SQL="$SCRIPT_DIR/fixtures/patient-media-e2e.sql"
 ORDER_SEARCH_E2E_SQL="$SCRIPT_DIR/fixtures/order-search-e2e.sql"
 SHIPMENT_ATTACHMENT_E2E_SQL="$SCRIPT_DIR/fixtures/shipment-attachment-e2e.sql"
+SAMPLE_EDIT_E2E_SQL="$SCRIPT_DIR/fixtures/sample-edit-e2e.sql"
 RESET_SCRIPT="$SCRIPT_DIR/reset-test-database.sh"
 
 RESET=false
@@ -419,6 +420,18 @@ load_profile_lane_fixtures() {
     if [ -f "$SHIPMENT_ATTACHMENT_E2E_SQL" ]; then
         load_sql_file "$SHIPMENT_ATTACHMENT_E2E_SQL" \
             "shipment-attachment-e2e.sql (referrals + order attachments)" "fatal"
+    fi
+
+    # Sample items in SampleEntered status, for the SampleEdit form load. MUST
+    # run after storage: the samples link to the first patient by id.
+    #
+    # Profile-independent and fatal on error. Not one sample_item in the stock
+    # dataset carries that status, so SampleEdit's existingTests, possibleTests
+    # and the real maxAccessionNumber branch were all unreachable — the response
+    # was pinned to its fallbacks no matter what the server did.
+    if [ -f "$SAMPLE_EDIT_E2E_SQL" ]; then
+        load_sql_file "$SAMPLE_EDIT_E2E_SQL" \
+            "sample-edit-e2e.sql (SampleEntered sample items)" "fatal"
     fi
 }
 

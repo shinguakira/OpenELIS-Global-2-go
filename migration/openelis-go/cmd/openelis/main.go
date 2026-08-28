@@ -31,6 +31,9 @@ import (
 	dictcatservice "openelis-go/internal/dictionarycategory/service"
 
 	// localization layers (a2)
+	genericsamplerest "openelis-go/internal/genericsample/controller/rest"
+	genericsampleservice "openelis-go/internal/genericsample/service"
+
 	localizationrest "openelis-go/internal/localization/controller/rest"
 	localizationdao "openelis-go/internal/localization/daoimpl"
 	localizationservice "openelis-go/internal/localization/service"
@@ -338,6 +341,12 @@ func main() {
 	})
 	samplerest.OrderSearchRoutes(mux, &samplerest.OrderSearchRestController{
 		Service: &sampleservice.OrderSearchService{DAO: &sampledaoimpl.SampleDAOImpl{DB: gormDB}},
+	})
+	// c2 4.5 — rest/GenericSampleOrder. Two of its three outcomes are error
+	// envelopes and the third is a reproduced Java defect, so the service only
+	// needs the DB to tell "no such accession" from "exists".
+	genericsamplerest.Routes(mux, &genericsamplerest.GenericSampleOrderRestController{
+		Service: &genericsampleservice.GenericSampleOrderService{DB: gormDB},
 	})
 	log.Printf("DB-backed routes enabled (c2: sample reads)")
 
