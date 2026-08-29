@@ -294,6 +294,23 @@ func main() {
 	log.Printf("DB-backed routes enabled (b1: dictionary-categories, uom, test-catalog, TestCatalog)")
 
 	// -----------------------------------------------------------------------
+	// e2 slice 1: UOM create + rename (testconfiguration writes).
+	// -----------------------------------------------------------------------
+
+	// The display lists this service answers are CACHES loaded here, at
+	// startup, exactly as DisplayListService loads them — and one of the two is
+	// never reloaded afterwards, because the refresh Java performs on it is a
+	// no-op. Reading the table per request would be more correct than Java and
+	// therefore wrong; see the service.
+	uomConfigSvc := &testconfigservice.UomConfigService{DAO: uomDAO}
+	if err := uomConfigSvc.Load(); err != nil {
+		log.Fatalf("uom display lists: %v", err)
+	}
+	testconfigrest.UomRoutes(mux, &testconfigrest.UomConfigRestController{Service: uomConfigSvc})
+
+	log.Printf("DB-backed routes enabled (e2: UomCreate, UomRenameEntry)")
+
+	// -----------------------------------------------------------------------
 	// b2: organization + provider reference reads.
 	// -----------------------------------------------------------------------
 

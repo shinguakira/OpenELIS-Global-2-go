@@ -1,6 +1,6 @@
 # e2 — Test-catalog writes (scoped migration plan)
 
-Status: **opening — scope measured, nothing ported yet**
+Status: **slice 1 ported and in the gate; slices 2-6 open**
 Branch: `migration/e2-testcatalog-writes` (from `migration/e1-config-crud`, not
 from `migration-base` — see §1).
 Companion docs:
@@ -159,6 +159,31 @@ The row itself: `name` and `description` both take the submitted name,
 with no audit row, it has nowhere to show, but the same signature recurs in the
 sibling controllers where it may.
 
+**A rename moves `name` and leaves `description`.** `updateUomNames` calls
+`setUnitOfMeasureName(nameEnglish.trim())` and nothing else, so the two columns
+agree the moment a UOM is created and disagree from the first rename onward.
+The trim is Java's, not the database's. An id that does not exist is a silent
+**200**: the block is guarded by `if (unitOfMeasure != null)` and skipped
+whole.
+
+**`inactiveUomList` is not an inactive list, and it does not refresh.** This is
+the one worth reading twice. `DisplayListService` builds `UNIT_OF_MEASURE` with
+`createUnitOfMeasureList()` and `UNIT_OF_MEASURE_INACTIVE` with
+`createUOMList()` — two names for the same six lines, `getAll()` mapped to
+`(id, localizedName)`, neither filtering on `is_active`; the filter survives in
+the first only as a commented-out line. The create handler then refreshes both,
+and only one refresh exists: `refreshList`'s switch has a case for
+`UNIT_OF_MEASURE` and none for `UNIT_OF_MEASURE_INACTIVE`, so the second call
+falls through in silence and that list keeps its startup snapshot for the life
+of the process.
+
+Measured: after a create, `existingUomList` carries the new UOM and
+`inactiveUomList` does not, and the latter is byte-identical to what it was
+before the write. The run that pinned this went further — `existingUomList`
+held a UOM that had already been deleted from the table, because nothing
+refreshes on a delete either. **The port caches both lists at startup and
+reloads only the first**, which is the e1-8 lesson applied to a second cache.
+
 ### 3.2 Still to measure
 
 **The insert failure is swallowed.** `catch (LIMSRuntimeException e)
@@ -206,7 +231,7 @@ Clinical writes last.
 
 | # | Slice | Endpoints | Why here |
 |---|---|---|---|
-| 1 | **UOM** — `UomCreate`, `UomRenameEntry` | 2 W + 2 R | Smallest whole module. Establishes the GET-form/POST-save shape all 24 `testconfiguration` controllers share, the localization question, and the audit payload for a non-`site_information` entity. |
+| 1 ✅ | **UOM** — `UomCreate`, `UomRenameEntry` | 2 W + 2 R | Smallest whole module. Establishes the GET-form/POST-save shape all 24 `testconfiguration` controllers share, the localization question, and the audit payload for a non-`site_information` entity. |
 | 2 | **Method**, **TestSection**, **SampleType**, **Panel** — create / rename / order / assign | 13 W + 13 R | Structurally identical to slice 1. Cheap once the shape is proven; the differences are the join tables in `*TestAssign` and `*Order`. |
 | 3 | **Select lists** — `ResultSelectListAdd`, `SelectListRenameEntry` | 3 W + 2 R | Dictionary-backed; feeds result entry. |
 | 4 | **Test lifecycle** — `TestAdd`, `TestModifyEntry`, `TestActivation`, `TestOrderability`, `TestRenameEntry`, `POST tests/{id}/activate` | 6 W + 5 R | Touches `test`, which c2 and c3 read. |
