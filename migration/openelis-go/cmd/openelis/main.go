@@ -398,6 +398,13 @@ func main() {
 		DAO:   &testconfigdaoimpl.CreateDAO{DB: gormDB, Audit: &audittrail.Service{}},
 	}
 	testconfigrest.CreateRoutes(mux, &testconfigrest.CreateRestController{Service: createSvc})
+
+	// The *Order screens: they move sort_order and write nothing else.
+	orderSvc := &testconfigservice.OrderService{
+		Lists: &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		DAO:   &testconfigdaoimpl.OrderDAO{DB: gormDB, Audit: &audittrail.Service{}},
+	}
+	testconfigrest.OrderRoutes(mux, &testconfigrest.OrderRestController{Service: orderSvc})
 	dateLocale := siteDateLocale(gormDB)
 	// validateTechnicalRejection decides whether technically REJECTED analyses
 	// are offered for validation. Read once, the way ConfigurationProperties does.
