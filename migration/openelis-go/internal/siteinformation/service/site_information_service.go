@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 
+	"gorm.io/gorm"
+
 	locform "openelis-go/internal/localization/form"
 	"openelis-go/internal/security/encryption"
 	"openelis-go/internal/siteinformation/daoimpl"
@@ -384,10 +386,41 @@ func (s *SiteInformationService) Update(post form.SiteInformationPost, id string
 		return echo, nil
 	}
 
+	// WHICH flag decides encryption depends on the branch, and the two do not
+	// agree.
+	//
+	// validateAndUpdateSiteInformation builds a fresh entity for a new row and
+	// calls setEncrypted(form.isEncrypted()) on it — the submission decides. For
+	// an existing row it does not build anything: it LOADS the entity by id and
+	// calls only setValue, so the flag on the object is the one the column
+	// already holds and the submitted one is never read. encryptSiteInformation
+	// then tests that object's flag.
+	//
+	// Reading the submission on both branches — which this port did — breaks
+	// the row both ways. Update an encrypted row with `encrypted` omitted (the
+	// bean default is false) and the column takes PLAINTEXT while its own flag
+	// still says encrypted, so every later read tries to decrypt it and the
+	// whole config screen answers 500. Send true for an unencrypted row and the
+	// column takes ciphertext nothing will ever decrypt, because no reader looks
+	// at a row that is not flagged.
+	encrypted := post.Encrypted != nil && *post.Encrypted
+	if !isNew {
+		stored, err := s.DAO.Get(id)
+		if err != nil {
+			return nil, err
+		}
+		if stored == nil {
+			// Java dereferences the null the loader returns and the request
+			// ends as a 500. The DAO's own error carries that.
+			return nil, daoimpl.ErrNoSuchRow
+		}
+		encrypted = stored.Encrypted != nil && *stored.Encrypted
+	}
+
 	// A row flagged encrypted stores CIPHERTEXT. encryptSiteInformation runs
 	// before both the insert and the update, so the column never holds the
 	// value the caller sent.
-	if s.Encryptor != nil && post.Encrypted != nil && *post.Encrypted && value != nil {
+	if s.Encryptor != nil && encrypted && value != nil {
 		enc, err := s.Encryptor.Encrypt(*value)
 		if err != nil {
 			return nil, err
@@ -395,34 +428,51 @@ func (s *SiteInformationService) Update(post form.SiteInformationPost, id string
 		value = &enc
 	}
 
-	if isNew {
-		domainID := SiteIdentityDomainID
-		if derefStr(post.SiteInfoDomainName) == "ResultConfiguration" {
-			domainID = ResultConfigDomainID
+	// persistData is @Transactional, and it covers BOTH the write and
+	// configurationSideEffects.siteInformationChanged. They commit together or
+	// not at all: a side effect that fails must not leave the configuration row
+	// changed, its audit row written, and the dependent role or accession prefix
+	// untouched. Running them in separate transactions — which this port did —
+	// answers 500 over a half-applied change.
+	//
+	// ConfigurationProperties.loadDBValuesIntoConfiguration() is NOT in here.
+	// Java calls it from the controller after persistData returns, so it sees
+	// only committed state.
+	err := s.DAO.Tx(func(tx *gorm.DB) error {
+		if isNew {
+			domainID := SiteIdentityDomainID
+			if derefStr(post.SiteInfoDomainName) == "ResultConfiguration" {
+				domainID = ResultConfigDomainID
+			}
+			enc := encrypted
+			row := &valueholder.SiteInformation{
+				Name:        name,
+				Description: post.Description,
+				Value:       value,
+				Encrypted:   &enc,
+				DomainID:    &domainID,
+				ValueType:   "text",
+			}
+			if err := s.DAO.InsertTx(tx, row, sysUserID); err != nil {
+				return err
+			}
+		} else {
+			if err := s.DAO.UpdateValueTx(tx, id, value, sysUserID); err != nil {
+				return err
+			}
 		}
-		encrypted := post.Encrypted != nil && *post.Encrypted
-		row := &valueholder.SiteInformation{
-			Name:        name,
-			Description: post.Description,
-			Value:       value,
-			Encrypted:   &encrypted,
-			DomainID:    &domainID,
-			ValueType:   "text",
-		}
-		if err := s.DAO.Insert(row, sysUserID); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := s.DAO.UpdateValue(id, value, sysUserID); err != nil {
-			return nil, err
-		}
-	}
 
-	// configurationSideEffects.siteInformationChanged, which runs inside
-	// persistData — so a write to one row can change another table.
-	if err := s.sideEffects(name, derefStr(post.Value)); err != nil {
+		// The value the side effects see is the one on the ENTITY, which by now
+		// has been through encryptSiteInformation — so for an encrypted row it
+		// is the ciphertext, not what the caller typed. No shipped row is both
+		// encrypted and named by a side effect, but the port follows the object
+		// rather than the submission because Java does.
+		return s.sideEffects(tx, name, derefStr(value), sysUserID)
+	})
+	if err != nil {
 		return nil, err
 	}
+
 	// ConfigurationProperties.loadDBValuesIntoConfiguration() — the write makes
 	// its own change visible, and nothing else does.
 	if err := s.Reload(); err != nil {
@@ -544,7 +594,9 @@ func (s *SiteInformationService) updateLocalization(localizationID string, submi
 
 // sideEffects ports ConfigurationSideEffects.siteInformationChanged: writing
 // one configuration row can change a different table.
-func (s *SiteInformationService) sideEffects(name, value string) error {
+// It runs inside the caller's transaction — see Update — because Java's
+// persistData wraps the primary write and this together.
+func (s *SiteInformationService) sideEffects(tx *gorm.DB, name, value string, sysUserID int64) error {
 	// The names are the PROPERTY DB names, not the enum constants: the Java code
 	// reads Property.roleRequiredForModifyResults.getDBName(), which is the
 	// string "modify results role", and Property.SiteCode.getDBName(), which is
@@ -554,21 +606,26 @@ func (s *SiteInformationService) sideEffects(name, value string) error {
 	case "modify results role":
 		// The setting IS the role's active flag. A port that stored the row and
 		// stopped would leave the permission out of step with the screen.
-		return s.DAO.SetRoleActive("Results modifier", value == "true")
+		return s.DAO.SetRoleActiveTx(tx, "Results modifier", value == "true")
 
 	case "siteNumber":
 		// Only when the accession format is SITEYEARNUM, and only to FILL a
 		// blank prefix — an existing prefix is left alone, because accession
 		// numbers have already been issued under it.
-		format, err := s.DAO.ByName("acessionFormat") // misspelled in the data
+		format, err := s.DAO.ByNameTx(tx, "acessionFormat") // misspelled in the data
 		if err != nil || format == nil || derefStr(format.Value) != "SITEYEARNUM" {
 			return err
 		}
-		prefix, err := s.DAO.ByName(accessionNumberPrefix)
+		prefix, err := s.DAO.ByNameTx(tx, accessionNumberPrefix)
 		if err != nil || prefix == nil || strings.TrimSpace(derefStr(prefix.Value)) != "" {
 			return err
 		}
-		return s.DAO.UpdateValue(strconv.FormatInt(prefix.ID, 10), &value, 1)
+		// The ACTING user, not a constant. Java carries the id forward with
+		// setSysUserId(siteInformation.getSysUserId()), so the prefix row's
+		// audit entry names whoever changed the site number. The hardcoded 1
+		// this replaced happened to be right for admin and wrong for everyone
+		// else.
+		return s.DAO.UpdateValueTx(tx, strconv.FormatInt(prefix.ID, 10), &value, sysUserID)
 	}
 	return nil
 }

@@ -46,6 +46,19 @@ services:
             - OE_DB_NAME=clinlims
             - OE_DB_USER=postgres
             - OE_DB_PASSWORD=admin
+            # encryption.general.password, and it MUST match what the Java
+            # webapp resolves that property to — volume/properties/common.properties
+            # sets it to `kspass`.
+            #
+            # The two services share one database, and a site_information row
+            # flagged `encrypted` holds jasypt ciphertext keyed on this
+            # password. Leaving it unset does not fail at startup: the Go
+            # service falls back to Spring's `dev` default and then answers 500
+            # on the form and menu for every encrypted row, because it is
+            # decrypting Java's ciphertext with the wrong key — and writes rows
+            # Java cannot read back. Same failure in both directions, visible
+            # only once someone creates an encrypted row.
+            - OE_ENCRYPTION_PASSWORD=${OE_ENCRYPTION_PASSWORD:-kspass}
         depends_on:
             - openelisglobal-database
         networks:

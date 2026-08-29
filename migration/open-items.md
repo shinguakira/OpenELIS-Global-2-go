@@ -64,6 +64,11 @@ Full context in [e1-config-crud-migration.md](e1-config-crud-migration.md).
 | e1-8 | The configuration cache was not ported — and the register had it BACKWARDS. | Java's ConfigurationProperties is loaded at startup and refreshed only by a write through the application, so a row changed by anything else is invisible. The port read the table per request, which made it MORE correct than Java and therefore wrong: measured by editing `acessionFormat` directly, where Java kept answering the old value and the port answered the new one. The port now caches and reloads on write. |
 | e1-10 | `localeResolver.setLocale` was not ported, and "no data to test it with" was the reason given. That was wrong: the data was two SQL statements away. | The spec seeds the French text itself, flips the locale through the API, and asserts the next response comes back in French — `localizedValue` and the display-language names both. The port's locale now comes from the configuration cache, so a write to the row changes it. The test restores the language INLINE and proves it took: `GlobalLocaleResolver` holds `currentLocale` in one field for the whole process, so while it runs the entire deployment is French, and a restore that silently failed handed every later test a French server — which is how the flake was found. |
 
+| e1-14 | The write path read `encrypted` off the SUBMISSION on both branches. | Java reads it off the submission only for a NEW row; an existing one is loaded by id and only `setValue` is called, so `encryptSiteInformation` tests the flag the COLUMN holds. The port broke the row both ways — an update with `encrypted` omitted stored plaintext under a row still flagged encrypted (every later read then 500s), and `encrypted: true` on an unencrypted row stored ciphertext nothing would ever decrypt. Both directions measured against Java and pinned. |
+| e1-15 | The delete payload's field list was hardcoded to the nine columns a created row has. | `getChanges` walks the entity's DECLARED fields and keeps the ones that differ from a blank object, so a populated `tag`, `instruction_key`, `dictionary_category_id` or `description_key` IS in the payload. The shipped `bannerHeading` row (82) carries three of them, sits in the SiteInformation domain and deletes like any other row. The field ORDER is declaration order, which is why `instructionKey` lands between `valueType` and `domain` — measured, then covered by a unit test that needs no server. |
+| e1-16 | The primary write and the side effects were in SEPARATE transactions. | `persistData` is `@Transactional` and covers both, so a failing side effect takes the configuration write and its audit row down with it. The port committed the write, then ran the side effects, then answered 500 over a half-applied change. One transaction now; `loadDBValuesIntoConfiguration` stays outside it, where Java has it. The `siteNumber` branch also carried a hardcoded `sysUserId = 1`, which was right for admin and wrong for everyone else. |
+| e1-17 | The deployment compose did not pass `OE_ENCRYPTION_PASSWORD`. | Running the documented side-by-side command gave Go Spring's `dev` default while the Java container beside it used `kspass` from `volume/properties/common.properties` — on the SAME database. Neither could read the other's encrypted rows, and nothing failed at startup to say so. `docker-compose.go.yml` now carries the key, guarded by a test that compares it against the properties file. |
+
 Two things surfaced only because those checks existed:
 
 - **An update that changes nothing writes nothing** — not the row, not
@@ -73,6 +78,20 @@ Two things surfaced only because those checks existed:
   cached sequence block, so an insert's audit row can carry a HIGHER id than
   the update that followed it — 866 (I) against 845 (U) and 846 (D) on one row.
   Anything reading the audit trail has to order by `timestamp`.
+
+One reported gap turned out **not** to be one, and it is recorded because the
+evidence points the wrong way:
+
+- **The role side effect writes NO audit row, and that is Java's behaviour.**
+  Everything on paper says otherwise — `siteInformationChanged` goes through
+  `roleService.update`, `RoleServiceImpl` sets `auditTrailLog = true`, and
+  `reference_tables` ships THREE rows named `SYSTEM_ROLE` (172, 174, 177), all
+  `keep_history = 'Y'`. Toggling `modify results role` through Java flips
+  `system_role.active` and leaves exactly ONE history row, for
+  `site_information`, and nothing under any of those ids. The port's bare
+  `UPDATE` is therefore the faithful behaviour; adding the audit row would make
+  it more correct than the thing it ports. `e1-config-parity-gaps.spec.ts` pins
+  the absence so the argument does not have to be had twice.
 
 ---
 

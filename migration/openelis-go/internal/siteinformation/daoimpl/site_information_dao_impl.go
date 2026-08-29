@@ -106,13 +106,30 @@ func (dao *SiteInformationDAOImpl) DictionaryEntriesByCategory(categoryID int64)
 	return values, err
 }
 
+// Tx runs fn inside one transaction.
+//
+// It exists because persistData is @Transactional in Java: the primary write
+// and configurationSideEffects.siteInformationChanged share ONE transaction, so
+// a side effect that fails takes the configuration write down with it. Each DAO
+// method below therefore comes in two forms — a *Tx one that joins a
+// transaction the caller owns, and a wrapper that opens its own for callers
+// with nothing to join.
+func (dao *SiteInformationDAOImpl) Tx(fn func(tx *gorm.DB) error) error {
+	return dao.DB.Transaction(fn)
+}
+
 // Insert ports the new-row branch of validateAndUpdateSiteInformation.
 //
 // Only these columns are written. value_type is FORCED to 'text' by the caller
 // whatever the request asked for, and the domain is the site-identity default —
 // see the service.
 func (dao *SiteInformationDAOImpl) Insert(row *valueholder.SiteInformation, sysUserID int64) error {
-	return dao.DB.Transaction(func(tx *gorm.DB) error {
+	return dao.Tx(func(tx *gorm.DB) error { return dao.InsertTx(tx, row, sysUserID) })
+}
+
+// InsertTx is Insert, joined to a transaction the caller already opened.
+func (dao *SiteInformationDAOImpl) InsertTx(tx *gorm.DB, row *valueholder.SiteInformation, sysUserID int64) error {
+	{
 		ts := writeTime()
 		var id string
 		err := tx.Raw(`
@@ -127,7 +144,7 @@ func (dao *SiteInformationDAOImpl) Insert(row *valueholder.SiteInformation, sysU
 		}
 		// saveNewHistory sets no payload, so `changes` is NULL rather than empty.
 		return dao.Audit.Write(tx, siteInformationTable, id, sysUserID, audittrail.ActivityInsert, nil, ts)
-	})
+	}
 }
 
 // UpdateValue ports the existing-row branch, and the name is the whole point:
@@ -138,7 +155,12 @@ func (dao *SiteInformationDAOImpl) Insert(row *valueholder.SiteInformation, sysU
 // the submitted form, echoed back in the response, and never stored. A rename
 // through this endpoint reports success and changes nothing.
 func (dao *SiteInformationDAOImpl) UpdateValue(id string, value *string, sysUserID int64) error {
-	return dao.DB.Transaction(func(tx *gorm.DB) error {
+	return dao.Tx(func(tx *gorm.DB) error { return dao.UpdateValueTx(tx, id, value, sysUserID) })
+}
+
+// UpdateValueTx is UpdateValue, joined to a transaction the caller already opened.
+func (dao *SiteInformationDAOImpl) UpdateValueTx(tx *gorm.DB, id string, value *string, sysUserID int64) error {
+	{
 		var old []string
 		if err := tx.Raw(
 			`SELECT COALESCE(value, '') FROM clinlims.site_information WHERE id = ?`, id).
@@ -173,7 +195,7 @@ func (dao *SiteInformationDAOImpl) UpdateValue(id string, value *string, sysUser
 		// The payload is the value being REPLACED, not the new one.
 		changes := audittrail.Field("value", old[0])
 		return dao.Audit.Write(tx, siteInformationTable, id, sysUserID, audittrail.ActivityUpdate, &changes, ts)
-	})
+	}
 }
 
 // DeleteAll ports siteInformationService.deleteAll.
@@ -184,18 +206,6 @@ func (dao *SiteInformationDAOImpl) DeleteAll(ids []string, sysUserID int64) erro
 	return dao.DB.Transaction(func(tx *gorm.DB) error {
 		// The payload is built BEFORE the delete, from the row that is about to
 		// stop existing.
-		type doomed struct {
-			ID          string  `gorm:"column:id"`
-			Name        string  `gorm:"column:name"`
-			Description string  `gorm:"column:description"`
-			Value       string  `gorm:"column:value"`
-			Encrypted   bool    `gorm:"column:encrypted"`
-			ValueType   string  `gorm:"column:value_type"`
-			Domain      string  `gorm:"column:domain"`
-			Group       int     `gorm:"column:grp"`
-			Schedule    string  `gorm:"column:schedule"`
-			Lastupdated *string `gorm:"column:lastupdated"`
-		}
 		rows := []doomed{}
 		err := tx.Table("clinlims.site_information AS si").
 			Select(`si.id::text AS id, si.name,
@@ -203,9 +213,13 @@ func (dao *SiteInformationDAOImpl) DeleteAll(ids []string, sysUserID int64) erro
 				COALESCE(si.value, '') AS value,
 				COALESCE(si.encrypted, false) AS encrypted,
 				si.value_type,
+				COALESCE(si.instruction_key, '') AS instruction_key,
 				COALESCE(d.name, '') AS domain,
 				si."group" AS grp,
+				COALESCE(si.tag, '') AS tag,
 				'' AS schedule,
+				COALESCE(si.dictionary_category_id::text, '') AS dictionary_category_id,
+				COALESCE(si.description_key, '') AS description_key,
 				to_char(si.lastupdated AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.MS') AS lastupdated`).
 			Joins("LEFT JOIN clinlims.site_information_domain AS d ON d.id = si.domain_id").
 			Where("si.id IN ?", ids).
@@ -221,29 +235,7 @@ func (dao *SiteInformationDAOImpl) DeleteAll(ids []string, sysUserID int64) erro
 
 		ts := writeTime()
 		for _, r := range rows {
-			// The field list and its ORDER are the wire contract of the audit
-			// payload, measured off a delete Java performed.
-			//
-			// tag, instructionKey, dictionaryCategoryId, descriptionKey and
-			// nameKey are absent, and that is not an omission: getChanges
-			// compares the row against a BLANK object and emits only the fields
-			// that differ, so a NULL column matches the blank and drops out.
-			// Every row reachable through this endpoint has them NULL — the
-			// insert path never sets them — so the list is fixed here. A row
-			// that carries a tag would need the general mechanism; see
-			// open-items.md.
-			//
-			// domain is the domain NAME, not the id. schedule is always empty:
-			// no site_information row has a schedule_id.
-			changes := audittrail.Field("name", r.Name) +
-				audittrail.Field("description", r.Description) +
-				audittrail.Field("value", r.Value) +
-				audittrail.Field("encrypted", strconv.FormatBool(r.Encrypted)) +
-				audittrail.Field("valueType", r.ValueType) +
-				audittrail.Field("domain", r.Domain) +
-				audittrail.Field("group", strconv.Itoa(r.Group)) +
-				audittrail.Field("schedule", r.Schedule) +
-				audittrail.Field("lastupdated", derefTime(r.Lastupdated))
+			changes := deleteChanges(r)
 			if err := dao.Audit.Write(tx, siteInformationTable, r.ID, sysUserID,
 				audittrail.ActivityDelete, &changes, ts); err != nil {
 				return err
@@ -251,6 +243,73 @@ func (dao *SiteInformationDAOImpl) DeleteAll(ids []string, sysUserID int64) erro
 		}
 		return nil
 	})
+}
+
+// doomed is one row as it stood immediately before the delete — the state the
+// audit payload records.
+type doomed struct {
+	ID                   string  `gorm:"column:id"`
+	Name                 string  `gorm:"column:name"`
+	Description          string  `gorm:"column:description"`
+	Value                string  `gorm:"column:value"`
+	Encrypted            bool    `gorm:"column:encrypted"`
+	ValueType            string  `gorm:"column:value_type"`
+	InstructionKey       string  `gorm:"column:instruction_key"`
+	Domain               string  `gorm:"column:domain"`
+	Group                int     `gorm:"column:grp"`
+	Tag                  string  `gorm:"column:tag"`
+	Schedule             string  `gorm:"column:schedule"`
+	DictionaryCategoryID string  `gorm:"column:dictionary_category_id"`
+	DescriptionKey       string  `gorm:"column:description_key"`
+	Lastupdated          *string `gorm:"column:lastupdated"`
+}
+
+// deleteChanges renders the delete's audit payload.
+//
+// The field list and its ORDER are the wire contract, and neither is a choice
+// made here. getChanges walks the entity's DECLARED FIELDS by reflection, so
+// the order is the order they appear in SiteInformation.java — which is why
+// instructionKey sits between valueType and domain, and tag between group and
+// schedule, rather than anywhere more natural.
+//
+// The optional five are emitted only when the column is populated. getChanges
+// compares the doomed row against a BLANK object and keeps the fields that
+// DIFFER, so a NULL column matches the blank and drops out. The first port read
+// that as "these are never present" and hardcoded the shortened list — true of
+// every row its own insert path can create, and false of the shipped
+// bannerHeading row (82), which carries a tag, an instruction key and a
+// description key, sits in the SiteInformation domain, and is selectable for
+// deletion like any other.
+//
+// nameKey has a column but no field on the entity, so reflection never sees it
+// and it is absent however it is populated. localization is a field with no
+// column: never loaded here, always blank, always dropped.
+//
+// domain is the domain NAME, not the id. schedule is always empty — no
+// site_information row has a schedule_id — and is emitted anyway, because a
+// ValueHolder does not compare equal to the blank object's.
+func deleteChanges(r doomed) string {
+	out := audittrail.Field("name", r.Name) +
+		audittrail.Field("description", r.Description) +
+		audittrail.Field("value", r.Value) +
+		audittrail.Field("encrypted", strconv.FormatBool(r.Encrypted)) +
+		audittrail.Field("valueType", r.ValueType)
+	if r.InstructionKey != "" {
+		out += audittrail.Field("instructionKey", r.InstructionKey)
+	}
+	out += audittrail.Field("domain", r.Domain) +
+		audittrail.Field("group", strconv.Itoa(r.Group))
+	if r.Tag != "" {
+		out += audittrail.Field("tag", r.Tag)
+	}
+	out += audittrail.Field("schedule", r.Schedule)
+	if r.DictionaryCategoryID != "" {
+		out += audittrail.Field("dictionaryCategoryId", r.DictionaryCategoryID)
+	}
+	if r.DescriptionKey != "" {
+		out += audittrail.Field("descriptionKey", r.DescriptionKey)
+	}
+	return out + audittrail.Field("lastupdated", derefTime(r.Lastupdated))
 }
 
 func derefTime(s *string) string {
@@ -314,8 +373,17 @@ func (dao *SiteInformationDAOImpl) SampleCount() (int64, error) {
 // ByName ports getSiteInformationByName — used by the SiteCode side effect,
 // which reaches for two OTHER rows when one is written.
 func (dao *SiteInformationDAOImpl) ByName(name string) (*valueholder.SiteInformation, error) {
+	return dao.ByNameTx(dao.DB, name)
+}
+
+// ByNameTx is ByName, read through a transaction the caller already opened, so
+// the side effects see the same snapshot the primary write made.
+func (dao *SiteInformationDAOImpl) ByNameTx(tx *gorm.DB, name string) (*valueholder.SiteInformation, error) {
 	var row valueholder.SiteInformation
-	err := dao.base().Where("si.name = ?", name).Take(&row).Error
+	err := tx.Table("clinlims.site_information AS si").
+		Select(selectColumns).
+		Joins("LEFT JOIN clinlims.site_information_domain AS d ON d.id = si.domain_id").
+		Where("si.name = ?", name).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -330,10 +398,23 @@ func (dao *SiteInformationDAOImpl) ByName(name string) (*valueholder.SiteInforma
 // entirely. A port that only wrote site_information would leave the role as it
 // was and the permission would not follow the setting.
 func (dao *SiteInformationDAOImpl) SetRoleActive(roleName string, active bool) error {
+	return dao.SetRoleActiveTx(dao.DB, roleName, active)
+}
+
+// SetRoleActiveTx is SetRoleActive, joined to a transaction the caller opened.
+//
+// No audit row, and that is MEASURED rather than assumed. Everything on paper
+// says there should be one — the side effect goes through roleService.update,
+// RoleServiceImpl sets auditTrailLog = true, and reference_tables ships three
+// SYSTEM_ROLE rows all flagged keep_history = 'Y'. Toggling the setting through
+// Java nonetheless leaves exactly ONE history row, for site_information, and
+// nothing under any of those three ids. Writing one here would make the port
+// more correct than the thing it ports; the spec pins the absence.
+func (dao *SiteInformationDAOImpl) SetRoleActiveTx(tx *gorm.DB, roleName string, active bool) error {
 	// system_role.active is a real boolean column, and the role name is
 	// space-padded in the table — matched with a trim rather than an equality
 	// that would silently never fire.
-	return dao.DB.Exec(
+	return tx.Exec(
 		`UPDATE clinlims.system_role SET active = ? WHERE trim(name) = ?`,
 		active, roleName).Error
 }
