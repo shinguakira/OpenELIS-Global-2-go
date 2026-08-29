@@ -456,18 +456,23 @@ func main() {
 	// single registration mounts ~52 paths. web.Register supplies the auth,
 	// CSRF and module checks the write path needs; they landed with p0.
 	// -----------------------------------------------------------------------
-	siteinforest.Routes(mux, &siteinforest.SiteInformationRestController{
-		Service: &siteinfoservice.SiteInformationService{
-			DAO:  &siteinfodaoimpl.SiteInformationDAOImpl{DB: gormDB, Audit: &audittrail.Service{}},
-			Msgs: msgs,
-			// encryption.general.password. Spring defaults it to "dev"; this
-			// deployment sets kspass in volume/properties/common.properties, and
-			// a value encrypted under one password is unreadable under the
-			// other — so the port takes it from the environment rather than
-			// baking either one in.
-			Encryptor: &encryption.TextEncryptor{Password: encryptionPassword()},
-		},
-	})
+	siteInfoSvc := &siteinfoservice.SiteInformationService{
+		DAO:  &siteinfodaoimpl.SiteInformationDAOImpl{DB: gormDB, Audit: &audittrail.Service{}},
+		Msgs: msgs,
+		// encryption.general.password. Spring defaults it to "dev"; this
+		// deployment sets kspass in volume/properties/common.properties, and
+		// a value encrypted under one password is unreadable under the
+		// other — so the port takes it from the environment rather than
+		// baking either one in.
+		Encryptor: &encryption.TextEncryptor{Password: encryptionPassword()},
+	}
+	// ConfigurationProperties is loaded ONCE at startup and refreshed only by a
+	// write through this controller — the same cache Java carries, reproduced
+	// because its staleness is observable.
+	if err := siteInfoSvc.Reload(); err != nil {
+		log.Fatalf("site information: loading the configuration cache: %v", err)
+	}
+	siteinforest.Routes(mux, &siteinforest.SiteInformationRestController{Service: siteInfoSvc})
 	log.Printf("DB-backed routes enabled (c2: sample reads; e1: config CRUD)")
 
 	srv := &http.Server{Addr: addr, Handler: mux}

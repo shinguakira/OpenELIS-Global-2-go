@@ -126,11 +126,13 @@ test.describe("e1 — SiteInformation config CRUD (writes)", () => {
   let localizationRestore: { id: string; values: string[][] } | null = null;
   let settingRestore: { id: string; value: string; roleActive: string } | null =
     null;
+  let configRestore: { id: string; value: string } | null = null;
 
   test.beforeEach(() => {
     touched = probeIds(); // anything a previous crashed run left behind
     localizationRestore = null;
     settingRestore = null;
+    configRestore = null;
   });
 
   // Cleanup runs even when the test fails — a leftover row here is global
@@ -154,6 +156,12 @@ test.describe("e1 — SiteInformation config CRUD (writes)", () => {
             WHERE localization_id = ${Number(localizationRestore.id)} AND locale = '${locale}'`,
         );
       }
+    }
+    if (configRestore) {
+      exec(
+        `UPDATE clinlims.site_information SET value = '${configRestore.value}'
+          WHERE id = ${Number(configRestore.id)}`,
+      );
     }
     if (settingRestore) {
       exec(
@@ -806,6 +814,89 @@ test.describe("e1 — SiteInformation config CRUD (writes)", () => {
     expect(roleActiveAfter, "and the ROLE followed it").toBe(next);
     expect(roleActiveAfter, "which is a change, not a coincidence").not.toBe(
       roleActiveBefore,
+    );
+  });
+
+  test("a write the database refuses is Tomcat's 500 page, not a form", async ({
+    request,
+  }) => {
+    // site_information.name is varchar(32), so a longer one cannot be stored.
+    // The controller LOOKS like it handles this — validateAndUpdateSiteInformation
+    // catches LIMSRuntimeException, picks between errors.OptimisticLockException
+    // and errors.UpdateException, and returns the form — but that path is not
+    // the one taken: the failure surfaces at the transaction boundary and comes
+    // back as the servlet error page. Measured, and the distinction matters,
+    // because a 200-with-form and a 500 are different answers for a caller.
+    const tooLong = "e2eNameThatIsDefinitelyLongerThanThirtyTwoChars";
+    expect(tooLong.length, "longer than the column").toBeGreaterThan(32);
+
+    const res = await postConfig(request, SITE_INFORMATION, {
+      paramName: tooLong,
+      value: "x",
+      siteInfoDomainName: "SiteInformation",
+      valueType: "text",
+    });
+    expect(res.status(), "the database refuses the row").toBe(500);
+
+    const body = await res.json();
+    expect(body.status, "Tomcat's error envelope, not plain text").toBe(500);
+    expect(body.error).toBe("Internal Server Error");
+    expect(typeof body.timestamp, "...with its epoch-millis timestamp").toBe(
+      "number",
+    );
+
+    expect(
+      query(
+        `SELECT id FROM clinlims.site_information WHERE name LIKE 'e2eName%'`,
+      ).length,
+      "and nothing was written",
+    ).toBe(0);
+  });
+
+  test("the configuration is a CACHE — a row changed outside the app is invisible", async ({
+    request,
+  }) => {
+    // ConfigurationProperties is loaded into memory at startup and reloaded
+    // only after a write through this application. A row changed by anything
+    // else — a migration, a DBA, another service — is not picked up.
+    //
+    // This is the one behaviour where the obvious port is MORE correct than
+    // Java and therefore wrong: reading the table per request answers the new
+    // value, and Java answers the old one.
+    const before = await readJson(
+      await request.get(LAB_UNIT_CONFIG),
+      LAB_UNIT_CONFIG,
+    );
+    const cached = before.accessionFormat;
+    expect(cached, "the endpoint reports an accession format").toBeTruthy();
+
+    const [[id, original]] = query(
+      `SELECT id::text, value FROM clinlims.site_information WHERE name = 'acessionFormat'`,
+    );
+    expect(original, "and it matches the row, before anything changes").toBe(
+      cached,
+    );
+    configRestore = { id, value: original };
+
+    // Change it BEHIND the application's back.
+    exec(
+      `UPDATE clinlims.site_information SET value = 'E2E_CACHE_PROBE' WHERE id = ${Number(id)}`,
+    );
+    const [[nowStored]] = query(
+      `SELECT value FROM clinlims.site_information WHERE id = ${Number(id)}`,
+    );
+    expect(nowStored, "the row really did change").toBe("E2E_CACHE_PROBE");
+
+    const after = await readJson(
+      await request.get(LAB_UNIT_CONFIG),
+      LAB_UNIT_CONFIG,
+    );
+    expect(
+      after.accessionFormat,
+      "and the endpoint still answers the CACHED value",
+    ).toBe(cached);
+    expect(after.accessionFormat, "...not the stored one").not.toBe(
+      "E2E_CACHE_PROBE",
     );
   });
 

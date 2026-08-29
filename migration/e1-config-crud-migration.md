@@ -1,9 +1,10 @@
 # e1 — Admin config CRUD (scoped migration plan)
 
-Status: **ported, in the gate, 14 e2e tests**
-Open items: [open-items.md](open-items.md) — three left, all of them either
-unreachable without provoking a database error, or a cache concern rather than
-a response one.
+Status: **ported, in the gate, 16 e2e tests**
+Open items: [open-items.md](open-items.md) — one left, and it is blocked on
+data rather than effort: no localization row in this database has French text
+that differs from its English text, so the locale behaviour has nothing to be
+asserted against.
 Branch: `migration/e1-config-crud` (from `migration-base`).
 Companion docs:
 [endpoint-migration-order.md](endpoint-migration-order.md) (Wave 6),

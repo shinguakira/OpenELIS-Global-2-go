@@ -125,7 +125,13 @@ func (c *SiteInformationRestController) show(w http.ResponseWriter, r *http.Requ
 
 	f, found, err := c.Service.Show(r.URL.Path, id)
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		// Tomcat's error page, not a plain-text 500. A write that the database
+		// refuses — an over-long name against site_information.name's
+		// varchar(32), say — surfaces in Java as
+		// {"timestamp":...,"status":500,"error":"Internal Server Error"},
+		// measured. The saveErrors/UpdateException path the controller looks
+		// like it takes is not reached.
+		web.WriteJSON(w, http.StatusInternalServerError, web.ServletError(http.StatusInternalServerError))
 		return
 	}
 	if !found {
@@ -162,7 +168,13 @@ func (c *SiteInformationRestController) update(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		// Tomcat's error page, not a plain-text 500. A write that the database
+		// refuses — an over-long name against site_information.name's
+		// varchar(32), say — surfaces in Java as
+		// {"timestamp":...,"status":500,"error":"Internal Server Error"},
+		// measured. The saveErrors/UpdateException path the controller looks
+		// like it takes is not reached.
+		web.WriteJSON(w, http.StatusInternalServerError, web.ServletError(http.StatusInternalServerError))
 		return
 	}
 	web.WriteJSON(w, http.StatusOK, f)
@@ -217,7 +229,13 @@ func (c *SiteInformationRestController) delete(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := c.Service.Delete(req.SelectedIDs, actingUser(r)); err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		// Tomcat's error page, not a plain-text 500. A write that the database
+		// refuses — an over-long name against site_information.name's
+		// varchar(32), say — surfaces in Java as
+		// {"timestamp":...,"status":500,"error":"Internal Server Error"},
+		// measured. The saveErrors/UpdateException path the controller looks
+		// like it takes is not reached.
+		web.WriteJSON(w, http.StatusInternalServerError, web.ServletError(http.StatusInternalServerError))
 		return
 	}
 	web.WriteJSON(w, http.StatusOK, "Delete successful")
@@ -236,7 +254,13 @@ func (c *SiteInformationRestController) labUnitConfig(w http.ResponseWriter, r *
 func (c *SiteInformationRestController) menu(w http.ResponseWriter, r *http.Request) {
 	f, err := c.Service.Menu(r.URL.Path)
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		// Tomcat's error page, not a plain-text 500. A write that the database
+		// refuses — an over-long name against site_information.name's
+		// varchar(32), say — surfaces in Java as
+		// {"timestamp":...,"status":500,"error":"Internal Server Error"},
+		// measured. The saveErrors/UpdateException path the controller looks
+		// like it takes is not reached.
+		web.WriteJSON(w, http.StatusInternalServerError, web.ServletError(http.StatusInternalServerError))
 		return
 	}
 	web.WriteJSON(w, http.StatusOK, f)

@@ -372,3 +372,23 @@ func (dao *SiteInformationDAOImpl) UpdateLocalizationValues(localizationID strin
 			`UPDATE clinlims.localization SET lastupdated = ? WHERE id = ?`, ts, localizationID).Error
 	})
 }
+
+// All returns every row as name → value, the shape ConfigurationProperties
+// caches.
+func (dao *SiteInformationDAOImpl) All() (map[string]string, error) {
+	rows := []struct {
+		Name  string `gorm:"column:name"`
+		Value string `gorm:"column:value"`
+	}{}
+	err := dao.DB.Table("clinlims.site_information").
+		Select("name, COALESCE(value, '') AS value").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(rows))
+	for _, r := range rows {
+		out[r.Name] = r.Value
+	}
+	return out, nil
+}

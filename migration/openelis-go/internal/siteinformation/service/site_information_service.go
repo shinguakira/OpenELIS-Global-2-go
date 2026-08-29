@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	locform "openelis-go/internal/localization/form"
 	"openelis-go/internal/security/encryption"
@@ -108,6 +109,10 @@ type SiteInformationService struct {
 	// write — so the value the form shows and the value the column holds are
 	// never the same string.
 	Encryptor *encryption.TextEncryptor
+
+	// config is the ConfigurationProperties cache — see Reload.
+	configMu sync.RWMutex
+	config   map[string]string
 }
 
 // Show ports showSiteInformation.
@@ -418,6 +423,11 @@ func (s *SiteInformationService) Update(post form.SiteInformationPost, id string
 	if err := s.sideEffects(name, derefStr(post.Value)); err != nil {
 		return nil, err
 	}
+	// ConfigurationProperties.loadDBValuesIntoConfiguration() — the write makes
+	// its own change visible, and nothing else does.
+	if err := s.Reload(); err != nil {
+		return nil, err
+	}
 	return echo, nil
 }
 
@@ -600,7 +610,10 @@ func echoForm(post form.SiteInformationPost) *form.SiteInformationForm {
 
 // Delete ports showDeleteSiteInformation's happy path.
 func (s *SiteInformationService) Delete(ids []string, sysUserID int64) error {
-	return s.DAO.DeleteAll(ids, sysUserID)
+	if err := s.DAO.DeleteAll(ids, sysUserID); err != nil {
+		return err
+	}
+	return s.Reload()
 }
 
 // localization loads and assembles the nested Localization object.
@@ -648,39 +661,63 @@ func derefStr(s *string) string {
 // Include.NON_NULL drops the key. A port that emitted "" would add a field Java
 // does not send.
 func (s *SiteInformationService) LabUnitConfig() (map[string]any, error) {
-	names := []string{"orderEntryWorkflowType", "SiteName", "validateAccessionNumber", "acessionFormat"}
-	values := map[string]string{}
-	present := map[string]bool{}
-	for _, n := range names {
-		row, err := s.DAO.ByName(n)
-		if err != nil {
-			return nil, err
-		}
-		if row != nil {
-			values[n] = derefStr(row.Value)
-			present[n] = true
-		}
-	}
-
 	config := map[string]any{}
-	// The only one with a fallback: a null workflow type reads as "Both".
-	workflow := values["orderEntryWorkflowType"]
-	if !present["orderEntryWorkflowType"] {
+
+	// The only one with a fallback: an unset workflow type reads as "Both".
+	workflow, ok := s.configValue("orderEntryWorkflowType")
+	if !ok {
 		workflow = "Both"
 	}
 	config["workflowType"] = workflow
+
 	// labName is dropped when the value is BLANK, not only when the row is
-	// missing. site_information row 33 is SiteName with an empty value, and
-	// Java still omits the key — so getPropertyValue answers null for a blank
-	// column and Include.NON_NULL removes it. A port that keyed on row presence
-	// alone would emit "".
-	if values["SiteName"] != "" {
-		config["labName"] = values["SiteName"]
+	// missing — configValue treats the two the same because Java does.
+	if labName, ok := s.configValue("SiteName"); ok {
+		config["labName"] = labName
 	}
-	// isPropertyValueEqual, so a missing row is false rather than absent.
-	config["useAccessionNumberValidation"] = values["validateAccessionNumber"] == "true"
-	if present["acessionFormat"] {
-		config["accessionFormat"] = values["acessionFormat"]
+
+	// isPropertyValueEqual, so unset is false rather than absent.
+	validate, _ := s.configValue("validateAccessionNumber")
+	config["useAccessionNumberValidation"] = validate == "true"
+
+	if format, ok := s.configValue("acessionFormat"); ok {
+		config["accessionFormat"] = format
 	}
 	return config, nil
+}
+
+// Reload rebuilds the configuration snapshot.
+//
+// ConfigurationProperties is a CACHE, not a view: Java loads every
+// site_information row into memory at startup and reloads it only after a write
+// of its own. A row changed in the database by anything else is invisible until
+// then — measured, by editing acessionFormat directly and watching Java keep
+// answering the old value while a live-reading port answered the new one.
+//
+// So the port caches too. Reading the table on every request would be more
+// correct and less faithful, and the whole point of this exercise is the second
+// one.
+func (s *SiteInformationService) Reload() error {
+	rows, err := s.DAO.All()
+	if err != nil {
+		return err
+	}
+	s.configMu.Lock()
+	s.config = rows
+	s.configMu.Unlock()
+	return nil
+}
+
+// configValue is ConfigurationProperties.getPropertyValue: the cached value,
+// and whether the property is set at all. A BLANK value reads as unset —
+// site_information row 33 is SiteName with an empty column, and Java omits
+// labName rather than sending "".
+func (s *SiteInformationService) configValue(name string) (string, bool) {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+	v, ok := s.config[name]
+	if !ok || v == "" {
+		return "", false
+	}
+	return v, true
 }

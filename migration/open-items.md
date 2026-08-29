@@ -40,14 +40,12 @@ Full context in [e1-config-crud-migration.md](e1-config-crud-migration.md).
 
 | # | What | Found by | What it takes |
 |---|---|---|---|
-| e1-5 | **Write-failure paths are not ported.** Java distinguishes `StaleObjectStateException` (→ `errors.OptimisticLockException`) from any other failure (→ `errors.UpdateException`) and returns the form carrying the error. The port answers a bare 500. | source-read | Needs the `saveErrors` envelope measured first — it is the same shape question as e1-2. |
 
 ### Side effects not ported
 
 | # | What | Found by | Effect |
 |---|---|---|---|
-| e1-8 | `ConfigurationProperties.loadDBValuesIntoConfiguration()` and `DisplayListService.getInstance().refreshLists()` run after **every** write. The Go service builds its display lists once at startup and never refreshes them, so a write that changes a list-backing row leaves Go serving stale lists where Java serves fresh ones. 🔴 in principle; not yet demonstrated. | source-read | Needs a cache-invalidation hook on the write path. |
-| e1-10 | `localeResolver.setLocale(...)` runs when the row written is `default language locale`, changing the request's locale in place. | source-read | Only observable across a locale change. |
+| e1-10 | `localeResolver.setLocale(...)` runs when the row written is `default language locale`, setting the locale on the request itself. **measured — and not observable on this data**: writing the row to fr-FR and re-reading a localized list changed nothing, because no localization row in this database carries a French value that differs from its English one (`bannerHeading` is "Test LIMS" in both). Pinning it needs a seeded row with genuinely different text, and then a per-session locale the port does not have. | 🟡 |
 
 ## Closed
 
@@ -63,6 +61,8 @@ Full context in [e1-config-crud-migration.md](e1-config-crud-migration.md).
 | e1-7 | `isEditable`'s sample-count half was not ported. | Computed rather than assumed. |
 | e1-9 | `configurationSideEffects.siteInformationChanged` was not ported. | The `modify results role` branch toggles the **"Results modifier" role** in another table, and is pinned. The names are the PROPERTY DB names — `modify results role`, `siteNumber` — not the enum constants; matching the constants would compile and never fire, which is what the port did until the spec caught it. The `siteNumber` branch has no row in this deployment and stays unverified. |
 | e1-13 | `GET rest/labUnit/config` was not ported. | Ported, and it drops `labName` when the value is BLANK rather than only when the row is missing — site_information row 33 exists with an empty value and Java still omits the key. |
+| e1-5 | Write-failure paths were not ported. | **measured** by writing a name longer than `site_information.name`'s varchar(32): Java answers Tomcat's `{"timestamp","status":500,"error"}` page, NOT the form the controller looks like it returns — the failure surfaces at the transaction boundary and the saveErrors/UpdateException branch is never reached. The port answered a plain-text 500; it now answers the same envelope. |
+| e1-8 | The configuration cache was not ported — and the register had it BACKWARDS. | Java's ConfigurationProperties is loaded at startup and refreshed only by a write through the application, so a row changed by anything else is invisible. The port read the table per request, which made it MORE correct than Java and therefore wrong: measured by editing `acessionFormat` directly, where Java kept answering the old value and the port answered the new one. The port now caches and reloads on write. |
 
 Two things surfaced only because those checks existed:
 
@@ -96,7 +96,7 @@ reason rather than a porting one. This deployment's key is `kspass`.
 
 ## Suggested order
 
-1. **e1-5** — the write-failure envelopes. Reachable only on a database error,
-   so it needs a way to provoke one before it can be pinned.
-2. **e1-8** — the display-list cache the port never invalidates.
-3. **e1-10** — `localeResolver.setLocale` on the default-language row.
+Only **e1-10** is left on e1, and it is blocked on data rather than on effort:
+seed a localization row whose French text differs from its English text, and
+the locale behaviour becomes measurable. Until then there is nothing to assert
+against.
