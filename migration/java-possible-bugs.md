@@ -60,6 +60,8 @@ same application disagree about whether that state is legal.**
 | B5 | `order/dashboard` paging does not page | `maxResults = startingRecNo + defaultPageSize`, so the requested `pageSize` never bounds the result and the limit **grows with the offset** — later pages return more rows than earlier ones. The echoed `pageSize` still reports what was asked for. | 🔴 | ✅ | c2 |
 | B6 | `order/dashboard` hardcoded counters | `externalCount` is always 0 and `includeExternal` is inert. | 🔴 | ✅ | c2 |
 | B7 | `UnitOfMeasure.getLocalization()` ships a placeholder | The table has no localization column, so the getter builds one in code and sets the French value to the **literal string `"French"`**. It reaches the client in four places of every `accession-results` response. A French deployment shows "French" as the unit of measure. | 🔴 | ✅ | c3 |
+| B10 | **Changing the site language changes it for EVERYONE, instantly** | `GlobalLocaleResolver` keeps `currentLocale` in a FIELD on the resolver bean — one field, for the whole process — and `setLocale(request, response, locale)` ignores both arguments it is handed. So one administrator saving `default language locale` switches the language for every logged-in user mid-session, and it stays switched until someone saves it again. Restarting is not a reset either: the field is repopulated from the row. Measured — flipping the row turned every response French for a brand-new session with its own cookie jar. | 🔴 | ✅ | e1 |
+| B11 | **Any client can override the site language per request** | The same resolver reads `Accept-Language` FIRST and returns `Locale.forLanguageTag(...)` of whatever it finds, with no check against the supported locales. A header naming a language the deployment does not have falls through to whatever the message bundle does with it. | 🟡 | — | e1 |
 | B9 | `lowerCritical` is emitted as the JSON **string** `"Infinity"` | `ResultLimit` initialises `lowCritical` to **POSITIVE**_INFINITY where every other low bound is NEGATIVE. When a test has age bands but no default band, `defaultResultLimit` returns `new ResultLimit()` rather than null, the fold guard tests the wrong sentinel and misses, and Jackson writes the infinity as a string. A field declared `double` changes JSON type per row, and `higherCritical` on the SAME row folds to 0. | 🔴 | ✅ | c3 |
 | B8 | `AccessionValidation` shows NO reference range for an age-banded test | It resolves the limit through the `patient == null` branch, which only matches a blank-gender `0..Infinity` row. `LogbookResults` resolves the same analysis to the age-appropriate band and renders it — so the screen where a biologist accepts or rejects a result is the one without a reference range. | 🔴 | ✅ | c3 |
 
@@ -150,6 +152,11 @@ Not defects, but every one of them cost a diff cycle, and a port that
   response.
 - **A NULL `referral.status` is excluded everywhere** — `r.status != 'CANCELED'`
   is UNKNOWN for NULL, not TRUE.
+- **`GlobalLocaleResolver.setLocale` has a no-op guard.** It reads
+  `if (!locale.equals(currentLocale)) { currentLocale = locale; } currentLocale = locale;`
+  — the guarded assignment is followed by the same assignment unconditionally,
+  so the condition decides nothing. Harmless, and a sign the method was edited
+  without the guard being removed.
 - **`notes` is not the note text.** `getNotesAsString(analysis, true, true,
   "<br/>", false)` prefixes each note with its TYPE label and its timestamp —
   `Internal 28/08/2026 20:14 : <text>` — and joins multiple notes with
