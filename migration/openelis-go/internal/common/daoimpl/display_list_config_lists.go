@@ -1,6 +1,9 @@
 package daoimpl
 
-import "openelis-go/internal/common/util"
+import (
+	"openelis-go/internal/common/util"
+	locform "openelis-go/internal/localization/form"
+)
 
 // The DisplayListService list types the e2 admin screens read.
 //
@@ -205,4 +208,88 @@ func (d *DisplayListDAOImpl) NamesIn(table, fallbackColumn, locale, where, order
 		return nil, err
 	}
 	return toPairs(rows), nil
+}
+
+// PanelRow is a panel as PanelCreate's lists serialise it — the whole entity,
+// plus everything its nested Localization needs.
+type PanelRow struct {
+	SampleTypeName string  `gorm:"column:sample_type_name"`
+	ID             string  `gorm:"column:id"`
+	Name           string  `gorm:"column:name"`
+	Description    string  `gorm:"column:description"`
+	IsActive       string  `gorm:"column:is_active"`
+	SortOrder      int     `gorm:"column:sort_order"`
+	Loinc          *string `gorm:"column:loinc"`
+	Lastupdated    *int64  `gorm:"column:lastupdated"`
+	LocalizationID string  `gorm:"column:localization_id"`
+	LocDescription string  `gorm:"column:loc_description"`
+	LocUpdated     *int64  `gorm:"column:loc_updated"`
+}
+
+// PanelsJoinedToSampleTypes ports createTypeOfSamplePanelMap's source read:
+// every sampletype_panel row, with the sample type's LOCALIZED name — which is
+// what the map is keyed by — and the panel entity beside it.
+func (d *DisplayListDAOImpl) PanelsJoinedToSampleTypes() ([]PanelRow, error) {
+	rows := []PanelRow{}
+	err := d.DB.Table("clinlims.sampletype_panel AS stp").
+		Select(`COALESCE(NULLIF(tlv.value, ''), t.description) AS sample_type_name,
+		        p.id::text AS id,
+		        COALESCE(p.name, '') AS name,
+		        COALESCE(p.description, '') AS description,
+		        COALESCE(p.is_active, '') AS is_active,
+		        COALESCE(p.sort_order, 0)::int AS sort_order,
+		        p.loinc AS loinc,
+		        trunc(EXTRACT(EPOCH FROM p.lastupdated) * 1000)::bigint AS lastupdated,
+		        p.name_localization_id::text AS localization_id,
+		        COALESCE(l.description, '') AS loc_description,
+		        trunc(EXTRACT(EPOCH FROM l.lastupdated) * 1000)::bigint AS loc_updated`).
+		Joins("JOIN clinlims.type_of_sample AS t ON t.id = stp.sample_type_id").
+		Joins("JOIN clinlims.panel AS p ON p.id = stp.panel_id").
+		Joins("LEFT JOIN clinlims.localization AS l ON l.id = p.name_localization_id").
+		Joins(`LEFT JOIN clinlims.localization_value AS tlv
+		         ON tlv.localization_id = t.name_localization_id AND tlv.locale = ?`, d.Locale()).
+		Order("stp.id").
+		Scan(&rows).Error
+	return rows, err
+}
+
+// ActiveLocales ports LocalizationService.getAllActiveLocales — the list every
+// nested Localization reports as allActiveLocales.
+func (d *DisplayListDAOImpl) ActiveLocales() ([]string, error) {
+	codes := []string{}
+	err := d.DB.Table("clinlims.supported_locale").
+		Select("locale_code").
+		Where("is_active = ?", true).
+		Order("sort_order").
+		Scan(&codes).Error
+	return codes, err
+}
+
+// LocalizationValues returns every localization_value row grouped by its
+// localization id, so a page that nests many Localizations reads them once
+// rather than per entity.
+func (d *DisplayListDAOImpl) LocalizationValues() (map[string][]locform.LocalizationValue, error) {
+	rows := []struct {
+		LocalizationID string `gorm:"column:localization_id"`
+		ID             string `gorm:"column:id"`
+		Locale         string `gorm:"column:locale"`
+		Value          string `gorm:"column:value"`
+		LastUpdated    *int64 `gorm:"column:last_updated"`
+	}{}
+	err := d.DB.Table("clinlims.localization_value").
+		Select(`localization_id::text AS localization_id, id::text AS id, locale,
+		        COALESCE(value, '') AS value,
+		        trunc(EXTRACT(EPOCH FROM last_updated) * 1000)::bigint AS last_updated`).
+		Order("locale").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]locform.LocalizationValue{}
+	for _, r := range rows {
+		out[r.LocalizationID] = append(out[r.LocalizationID], locform.LocalizationValue{
+			Lastupdated: r.LastUpdated, ID: r.ID, Locale: r.Locale, Value: r.Value,
+		})
+	}
+	return out, nil
 }

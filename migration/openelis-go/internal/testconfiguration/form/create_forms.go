@@ -72,6 +72,10 @@ type CreatePost struct {
 	TestUnitFrenchName    *string `json:"testUnitFrenchName"`
 	SampleTypeEnglishName *string `json:"sampleTypeEnglishName"`
 	SampleTypeFrenchName  *string `json:"sampleTypeFrenchName"`
+	PanelEnglishName      *string `json:"panelEnglishName"`
+	PanelFrenchName       *string `json:"panelFrenchName"`
+	SampleTypeID          *string `json:"sampleTypeId"`
+	PanelLoinc            *string `json:"panelLoinc"`
 }
 
 // NewMethodCreateForm reproduces `new MethodCreateForm()`.
@@ -94,6 +98,41 @@ func NewTestSectionCreateForm() TestSectionCreateForm {
 func NewSampleTypeCreateForm() SampleTypeCreateForm {
 	return SampleTypeCreateForm{
 		FormName: "sampleTypeCreateForm", FormMethod: "POST",
+		CancelAction: "Home", SubmitOnCancel: false, CancelMethod: "POST",
+	}
+}
+
+// PanelCreateForm is GET/POST /rest/PanelCreate.
+//
+// It carries a sample type as well as the two names: a panel is created already
+// tied to one, through a ninth row the other creates do not write.
+type PanelCreateForm struct {
+	FormName       string `json:"formName"`
+	FormMethod     string `json:"formMethod"`
+	CancelAction   string `json:"cancelAction"`
+	SubmitOnCancel bool   `json:"submitOnCancel"`
+	CancelMethod   string `json:"cancelMethod"`
+
+	ExistingPanelList      *[]SampleTypePanelDTO `json:"existingPanelList,omitempty"`
+	InactivePanelList      *[]SampleTypePanelDTO `json:"inactivePanelList,omitempty"`
+	ExistingSampleTypeList *[]util.IdValuePair   `json:"existingSampleTypeList,omitempty"`
+	ExistingEnglishNames   *string               `json:"existingEnglishNames,omitempty"`
+	ExistingFrenchNames    *string               `json:"existingFrenchNames,omitempty"`
+
+	PanelEnglishName *string `json:"panelEnglishName,omitempty"`
+	PanelFrenchName  *string `json:"panelFrenchName,omitempty"`
+	SampleTypeID     *string `json:"sampleTypeId,omitempty"`
+	// PanelLoinc is on the bean and NOT in ALLOWED_FIELDS, so Spring never
+	// binds it: createPanel calls setLoinc(form.getPanelLoinc()) and the value
+	// is always null however the request spells it. Declared here for the same
+	// reason it is declared there — the key exists — and never read.
+	PanelLoinc *string `json:"panelLoinc,omitempty"`
+}
+
+// NewPanelCreateForm reproduces `new PanelCreateForm()`.
+func NewPanelCreateForm() PanelCreateForm {
+	return PanelCreateForm{
+		FormName: "panelCreateForm", FormMethod: "POST",
 		CancelAction: "Home", SubmitOnCancel: false, CancelMethod: "POST",
 	}
 }

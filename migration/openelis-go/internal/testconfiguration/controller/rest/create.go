@@ -28,6 +28,7 @@ func CreateRoutes(mux *http.ServeMux, ctrl *CreateRestController) {
 		{"MethodCreate", ctrl.methodForm, ctrl.methodCreate},
 		{"TestSectionCreate", ctrl.testSectionForm, ctrl.testSectionCreate},
 		{"SampleTypeCreate", ctrl.sampleTypeForm, ctrl.sampleTypeCreate},
+		{"PanelCreate", ctrl.panelForm, ctrl.panelCreate},
 	}
 	for _, p := range pairs {
 		web.Register(mux, "GET", "rest/"+p.path, authmw.RequireAdmin(p.get))
@@ -93,4 +94,18 @@ func actingUser(r *http.Request) int64 {
 		return p.SystemUserID
 	}
 	return 0
+}
+
+func (c *CreateRestController) panelForm(w http.ResponseWriter, r *http.Request) {
+	f, err := c.Service.PanelForm()
+	writeForm(w, f, err)
+}
+
+func (c *CreateRestController) panelCreate(w http.ResponseWriter, r *http.Request) {
+	post, ok := decodeCreate(w, r)
+	if !ok {
+		return
+	}
+	f, err := c.Service.CreatePanel(post, actingUser(r))
+	writeForm(w, f, err)
 }

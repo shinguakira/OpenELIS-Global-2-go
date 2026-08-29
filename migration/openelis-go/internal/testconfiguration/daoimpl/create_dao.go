@@ -70,6 +70,18 @@ type CreateSpec struct {
 	// NameColumn and DescriptionColumn differ: type_of_sample has no `name`.
 	NameColumn        string
 	DescriptionColumn string
+	// ModuleInfix sits between the menu item and the name in the system_module
+	// DESCRIPTION. It is "" for Method, TestSection and SampleType, whose
+	// createSystemModule builds `Workplan=><name>` — and "panel=>" for
+	// PanelCreate, whose own copy of that method builds
+	// `Workplan=>panel=><name>`. The module NAME is `Workplan:<name>` in all
+	// four. Four near-identical private methods, one of which differs.
+	ModuleInfix string
+	// AfterEntity runs inside the transaction, once the entity has an id. Only
+	// PanelCreate uses it, to write the type_of_sample_panel row that ties the
+	// new panel to the sample type the form chose — a NINTH row the other three
+	// creates do not have.
+	AfterEntity func(tx *gorm.DB, entityID string, ts time.Time) error
 }
 
 // Create runs the whole eight-row write.
@@ -123,13 +135,19 @@ func (d *CreateDAO) Create(spec CreateSpec, english, french string, sysUserID in
 			return err
 		}
 
+		if spec.AfterEntity != nil {
+			if err := spec.AfterEntity(tx, entityID, ts); err != nil {
+				return err
+			}
+		}
+
 		for _, m := range createdModules {
 			var moduleID string
 			if err := tx.Raw(`
 				INSERT INTO clinlims.system_module (id, name, description)
 				VALUES (nextval('clinlims.system_module_seq'), ?, ?)
 				RETURNING id::text`,
-				m.Module+":"+english, m.Module+"=>"+english).Scan(&moduleID).Error; err != nil {
+				m.Module+":"+english, m.Module+"=>"+spec.ModuleInfix+english).Scan(&moduleID).Error; err != nil {
 				return err
 			}
 			// createRoleModule sets all four permissions to 'Y'.

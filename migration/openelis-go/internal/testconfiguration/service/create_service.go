@@ -3,8 +3,12 @@ package service
 import (
 	"math"
 	"strings"
+	"time"
+
+	"gorm.io/gorm"
 
 	"openelis-go/internal/common/util"
+	locform "openelis-go/internal/localization/form"
 
 	commondaoimpl "openelis-go/internal/common/daoimpl"
 	"openelis-go/internal/testconfiguration/daoimpl"
@@ -199,4 +203,149 @@ func (s *CreateService) CreateSampleType(post form.CreatePost, sysUserID int64) 
 		return &f, nil
 	}
 	return &f, nil
+}
+
+// PanelForm ports showPanelCreate + setupDisplayItems.
+//
+// The two panel lists are NOT id/value pairs like every other list on these
+// screens: each entry is a sample type name with the panels tied to it, and the
+// panels are whole entities with their Localization nested. See the DTO.
+func (s *CreateService) PanelForm() (*form.PanelCreateForm, error) {
+	sampleTypes, err := s.Lists.ActiveHumanSampleTypes()
+	if err != nil {
+		return nil, err
+	}
+	joined, err := s.Lists.PanelsJoinedToSampleTypes()
+	if err != nil {
+		return nil, err
+	}
+	locales, err := s.Lists.ActiveLocales()
+	if err != nil {
+		return nil, err
+	}
+	values, err := s.Lists.LocalizationValues()
+	if err != nil {
+		return nil, err
+	}
+
+	active := s.panelsBySampleType(joined, values, locales, true)
+	inactive := s.panelsBySampleType(joined, values, locales, false)
+
+	existing := make([]form.SampleTypePanelDTO, 0, len(sampleTypes))
+	inactiveList := make([]form.SampleTypePanelDTO, 0, len(sampleTypes))
+	for _, st := range sampleTypes {
+		existing = append(existing, form.SampleTypePanelDTO{
+			TypeOfSampleName: st.Value, Panels: active[st.Value],
+		})
+		inactiveList = append(inactiveList, form.SampleTypePanelDTO{
+			TypeOfSampleName: st.Value, Panels: inactive[st.Value],
+		})
+	}
+
+	en, fr, err := s.namePair("clinlims.panel", "name", "", "e.id")
+	if err != nil {
+		return nil, err
+	}
+
+	f := form.NewPanelCreateForm()
+	f.ExistingPanelList, f.InactivePanelList = &existing, &inactiveList
+	f.ExistingSampleTypeList = &sampleTypes
+	f.ExistingEnglishNames, f.ExistingFrenchNames = &en, &fr
+	return &f, nil
+}
+
+// panelsBySampleType is createTypeOfSamplePanelMap.
+//
+// The map entry is created as soon as a join row for that sample type is seen,
+// BEFORE the active filter — so a sample type whose panels all fail the filter
+// keeps an empty list rather than dropping out. Absent and empty are different
+// documents here; see the DTO.
+func (s *CreateService) panelsBySampleType(
+	joined []commondaoimpl.PanelRow,
+	values map[string][]locform.LocalizationValue,
+	locales []string,
+	wantActive bool,
+) map[string]*[]form.PanelDTO {
+	out := map[string]*[]form.PanelDTO{}
+	for _, r := range joined {
+		if _, ok := out[r.SampleTypeName]; !ok {
+			empty := []form.PanelDTO{}
+			out[r.SampleTypeName] = &empty
+		}
+		if (r.IsActive == "Y") != wantActive {
+			continue
+		}
+		list := append(*out[r.SampleTypeName], form.PanelDTO{
+			Lastupdated:  r.Lastupdated,
+			IsActive:     r.IsActive,
+			ID:           r.ID,
+			PanelName:    r.Name,
+			Description:  r.Description,
+			Loinc:        r.Loinc,
+			SortOrderInt: r.SortOrder,
+			Localization: locform.BuildLocalization(
+				r.LocalizationID, r.LocDescription, r.LocUpdated,
+				values[r.LocalizationID], locales, s.Lists.Locale()),
+		})
+		out[r.SampleTypeName] = &list
+	}
+	return out
+}
+
+// CreatePanel ports postPanelCreate.
+//
+// Nine rows, not eight: a panel is created already tied to the sample type the
+// form chose, through a sampletype_panel row the other creates have no
+// equivalent of. Its system_module DESCRIPTIONS also differ —
+// `Workplan=>panel=><name>` where the others build `Workplan=><name>` — because
+// this controller has its own copy of createSystemModule.
+func (s *CreateService) CreatePanel(post form.CreatePost, sysUserID int64) (*form.PanelCreateForm, error) {
+	f := form.NewPanelCreateForm()
+	f.PanelEnglishName, f.PanelFrenchName, f.SampleTypeID = post.PanelEnglishName, post.PanelFrenchName, post.SampleTypeID
+
+	sampleTypeID := derefOr(post.SampleTypeID)
+	_, err := s.DAO.Create(daoimpl.CreateSpec{
+		Table:                   "clinlims.panel",
+		LocalizationDescription: "panel name",
+		AuditTable:              "PANEL",
+		NameColumn:              "name",
+		DescriptionColumn:       "description",
+		ModuleInfix:             "panel=>",
+		ExtraColumns: map[string]any{
+			"is_active":  "N",
+			"sort_order": maxSortOrder,
+			// setLoinc(form.getPanelLoinc()), and the submitted value DOES reach
+			// it. panelLoinc is absent from ALLOWED_FIELDS, which reads like it
+			// cannot be bound — but initBinder.setAllowedFields governs FORM
+			// binding and these endpoints take @RequestBody, which is Jackson.
+			// The allow-list is dead configuration on every REST controller in
+			// this package. Measured: the column comes back holding what was sent.
+			"loinc": loincOrNil(post.PanelLoinc),
+		},
+		AfterEntity: func(tx *gorm.DB, panelID string, ts time.Time) error {
+			if sampleTypeID == "" {
+				return nil
+			}
+			// The table is sampletype_panel and the sequence is
+			// sample_type_panel_seq — the two are spelled differently, and the
+			// name that matches the table does not exist.
+			return tx.Exec(`
+				INSERT INTO clinlims.sampletype_panel (id, sample_type_id, panel_id)
+				VALUES (nextval('clinlims.sample_type_panel_seq'), ?, ?)`,
+				sampleTypeID, panelID).Error
+		},
+	}, derefOr(post.PanelEnglishName), derefOr(post.PanelFrenchName), sysUserID)
+	if err != nil {
+		return &f, nil
+	}
+	return &f, nil
+}
+
+// loincOrNil keeps an absent panelLoinc out of the column as NULL rather than
+// as the empty string, which is what setLoinc(null) leaves behind.
+func loincOrNil(s *string) any {
+	if s == nil {
+		return nil
+	}
+	return *s
 }
