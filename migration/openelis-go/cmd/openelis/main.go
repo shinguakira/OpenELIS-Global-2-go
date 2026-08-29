@@ -390,6 +390,14 @@ func main() {
 		DAO:   &testconfigdaoimpl.RenameDAO{DB: gormDB},
 	}
 	testconfigrest.RenameRoutes(mux, &testconfigrest.RenameRestController{Service: renameSvc})
+
+	// The *Create screens. Each write is eight rows across six tables in one
+	// transaction, with a single history row for the entity — see the DAO.
+	createSvc := &testconfigservice.CreateService{
+		Lists: &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		DAO:   &testconfigdaoimpl.CreateDAO{DB: gormDB, Audit: &audittrail.Service{}},
+	}
+	testconfigrest.CreateRoutes(mux, &testconfigrest.CreateRestController{Service: createSvc})
 	dateLocale := siteDateLocale(gormDB)
 	// validateTechnicalRejection decides whether technically REJECTED analyses
 	// are offered for validation. Read once, the way ConfigurationProperties does.

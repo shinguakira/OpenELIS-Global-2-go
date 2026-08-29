@@ -182,3 +182,27 @@ func (d *DisplayListDAOImpl) AllSampleTypes() ([]util.IdValuePair, error) {
 	}
 	return toPairs(rows), nil
 }
+
+// NamesIn reads one entity table's names in a given locale.
+//
+// The create screens carry TWO name strings — existingEnglishNames and
+// existingFrenchNames — built from the same entities read twice, once per
+// locale. Every other list here reads the ACTIVE locale, so this is the only
+// place a locale is chosen per call rather than taken from the deployment.
+//
+// The fallback is the same one getLocalizedValue has: the entity's own column
+// when the locale has no row.
+func (d *DisplayListDAOImpl) NamesIn(table, fallbackColumn, locale, where, order string) ([]util.IdValuePair, error) {
+	rows := []idValueRow{}
+	q := d.DB.Table(table+" AS e").
+		Select("e.id AS id, COALESCE(NULLIF(lv.value, ''), e."+fallbackColumn+") AS value").
+		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = e.name_localization_id AND lv.locale = ?", locale).
+		Order(order)
+	if where != "" {
+		q = q.Where(where)
+	}
+	if err := q.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return toPairs(rows), nil
+}
