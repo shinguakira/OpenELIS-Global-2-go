@@ -303,3 +303,72 @@ func (dao *SiteInformationDAOImpl) ActiveLocales() ([]string, error) {
 		Scan(&codes).Error
 	return codes, err
 }
+
+// SampleCount ports sampleService.getCount(), the other half of isEditable.
+func (dao *SiteInformationDAOImpl) SampleCount() (int64, error) {
+	var n int64
+	err := dao.DB.Raw(`SELECT count(*) FROM clinlims.sample`).Scan(&n).Error
+	return n, err
+}
+
+// ByName ports getSiteInformationByName — used by the SiteCode side effect,
+// which reaches for two OTHER rows when one is written.
+func (dao *SiteInformationDAOImpl) ByName(name string) (*valueholder.SiteInformation, error) {
+	var row valueholder.SiteInformation
+	err := dao.base().Where("si.name = ?", name).Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+// SetRoleActive ports the roleRequiredForModifyResults side effect: writing that
+// flag activates or deactivates the "Results modifier" ROLE, in another table
+// entirely. A port that only wrote site_information would leave the role as it
+// was and the permission would not follow the setting.
+func (dao *SiteInformationDAOImpl) SetRoleActive(roleName string, active bool) error {
+	// system_role.active is a real boolean column, and the role name is
+	// space-padded in the table — matched with a trim rather than an equality
+	// that would silently never fire.
+	return dao.DB.Exec(
+		`UPDATE clinlims.system_role SET active = ? WHERE trim(name) = ?`,
+		active, roleName).Error
+}
+
+// LocalizationValuesFor returns the stored value per locale.
+func (dao *SiteInformationDAOImpl) LocalizationValuesFor(localizationID string) (map[string]string, error) {
+	rows, err := dao.LocalizationByID(localizationID)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, r := range rows {
+		out[r.Locale] = r.Value
+	}
+	return out, nil
+}
+
+// UpdateLocalizationValues writes one value per locale.
+//
+// clinlims.localization has NO reference_tables row, so unlike site_information
+// these writes leave no audit trail — checked, not assumed.
+func (dao *SiteInformationDAOImpl) UpdateLocalizationValues(localizationID string, values map[string]string) error {
+	return dao.DB.Transaction(func(tx *gorm.DB) error {
+		ts := writeTime()
+		for locale, value := range values {
+			err := tx.Exec(`
+				UPDATE clinlims.localization_value
+				   SET value = ?, last_updated = ?
+				 WHERE localization_id = ? AND locale = ?`,
+				value, ts, localizationID, locale).Error
+			if err != nil {
+				return err
+			}
+		}
+		return tx.Exec(
+			`UPDATE clinlims.localization SET lastupdated = ? WHERE id = ?`, ts, localizationID).Error
+	})
+}

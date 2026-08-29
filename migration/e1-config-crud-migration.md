@@ -1,9 +1,9 @@
 # e1 — Admin config CRUD (scoped migration plan)
 
-Status: **ported and parity-verified; NOT yet in the gate**
-Open items: [open-items.md](open-items.md) — this wave contributes the largest
-block, including one confirmed divergence (no audit rows are written) and the
-fact that e1 has no e2e spec yet.
+Status: **ported, in the gate, 14 e2e tests**
+Open items: [open-items.md](open-items.md) — three left, all of them either
+unreachable without provoking a database error, or a cache concern rather than
+a response one.
 Branch: `migration/e1-config-crud` (from `migration-base`).
 Companion docs:
 [endpoint-migration-order.md](endpoint-migration-order.md) (Wave 6),
@@ -179,37 +179,35 @@ It must clean up even when it fails.
 
 ---
 
-## 4.1 Open: the encrypted-row branch
+## 4.1 The encrypted-row branch — closed
 
-`hideEncryptedFields` is the one path this wave does NOT reproduce, and the
-reason is worth recording rather than leaving as a silent gap.
+Java masks the **decrypted** value, so reproducing `hideEncryptedFields` meant
+porting jasypt. The parameters were read out of the library with a JDK rather
+than guessed at:
 
-Java masks the **decrypted** value. `SiteInformationServiceImpl` decrypts
-through a jasypt `AES256TextEncryptor` on every read, so a row holding
-`secret-value` is stored as 64 base64 characters and the menu renders
-**twelve** asterisks. The port masks the stored column and would render
-sixty-four.
+| | |
+|---|---|
+| algorithm | PBEWithHMACSHA512AndAES_256 |
+| key | PBKDF2-HMAC-SHA512, 1000 iterations, 256-bit |
+| cipher | AES-256-CBC, PKCS#5 |
+| wire | Base64( **salt ‖ iv ‖ ciphertext** ), 16 bytes each |
+| password | `kspass`, from `volume/properties/common.properties` |
 
-Measured, by letting Java create the row through its own POST with
-`encrypted: true`:
+Two things cost time and are worth writing down. The layout reads like
+iv-then-salt in the jasypt source — `StandardPBEByteEncryptor` prepends the
+salt and then prepends the IV to that result — and it is not; decrypting
+jasypt's own output settles it. And the password is **not** the `dev` fallback
+in the `@Value` expression: this deployment overrides it, and a value
+encrypted under one password is unreadable under the other, which is what made
+the first search fail against what turned out to be the right algorithm.
 
-- stored ciphertext is 48 bytes — a 16-byte salt, a 16-byte IV and one AES
-  block — and differs on every call, so salt and IV are random per encryption
-- the password is `encryption.general.password`, whose default is the literal
-  `dev`; nothing in this repository, its compose files, or the deployed
-  `application.properties` overrides it
-- PBKDF2-HMAC over SHA-512, SHA-256 and SHA-1, both plausible salt/IV orders,
-  1..5000 iterations, does **not** reproduce the ciphertext — checked against
-  the known plaintext, so a hit would have been exact rather than a padding
-  guess
+**Still no fixture seeds an encrypted row.** The e2e spec creates one through
+the API and deletes it, so the ciphertext is always the application's own. A
+row whose column holds plaintext makes Java 500 on every config menu (E1-m).
 
-The remaining step is to read the parameters out of jasypt instead of guessing.
-The deployed container ships a JRE with no `javap` and no compiler, so that
-needs a JDK.
-
-**No fixture seeds an encrypted row**, and that is deliberate: a
-`site_information` row whose value column holds plaintext makes Java 500 on
-every config menu (E1-m). Seeding it wrong is worse than not seeding it.
+**Running the gate:** the Go service needs `OE_ENCRYPTION_PASSWORD` set to the
+same key, or the encrypted-row test fails for a configuration reason rather
+than a porting one.
 
 ---
 

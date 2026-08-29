@@ -38,6 +38,7 @@ const CANCEL = "rest/CancelSiteInformation";
 const DELETE_SITE_INFORMATION = "rest/DeleteSiteInformation";
 const DELETE_PATIENT_CONFIG = "rest/DeletePatientConfiguration";
 const PATIENT_CONFIG_MENU = "rest/PatientConfigurationMenu";
+const LAB_UNIT_CONFIG = "rest/labUnit/config";
 
 /** A name this spec owns. Nothing ships with it and no Property maps to it. */
 const PROBE = "e2eConfigProbe";
@@ -118,8 +119,18 @@ test.describe("e1 — SiteInformation config CRUD (writes)", () => {
   // row itself is gone.
   let touched: string[] = [];
 
+  // The two tests below edit SHIPPED rows because no created row can reach
+  // their branches. What they found is captured here and put back in afterEach,
+  // which runs even when the test fails — a config row left flipped changes the
+  // behaviour of every other spec in the run.
+  let localizationRestore: { id: string; values: string[][] } | null = null;
+  let settingRestore: { id: string; value: string; roleActive: string } | null =
+    null;
+
   test.beforeEach(() => {
     touched = probeIds(); // anything a previous crashed run left behind
+    localizationRestore = null;
+    settingRestore = null;
   });
 
   // Cleanup runs even when the test fails — a leftover row here is global
@@ -135,6 +146,31 @@ test.describe("e1 — SiteInformation config CRUD (writes)", () => {
     exec(
       `DELETE FROM clinlims.site_information WHERE name IN ('${PROBE}', 'RENAMED')`,
     );
+
+    if (localizationRestore) {
+      for (const [locale, value] of localizationRestore.values) {
+        exec(
+          `UPDATE clinlims.localization_value SET value = '${value.replace(/'/g, "''")}'
+            WHERE localization_id = ${Number(localizationRestore.id)} AND locale = '${locale}'`,
+        );
+      }
+    }
+    if (settingRestore) {
+      exec(
+        `UPDATE clinlims.site_information SET value = '${settingRestore.value}'
+          WHERE id = ${Number(settingRestore.id)}`,
+      );
+      exec(
+        `UPDATE clinlims.system_role SET active = ${settingRestore.roleActive}
+          WHERE trim(name) = 'Results modifier'`,
+      );
+      // The restore is a direct write, so it leaves audit rows the application
+      // did not make. Remove them too, or the next run's counts are off.
+      exec(
+        `DELETE FROM clinlims.history WHERE reference_table = ${siteInfoTableId()}
+          AND reference_id = ${Number(settingRestore.id)}`,
+      );
+    }
   });
 
   test("the CRUD cycle writes the row Java writes AND the audit trail Java writes", async ({
@@ -472,6 +508,305 @@ test.describe("e1 — SiteInformation config CRUD (writes)", () => {
       site.menuList.map((m: any) => m.name),
       "the menu is the domain's rows, ordered by the DATABASE collation",
     ).toEqual(expected);
+  });
+
+  test("invalid input is a 200 that writes NOTHING, not an error status", async ({
+    request,
+  }) => {
+    // SiteInformationFormValidator and isValid both reject by calling
+    // saveErrors and RETURNING THE FORM, so the response is a 200 carrying the
+    // submitted values straight back. The only thing that distinguishes accept
+    // from reject is whether the row appears — which is why every case below
+    // asserts on the table rather than on the status.
+    const cases: [string, Record<string, unknown>][] = [
+      ["valueType outside the allow-list", { valueType: "BOGUS" }],
+      [
+        "siteInfoDomainName outside the allow-list",
+        { siteInfoDomainName: "BOGUS" },
+      ],
+      ["tag outside the allow-list", { tag: "BOGUS" }],
+      ["a blank paramName", { paramName: "" }],
+    ];
+
+    for (const [label, override] of cases) {
+      const res = await postConfig(request, SITE_INFORMATION, {
+        paramName: PROBE,
+        value: "alpha",
+        siteInfoDomainName: "SiteInformation",
+        valueType: "text",
+        ...override,
+      });
+      expect(res.status(), `${label}: still a 200`).toBe(200);
+      expect(
+        query(
+          `SELECT id FROM clinlims.site_information WHERE name = '${PROBE}'`,
+        ).length,
+        `${label}: nothing written`,
+      ).toBe(0);
+    }
+
+    // INVERSION: the same body WITHOUT an override does write, so the four
+    // above are being refused rather than failing for some unrelated reason.
+    const ok = await postConfig(request, SITE_INFORMATION, {
+      paramName: PROBE,
+      value: "alpha",
+      siteInfoDomainName: "SiteInformation",
+      valueType: "text",
+    });
+    expect(ok.status()).toBe(200);
+    touched.push(...probeIds());
+    expect(
+      query(`SELECT id FROM clinlims.site_information WHERE name = '${PROBE}'`)
+        .length,
+      "the valid body writes",
+    ).toBe(1);
+  });
+
+  test("the phone-format rules key on the row's NAME, not on any column", async ({
+    request,
+  }) => {
+    // isValid decides by the name being written, so the same value is accepted
+    // for one row and refused for another. "phone format" must match the format
+    // regex; "phone format label" may be blank but not malformed.
+    const badValue = "@@@bogus@@@";
+
+    const refused = await postConfig(request, SITE_INFORMATION, {
+      paramName: "phone format",
+      value: badValue,
+      siteInfoDomainName: "SiteInformation",
+      valueType: "text",
+    });
+    expect(refused.status(), "still a 200").toBe(200);
+    const [[stored]] = query(
+      `SELECT value FROM clinlims.site_information WHERE name = 'phone format'`,
+    );
+    expect(stored, "the shipped row is untouched").toBe("xxxx-xxxx");
+
+    // The SAME value under a name with no rule is accepted.
+    const accepted = await postConfig(request, SITE_INFORMATION, {
+      paramName: PROBE,
+      value: badValue,
+      siteInfoDomainName: "SiteInformation",
+      valueType: "text",
+    });
+    expect(accepted.status()).toBe(200);
+    touched.push(...probeIds());
+    const rows = query(
+      `SELECT value FROM clinlims.site_information WHERE name = '${PROBE}'`,
+    );
+    expect(rows.length, "a name with no format rule accepts it").toBe(1);
+    expect(rows[0][0]).toBe(badValue);
+  });
+
+  test("an encrypted row stores CIPHERTEXT and reads back as plaintext", async ({
+    request,
+  }) => {
+    // The service encrypts on write and decrypts on read, so the column never
+    // holds what the caller sent and the form never shows what the column
+    // holds. No shipped row is encrypted, so this whole path is unreachable
+    // until a row like this one exists.
+    const secret = "secret-value";
+    const created = await postConfig(request, SITE_INFORMATION, {
+      paramName: PROBE,
+      value: secret,
+      siteInfoDomainName: "SiteInformation",
+      valueType: "text",
+      encrypted: true,
+    });
+    expect(created.status(), "insert").toBe(200);
+
+    const rows = query(
+      `SELECT id::text, value, encrypted::text FROM clinlims.site_information WHERE name = '${PROBE}'`,
+    );
+    expect(rows.length, "the row exists").toBe(1);
+    const [id, stored, encrypted] = rows[0];
+    touched.push(id);
+
+    expect(encrypted, "the flag is stored").toBe("true");
+    expect(stored, "the column does NOT hold the plaintext").not.toBe(secret);
+    // jasypt AES256: base64 of a 16-byte salt, a 16-byte IV and one AES block.
+    expect(stored.length, "the column holds a 48-byte ciphertext").toBe(64);
+
+    // ...and the read decrypts it back.
+    const readBack = await readJson(
+      await request.get(`${SITE_INFORMATION}?ID=${id}`),
+      `${SITE_INFORMATION}?ID=${id}`,
+    );
+    expect(readBack.value, "the form shows the plaintext").toBe(secret);
+
+    // The menu masks the DECRYPTED value, so the mask is as long as the secret
+    // and not as long as the ciphertext.
+    const menu = await readJson(
+      await request.get(SITE_INFORMATION_MENU),
+      SITE_INFORMATION_MENU,
+    );
+    const row = menu.menuList.find((m: any) => m.name === PROBE);
+    expect(row, "the row is on the menu").toBeTruthy();
+    expect(row.value, "masked to the PLAINTEXT length").toBe(
+      "*".repeat(secret.length),
+    );
+    expect(row.value.length, "not to the ciphertext length").not.toBe(
+      stored.length,
+    );
+  });
+
+  test("labUnit/config drops labName when the value is blank", async ({
+    request,
+  }) => {
+    const body = await readJson(
+      await request.get(LAB_UNIT_CONFIG),
+      LAB_UNIT_CONFIG,
+    );
+
+    // site_information has a SiteName row, and its value is empty — so this is
+    // not "no row", it is a blank one, and the key is still absent.
+    // The id is selected alongside the value on purpose: the DB helper splits
+    // psql output by LINE, so a row whose only selected column is empty comes
+    // back as an empty line and disappears from the result set entirely.
+    const site = query(
+      `SELECT id::text, COALESCE(value, '') FROM clinlims.site_information WHERE name = 'SiteName'`,
+    );
+    expect(site.length, "the SiteName row exists").toBe(1);
+    expect(site[0][1] ?? "", "...and is blank").toBe("");
+    expect("labName" in body, "so labName is absent, not empty").toBe(false);
+
+    // orderEntryWorkflowType has no row at all, and the handler substitutes.
+    expect(
+      query(
+        `SELECT id FROM clinlims.site_information WHERE name = 'orderEntryWorkflowType'`,
+      ).length,
+      "no workflow-type row is configured",
+    ).toBe(0);
+    expect(body.workflowType, "so the fallback is used").toBe("Both");
+
+    // The other two come straight from their rows.
+    const [[format]] = query(
+      `SELECT value FROM clinlims.site_information WHERE name = 'acessionFormat'`,
+    );
+    expect(body.accessionFormat).toBe(format);
+    const [[validate]] = query(
+      `SELECT value FROM clinlims.site_information WHERE name = 'validateAccessionNumber'`,
+    );
+    expect(body.useAccessionNumberValidation).toBe(validate === "true");
+  });
+
+  test("a localization-tagged row writes to the LOCALIZATION table, not to site_information", async ({
+    request,
+  }) => {
+    // The POST handler branches on the tag before it does anything else. For a
+    // row tagged "localization" the site_information `value` column is a
+    // localization ID, the content lives in localization_value, and
+    // site_information is never touched — so a port that wrote the value column
+    // would corrupt the pointer and lose the text.
+    //
+    // This is the one test that edits a SHIPPED row, because no created row can
+    // carry the tag: the insert path never sets one. It restores what it found,
+    // in an afterEach that runs even on failure.
+    const [[siteId, localizationId, tag]] = query(
+      `SELECT id::text, value, tag FROM clinlims.site_information WHERE name = 'bannerHeading'`,
+    );
+    expect(tag, "bannerHeading is the localization-tagged row").toBe(
+      "localization",
+    );
+
+    const before = query(
+      `SELECT locale, value FROM clinlims.localization_value
+        WHERE localization_id = ${Number(localizationId)} ORDER BY locale`,
+    );
+    expect(before.length, "the localization has values").toBeGreaterThan(0);
+    localizationRestore = { id: localizationId, values: before };
+
+    const [[siteValueBefore, siteUpdatedBefore]] = query(
+      `SELECT value, lastupdated::text FROM clinlims.site_information WHERE id = ${Number(siteId)}`,
+    );
+
+    const marker = "E2E LOCALIZATION PROBE";
+    const res = await postConfig(request, `${SITE_INFORMATION}?ID=${siteId}`, {
+      paramName: "bannerHeading",
+      value: localizationId,
+      siteInfoDomainName: "SiteInformation",
+      valueType: "text",
+      tag: "localization",
+      localization: {
+        id: localizationId,
+        description: "",
+        values: {
+          en: { id: "0", locale: "en", value: marker },
+          fr: { id: "0", locale: "fr", value: marker },
+        },
+      },
+    });
+    expect(res.status(), "the localization write").toBe(200);
+
+    const after = query(
+      `SELECT locale, value FROM clinlims.localization_value
+        WHERE localization_id = ${Number(localizationId)} ORDER BY locale`,
+    );
+    expect(
+      after.map((r) => r[1]),
+      "every active locale now carries the submitted text",
+    ).toEqual(after.map(() => marker));
+
+    // ...and site_information is untouched, lastupdated included.
+    const [[siteValueAfter, siteUpdatedAfter]] = query(
+      `SELECT value, lastupdated::text FROM clinlims.site_information WHERE id = ${Number(siteId)}`,
+    );
+    expect(siteValueAfter, "the pointer column is unchanged").toBe(
+      siteValueBefore,
+    );
+    expect(siteUpdatedAfter, "and the row was not written at all").toBe(
+      siteUpdatedBefore,
+    );
+  });
+
+  test("writing 'modify results role' toggles the ROLE, in another table", async ({
+    request,
+  }) => {
+    // configurationSideEffects.siteInformationChanged: this setting IS the
+    // "Results modifier" role's active flag. Storing the row and stopping would
+    // leave the permission out of step with the screen that sets it.
+    //
+    // The Java code keys on Property.roleRequiredForModifyResults.getDBName(),
+    // which is the string "modify results role" — not the constant's name. A
+    // port that matched the constant would compile and never fire.
+    const [[settingId, settingValue]] = query(
+      `SELECT id::text, value FROM clinlims.site_information WHERE name = 'modify results role'`,
+    );
+    const [[roleActiveBefore]] = query(
+      `SELECT active::text FROM clinlims.system_role WHERE trim(name) = 'Results modifier'`,
+    );
+    settingRestore = {
+      id: settingId,
+      value: settingValue,
+      roleActive: roleActiveBefore,
+    };
+
+    // Flip it to whatever it is not.
+    const next = settingValue === "true" ? "false" : "true";
+    const res = await postConfig(
+      request,
+      `${SITE_INFORMATION}?ID=${settingId}`,
+      {
+        paramName: "modify results role",
+        value: next,
+        siteInfoDomainName: "SiteInformation",
+        valueType: "boolean",
+      },
+    );
+    expect(res.status(), "the setting write").toBe(200);
+
+    const [[storedValue]] = query(
+      `SELECT value FROM clinlims.site_information WHERE id = ${Number(settingId)}`,
+    );
+    expect(storedValue, "the setting is stored").toBe(next);
+
+    const [[roleActiveAfter]] = query(
+      `SELECT active::text FROM clinlims.system_role WHERE trim(name) = 'Results modifier'`,
+    );
+    expect(roleActiveAfter, "and the ROLE followed it").toBe(next);
+    expect(roleActiveAfter, "which is a change, not a coincidence").not.toBe(
+      roleActiveBefore,
+    );
   });
 
   test("Cancel is a GET and answers a bare JSON string", async ({

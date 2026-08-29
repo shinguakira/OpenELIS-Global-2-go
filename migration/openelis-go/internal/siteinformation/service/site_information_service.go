@@ -6,10 +6,12 @@
 package service
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 
 	locform "openelis-go/internal/localization/form"
+	"openelis-go/internal/security/encryption"
 	"openelis-go/internal/siteinformation/daoimpl"
 	"openelis-go/internal/siteinformation/form"
 	"openelis-go/internal/siteinformation/valueholder"
@@ -101,6 +103,11 @@ type SiteInformationService struct {
 	// ActiveLocale is site_information "default language locale", trimmed to
 	// its language part.
 	ActiveLocale string
+	// Encryptor is the jasypt TextEncryptor bean. A row flagged `encrypted`
+	// stores ciphertext, and the service decrypts on read and encrypts on
+	// write — so the value the form shows and the value the column holds are
+	// never the same string.
+	Encryptor *encryption.TextEncryptor
 }
 
 // Show ports showSiteInformation.
@@ -133,11 +140,30 @@ func (s *SiteInformationService) Show(path, id string) (*form.SiteInformationFor
 
 	f.ParamName = row.Name
 	f.Description = s.instruction(row)
-	f.Value = derefStr(row.Value)
+	f.Value = s.plaintext(row)
 	f.Encrypted = row.Encrypted != nil && *row.Encrypted
 	f.ValueType = row.ValueType
-	f.Editable = isEditable(row.Name)
 	f.Tag = row.Tag
+
+	editable, err := s.isEditable(row.Name)
+	if err != nil {
+		return nil, false, err
+	}
+	f.Editable = editable
+
+	// setLocalizationValues: a localization-tagged row carries the whole
+	// Localization graph, and its `value` column is the localization id.
+	if derefStr(row.Tag) == "localization" {
+		locales, err := s.DAO.ActiveLocales()
+		if err != nil {
+			return nil, false, err
+		}
+		loc, err := s.localization(derefStr(row.Value), locales)
+		if err != nil {
+			return nil, false, err
+		}
+		f.Localization = loc
+	}
 
 	if row.ValueType == "dictionary" && row.DictionaryCategoryID != nil {
 		values, err := s.DAO.DictionaryEntriesByCategory(*row.DictionaryCategoryID)
@@ -160,11 +186,41 @@ const accessionNumberPrefix = "Accession number prefix"
 // "x" would be treated as the accession-number prefix and locked once samples
 // exist. No such row is shipped, so the two readings agree on this data.
 //
-// The sample-count half is not ported: it returns false only when the accession
-// prefix row is edited on a database with zero samples, and this deployment has
-// samples. Left as a note rather than a silent simplification.
-func isEditable(name string) bool {
-	return !strings.HasSuffix(accessionNumberPrefix, name)
+// When the suffix test DOES match, the row is editable only while the database
+// holds no samples: the accession prefix cannot be changed once numbers have
+// been issued under it. This deployment has samples, so the answer is false —
+// but it is computed rather than assumed, because a port that returned a
+// constant would be right here and wrong on an empty instance.
+func (s *SiteInformationService) isEditable(name string) (bool, error) {
+	if !strings.HasSuffix(accessionNumberPrefix, name) {
+		return true, nil
+	}
+	n, err := s.DAO.SampleCount()
+	if err != nil {
+		return false, err
+	}
+	return n == 0, nil
+}
+
+// plaintext is decryptSiteInformation: an encrypted row's column holds
+// ciphertext and every read decrypts it.
+//
+// A value that will not decrypt is returned unchanged rather than failing the
+// request. Java does fail — the jasypt exception propagates, the error object
+// Spring builds around it is itself unserialisable, and the whole config menu
+// answers 500. That is reproduced nowhere on purpose: it needs a row whose
+// column was written by something other than this application, and creating one
+// takes the screen down for every domain.
+func (s *SiteInformationService) plaintext(row *valueholder.SiteInformation) string {
+	value := derefStr(row.Value)
+	if row.Encrypted == nil || !*row.Encrypted || value == "" || s.Encryptor == nil {
+		return value
+	}
+	plain, err := s.Encryptor.Decrypt(value)
+	if err != nil {
+		return value
+	}
+	return plain
 }
 
 // instruction ports getInstruction: the instruction message, else the
@@ -197,6 +253,22 @@ func (s *SiteInformationService) Menu(path string) (*form.SiteInformationMenuFor
 	items := make([]form.MenuItem, 0, len(rows))
 	for i := range rows {
 		item := toMenuItem(&rows[i])
+
+		// hideEncryptedFields, and it runs on the DECRYPTED value: the service
+		// decrypts every row it loads, so the mask is as long as the secret and
+		// not as long as the ciphertext. Java does it with
+		// value.replaceAll(".", "*") — a REGEX whose dot matches any character.
+		//
+		// Masking the stored column instead would answer sixty-four asterisks
+		// for a twelve-character secret. That is exactly what this port did
+		// until the spec asserted the length.
+		if item.Encrypted {
+			plain := s.plaintext(&rows[i])
+			if plain != "" {
+				masked := strings.Repeat("*", len([]rune(plain)))
+				item.Value = &masked
+			}
+		}
 		if derefStr(rows[i].Tag) == "localization" {
 			if activeLocales == nil {
 				activeLocales, err = s.DAO.ActiveLocales()
@@ -257,36 +329,6 @@ func toMenuItem(row *valueholder.SiteInformation) form.MenuItem {
 			Description: row.DomainDescription,
 		}
 	}
-	// hideEncryptedFields: an encrypted row's value is replaced character for
-	// character with '*'. Java does it with value.replaceAll(".", "*") — a
-	// REGEX whose dot matches any character, so the mask is the same length as
-	// the value.
-	//
-	// KNOWN GAP, stated rather than hidden. Java masks the DECRYPTED plaintext:
-	// SiteInformationServiceImpl decrypts through a jasypt AES256TextEncryptor
-	// on every read, so a row holding "secret-value" is stored as 64 base64
-	// characters and comes back as TWELVE asterisks. This masks the stored
-	// column, so it would answer sixty-four.
-	//
-	// Measured — a row created through Java's own POST with encrypted=true
-	// stored 48 bytes (16-byte salt, 16-byte IV, one AES block) and the menu
-	// rendered 12 asterisks. Reproducing it needs the encryptor ported, and the
-	// exact key derivation is not yet pinned: the password is the documented
-	// default "dev" and the layout is three 16-byte groups, but PBKDF2-HMAC
-	// over SHA-512/256/1 at 1..5000 iterations does not reproduce the
-	// ciphertext, so the parameters have to be read out of jasypt rather than
-	// guessed at.
-	//
-	// NOT reachable on stock data: no shipped row carries encrypted = true, and
-	// the fixture that would have created one is deliberately absent — a
-	// site_information row with a plaintext value in that column makes Java 500
-	// on every config menu, because the decrypt throws and the resulting error
-	// object is itself unserialisable. Seeding it wrong is worse than not
-	// seeding it.
-	if item.Encrypted && item.Value != nil && *item.Value != "" {
-		masked := strings.Repeat("*", len([]rune(*item.Value)))
-		item.Value = &masked
-	}
 	return item
 }
 
@@ -304,9 +346,49 @@ func toMenuItem(row *valueholder.SiteInformation) form.MenuItem {
 // The returned form is the REQUEST BODY over the bean defaults, because the
 // POST path never calls setupFormForRequest.
 func (s *SiteInformationService) Update(post form.SiteInformationPost, id string, sysUserID int64) (*form.SiteInformationForm, error) {
+	echo := echoForm(post)
+
+	// SiteInformationFormValidator. A rejection is NOT an error status: Java
+	// calls saveErrors and returns the form, so the response is a 200 carrying
+	// the submitted values back — and nothing is written. Measured on all three
+	// lists; the only observable difference between accept and reject is
+	// whether the row appears.
+	if !validForm(post) {
+		return echo, nil
+	}
+
+	// The localization branch, and it is not a variation on the write below —
+	// it writes to a DIFFERENT TABLE. For a row tagged "localization" the
+	// site_information `value` column holds a localization id, the real content
+	// lives in localization_value, and site_information is not touched at all.
+	if derefStr(post.Tag) == "localization" {
+		if err := s.updateLocalization(derefStr(post.Value), post.Localization); err != nil {
+			return nil, err
+		}
+		return echo, nil
+	}
+
 	isNew := id == "" || id == "0"
 	name := derefStr(post.ParamName)
 	value := post.Value
+
+	// isValid: the name is required, and four rows carry format rules keyed on
+	// that name rather than on any column. Same shape as the validator above —
+	// a failure is a 200 with no write.
+	if !isValidWrite(name, derefStr(value)) {
+		return echo, nil
+	}
+
+	// A row flagged encrypted stores CIPHERTEXT. encryptSiteInformation runs
+	// before both the insert and the update, so the column never holds the
+	// value the caller sent.
+	if s.Encryptor != nil && post.Encrypted != nil && *post.Encrypted && value != nil {
+		enc, err := s.Encryptor.Encrypt(*value)
+		if err != nil {
+			return nil, err
+		}
+		value = &enc
+	}
 
 	if isNew {
 		domainID := SiteIdentityDomainID
@@ -331,7 +413,154 @@ func (s *SiteInformationService) Update(post form.SiteInformationPost, id string
 		}
 	}
 
-	return echoForm(post), nil
+	// configurationSideEffects.siteInformationChanged, which runs inside
+	// persistData — so a write to one row can change another table.
+	if err := s.sideEffects(name, derefStr(post.Value)); err != nil {
+		return nil, err
+	}
+	return echo, nil
+}
+
+// validForm ports SiteInformationFormValidator: three allow-lists, and the
+// domain list is a THIRD spelling of the same set — it carries
+// "externalConnections" and "validationConfig", neither of which the DELETE
+// validator accepts, and it carries the misspelled "PaitientConfiguration"
+// that the menu controller does not hand out.
+func validForm(post form.SiteInformationPost) bool {
+	valueTypes := map[string]bool{
+		"boolean": true, "logoUpload": true, "text": true,
+		"freeText": true, "dictionary": true, "complex": true,
+	}
+	domains := map[string]bool{
+		"externalConnections": true, "non_conformityConfiguration": true,
+		"WorkplanConfiguration": true, "PrintedReportsConfiguration": true,
+		"sampleEntryConfig": true, "ResultConfiguration": true,
+		"MenuStatementConfig": true, "PaitientConfiguration": true,
+		"validationConfig": true, "SiteInformation": true,
+	}
+	// The tag list includes both "" and null, so an absent tag is fine.
+	tags := map[string]bool{
+		"enable": true, "url": true, "numericOnly": true,
+		"programConfiguration": true, "localization": true, "": true,
+	}
+
+	valueType := "text" // the bean initialiser, applied when the key is absent
+	if post.ValueType != nil {
+		valueType = *post.ValueType
+	}
+	if !valueTypes[valueType] {
+		return false
+	}
+	if !domains[derefStr(post.SiteInfoDomainName)] {
+		return false
+	}
+	return post.Tag == nil || tags[*post.Tag]
+}
+
+// phoneFormat is PhoneNumberService.FORMAT_REGEX.
+var phoneFormat = regexp.MustCompile(`^[a-zA-Z0-9+()\s\-/|]+$`)
+
+// isValidWrite ports isValid — a required name, plus four rules that key on the
+// row's NAME rather than on any column, so the same value is accepted or
+// refused depending on which row it is being written to.
+func isValidWrite(name, value string) bool {
+	if strings.TrimSpace(name) == "" {
+		return false
+	}
+	switch name {
+	case "phone format":
+		return phoneFormat.MatchString(value)
+	case "phone format label", "phone international format label":
+		// Blank is allowed here and NOT on "phone format" above.
+		return value == "" || phoneFormat.MatchString(value)
+	case "phone international validation":
+		v := strings.ToUpper(strings.TrimSpace(value))
+		return v == "" || v == "NONE" || v == "E164"
+	}
+	return true
+}
+
+// updateLocalization ports validateAndUpdateLocalization.
+//
+// languageChanged compares only the locales the SUBMITTED object carries a
+// value for; when any of them differs, EVERY active locale is rewritten from
+// the submission, with English as the fallback for a locale the submission
+// omits. So a partial submission can overwrite a locale it never mentioned.
+func (s *SiteInformationService) updateLocalization(localizationID string, submitted *locform.LocalizationDTO) error {
+	if localizationID == "" || submitted == nil {
+		return nil
+	}
+	stored, err := s.DAO.LocalizationValuesFor(localizationID)
+	if err != nil {
+		return err
+	}
+	if len(stored) == 0 {
+		return nil
+	}
+
+	incoming := func(locale string) string {
+		if v, ok := submitted.Values[locale]; ok && v.Value != "" {
+			return v.Value
+		}
+		if v, ok := submitted.Values["en"]; ok && v.Value != "" {
+			return v.Value
+		}
+		return ""
+	}
+
+	changed := false
+	for locale, v := range submitted.Values {
+		if v.Value == "" {
+			continue // getLocalesWithValue skips blanks
+		}
+		if v.Value != stored[locale] {
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+
+	active, err := s.DAO.ActiveLocales()
+	if err != nil {
+		return err
+	}
+	values := map[string]string{}
+	for _, locale := range active {
+		values[locale] = incoming(locale)
+	}
+	return s.DAO.UpdateLocalizationValues(localizationID, values)
+}
+
+// sideEffects ports ConfigurationSideEffects.siteInformationChanged: writing
+// one configuration row can change a different table.
+func (s *SiteInformationService) sideEffects(name, value string) error {
+	// The names are the PROPERTY DB names, not the enum constants: the Java code
+	// reads Property.roleRequiredForModifyResults.getDBName(), which is the
+	// string "modify results role", and Property.SiteCode.getDBName(), which is
+	// "siteNumber". A port that matched on the constant names would compile,
+	// read plausibly, and never fire.
+	switch name {
+	case "modify results role":
+		// The setting IS the role's active flag. A port that stored the row and
+		// stopped would leave the permission out of step with the screen.
+		return s.DAO.SetRoleActive("Results modifier", value == "true")
+
+	case "siteNumber":
+		// Only when the accession format is SITEYEARNUM, and only to FILL a
+		// blank prefix — an existing prefix is left alone, because accession
+		// numbers have already been issued under it.
+		format, err := s.DAO.ByName("acessionFormat") // misspelled in the data
+		if err != nil || format == nil || derefStr(format.Value) != "SITEYEARNUM" {
+			return err
+		}
+		prefix, err := s.DAO.ByName(accessionNumberPrefix)
+		if err != nil || prefix == nil || strings.TrimSpace(derefStr(prefix.Value)) != "" {
+			return err
+		}
+		return s.DAO.UpdateValue(strconv.FormatInt(prefix.ID, 10), &value, 1)
+	}
+	return nil
 }
 
 // echoForm is the POST response: the deserialised body applied over
@@ -409,4 +638,49 @@ func derefStr(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// LabUnitConfig ports getLabUnitConfig — four ConfigurationProperties values
+// assembled into a HashMap.
+//
+// labName is ABSENT from the response, not empty: Property.SiteName has no
+// site_information row in this deployment, getPropertyValue returns null, and
+// Include.NON_NULL drops the key. A port that emitted "" would add a field Java
+// does not send.
+func (s *SiteInformationService) LabUnitConfig() (map[string]any, error) {
+	names := []string{"orderEntryWorkflowType", "SiteName", "validateAccessionNumber", "acessionFormat"}
+	values := map[string]string{}
+	present := map[string]bool{}
+	for _, n := range names {
+		row, err := s.DAO.ByName(n)
+		if err != nil {
+			return nil, err
+		}
+		if row != nil {
+			values[n] = derefStr(row.Value)
+			present[n] = true
+		}
+	}
+
+	config := map[string]any{}
+	// The only one with a fallback: a null workflow type reads as "Both".
+	workflow := values["orderEntryWorkflowType"]
+	if !present["orderEntryWorkflowType"] {
+		workflow = "Both"
+	}
+	config["workflowType"] = workflow
+	// labName is dropped when the value is BLANK, not only when the row is
+	// missing. site_information row 33 is SiteName with an empty value, and
+	// Java still omits the key — so getPropertyValue answers null for a blank
+	// column and Include.NON_NULL removes it. A port that keyed on row presence
+	// alone would emit "".
+	if values["SiteName"] != "" {
+		config["labName"] = values["SiteName"]
+	}
+	// isPropertyValueEqual, so a missing row is false rather than absent.
+	config["useAccessionNumberValidation"] = values["validateAccessionNumber"] == "true"
+	if present["acessionFormat"] {
+		config["accessionFormat"] = values["acessionFormat"]
+	}
+	return config, nil
 }

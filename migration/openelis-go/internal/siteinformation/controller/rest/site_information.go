@@ -104,6 +104,11 @@ func Routes(mux *http.ServeMux, ctrl *SiteInformationRestController) {
 		web.Register(mux, "GET", "rest/"+d+"Menu", authmw.RequireAdmin(ctrl.menu))
 	}
 
+	// GET rest/labUnit/config lives on the SAME Java controller — it is Wave 1
+	// item 1.42 by the endpoint list, and porting it here rather than leaving a
+	// hole in a controller that is otherwise complete.
+	web.Register(mux, "GET", "rest/labUnit/config", authmw.RequireAdmin(ctrl.labUnitConfig))
+
 	for _, d := range deletableDomains {
 		// showDeleteSiteInformation is a GET that reads a REQUEST BODY. Unusual
 		// enough to be worth stating plainly: the verb is GET and the selected
@@ -216,6 +221,16 @@ func (c *SiteInformationRestController) delete(w http.ResponseWriter, r *http.Re
 		return
 	}
 	web.WriteJSON(w, http.StatusOK, "Delete successful")
+}
+
+func (c *SiteInformationRestController) labUnitConfig(w http.ResponseWriter, r *http.Request) {
+	config, err := c.Service.LabUnitConfig()
+	if err != nil {
+		// The Java handler catches everything and answers an EMPTY 500 body.
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	web.WriteJSON(w, http.StatusOK, config)
 }
 
 func (c *SiteInformationRestController) menu(w http.ResponseWriter, r *http.Request) {

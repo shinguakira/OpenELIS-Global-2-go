@@ -40,33 +40,14 @@ Full context in [e1-config-crud-migration.md](e1-config-crud-migration.md).
 
 | # | What | Found by | What it takes |
 |---|---|---|---|
-| e1-2 | **The POST validators are not ported.** `SiteInformationFormValidator` checks `valueType`, `siteInfoDomainName` and `tag` against allow-lists; the port accepts anything. Note the domain list here is a THIRD list — it includes `externalConnections` and `validationConfig`, which the delete validator's list does not. | source-read | Three allow-lists plus the `errors` envelope Java returns on rejection. Measure the rejection shape first — it is a `@Valid` form, so likely the per-field `errors` map rather than the ObjectError array the delete uses. |
-| e1-3 | **The localization POST branch is not ported.** `if ("localization".equals(form.getTag()))` sends the write to `validateAndUpdateLocalization`, which updates the **localization** table and never touches `site_information`. The port writes `site_information.value` regardless. Reachable today: `bannerHeading` (id 82) is tagged `localization`. | source-read | Port `validateAndUpdateLocalization`, including `languageChanged` and the per-locale update. Measure against id 82 with a restorable value. |
-| e1-4 | **`isValid` is not ported.** A blank `paramName` is rejected by Java (`error.SiteInformation.name.required`), as are malformed values for `phone format`, `phone format label`, `phone international format label` and `phone international validation`. The port stores them. | source-read | Port the four checks and `PhoneNumberService.validatePhoneFormat`. |
 | e1-5 | **Write-failure paths are not ported.** Java distinguishes `StaleObjectStateException` (→ `errors.OptimisticLockException`) from any other failure (→ `errors.UpdateException`) and returns the form carrying the error. The port answers a bare 500. | source-read | Needs the `saveErrors` envelope measured first — it is the same shape question as e1-2. |
-
-### 🟡 Unreachable on this data
-
-| # | What | Found by | What it takes |
-|---|---|---|---|
-| e1-6 | **jasypt `AES256TextEncryptor` is not ported**, so `hideEncryptedFields` masks the stored ciphertext where Java masks the decrypted plaintext — sixty-four asterisks against twelve. No shipped row carries `encrypted = true`. | **measured** — Java's own POST produced the ciphertext, and PBKDF2-HMAC over SHA-512/256/1, both salt/IV orders, 1..5000 iterations does not reproduce it against the known plaintext | Read jasypt's actual key-derivation parameters instead of guessing. The deployed container ships a JRE with no `javap` and no compiler, so this needs a JDK. **Do not seed an encrypted row until it works**: a plaintext value in that column makes Java 500 on every config menu, because the decrypt throws and the resulting error object is itself unserialisable. |
-| e1-7 | **`isEditable`'s sample-count half is not ported.** Java returns `sampleService.getCount() == 0` for the accession-prefix row; the port returns true. Reachable only on a database with zero samples, and this one has samples. | source-read | One count query. Cheap, but there is no way to observe it here without emptying the sample table. |
 
 ### Side effects not ported
 
 | # | What | Found by | Effect |
 |---|---|---|---|
 | e1-8 | `ConfigurationProperties.loadDBValuesIntoConfiguration()` and `DisplayListService.getInstance().refreshLists()` run after **every** write. The Go service builds its display lists once at startup and never refreshes them, so a write that changes a list-backing row leaves Go serving stale lists where Java serves fresh ones. 🔴 in principle; not yet demonstrated. | source-read | Needs a cache-invalidation hook on the write path. |
-| e1-9 | `configurationSideEffects.siteInformationChanged(siteInformation)` runs on every persist. Its contents have not been read yet. | source-read | Read `common/util/ConfigurationSideEffects.java` and decide per side effect. |
 | e1-10 | `localeResolver.setLocale(...)` runs when the row written is `default language locale`, changing the request's locale in place. | source-read | Only observable across a locale change. |
-
-### Not ported, same controller
-
-| # | What |
-|---|---|
-| e1-13 | `GET rest/labUnit/config` lives in `SiteInformationRestController` and is Wave 1 item 1.42. It was left alone because it belongs to a different wave, not because it is hard. |
-
----
 
 ## Closed
 
@@ -75,6 +56,13 @@ Full context in [e1-config-crud-migration.md](e1-config-crud-migration.md).
 | e1-1 | Writes left no audit row. Java writes a `clinlims.history` row for every insert, update and delete; the port now writes the same three, with the same payloads. | Ported `internal/common/audittrail` — shared, because every future write wave needs it. The payload is the row's state BEFORE the write: NULL on insert, `<value>old</value>` on update, the nine-field row dump on delete. Verified byte-identical against Java apart from the wall-clock `<lastupdated>`. |
 | e1-11 | e1 had no e2e spec and was not in the gate. | `tests/mutating/e1-config-crud.spec.ts`, eight tests, added to the `go-parity` `testMatch`. Written audit-assertion-first: it passed against Java and FAILED against Go on "insert leaves an I audit row" before the port was fixed. |
 | e1-12 | The write probe compared only the target table. | It now dumps `history` at each step. |
+| e1-2 | The POST validators were not ported. | `validForm` carries all three allow-lists. A rejection is a **200 with the form echoed back and no write** — measured on every list; the only observable difference between accept and refuse is whether the row appears, which is why the spec asserts on the table. |
+| e1-3 | The localization POST branch was not ported. | `updateLocalization`. A row tagged `localization` writes to **localization_value** and leaves `site_information` untouched, `lastupdated` included. Pinned against the shipped `bannerHeading` row, which the spec restores. |
+| e1-4 | `isValid` was not ported. | The required name and the four phone rules, which key on the row's NAME rather than on any column — so the same value is refused for `phone format` and accepted for another row. Both directions asserted. |
+| e1-6 | jasypt `AES256TextEncryptor` was not ported. | Parameters read out of jasypt with a JDK instead of guessed: PBEWithHMACSHA512AndAES_256, PBKDF2-HMAC-SHA512, 1000 iterations, and the layout is **salt‖iv‖ciphertext** — the opposite of what the jasypt source reads like, settled by decrypting its own output. The password is `kspass`, from `volume/properties/common.properties`, not the `dev` default. The port encrypts on write, decrypts on read, and masks the **decrypted** value on the menu. |
+| e1-7 | `isEditable`'s sample-count half was not ported. | Computed rather than assumed. |
+| e1-9 | `configurationSideEffects.siteInformationChanged` was not ported. | The `modify results role` branch toggles the **"Results modifier" role** in another table, and is pinned. The names are the PROPERTY DB names — `modify results role`, `siteNumber` — not the enum constants; matching the constants would compile and never fire, which is what the port did until the spec caught it. The `siteNumber` branch has no row in this deployment and stays unverified. |
+| e1-13 | `GET rest/labUnit/config` was not ported. | Ported, and it drops `labName` when the value is BLANK rather than only when the row is missing — site_information row 33 exists with an empty value and Java still omits the key. |
 
 Two things surfaced only because those checks existed:
 
@@ -98,11 +86,17 @@ Two things surfaced only because those checks existed:
 
 ---
 
+## A note on running the gate
+
+The Go service must be started with `OE_ENCRYPTION_PASSWORD` set to the same
+key Java uses, or the encrypted-row test fails against Go for a configuration
+reason rather than a porting one. This deployment's key is `kspass`.
+
+---
+
 ## Suggested order
 
-1. **e1-2, e1-4, e1-5** — the validators and the error envelopes, which share
-   one measurement of Java's rejection shape.
-2. **e1-3** — the localization write branch. Reachable today through
-   `bannerHeading`, and it writes to a different table entirely.
-3. **e1-8** — the display-list cache the port never invalidates.
-4. **e1-6** — jasypt, once a JDK is available.
+1. **e1-5** — the write-failure envelopes. Reachable only on a database error,
+   so it needs a way to provoke one before it can be pinned.
+2. **e1-8** — the display-list cache the port never invalidates.
+3. **e1-10** — `localeResolver.setLocale` on the default-language row.

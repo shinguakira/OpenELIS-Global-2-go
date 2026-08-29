@@ -46,6 +46,11 @@ type SiteInformationForm struct {
 	// on which branch ran.
 	Tag            *string `json:"tag,omitempty"`
 	DescriptionKey string  `json:"descriptionKey"`
+	// Localization is declared last on the Java bean, so it serialises AFTER
+	// descriptionKey. Present only for a row tagged "localization", where the
+	// site_information value column holds a localization id rather than a value
+	// and the real content lives in another table.
+	Localization *locform.LocalizationDTO `json:"localization,omitempty"`
 }
 
 // NewSiteInformationForm reproduces `new SiteInformationForm()` — the bean
@@ -88,6 +93,10 @@ type SiteInformationPost struct {
 	Editable           *bool   `json:"editable"`
 	Tag                *string `json:"tag"`
 	DescriptionKey     *string `json:"descriptionKey"`
+	// The submitted Localization. For a localization-tagged row this is the
+	// ONLY part of the body that gets stored, and it is stored in the
+	// localization table — site_information is not touched at all.
+	Localization *locform.LocalizationDTO `json:"localization"`
 }
 
 // SiteInformationMenuForm is what GET /rest/{domain}Menu returns.

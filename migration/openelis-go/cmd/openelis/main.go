@@ -37,6 +37,7 @@ import (
 
 	// siteinformation layers (e1)
 	"openelis-go/internal/common/audittrail"
+	"openelis-go/internal/security/encryption"
 	siteinforest "openelis-go/internal/siteinformation/controller/rest"
 	siteinfodaoimpl "openelis-go/internal/siteinformation/daoimpl"
 	siteinfoservice "openelis-go/internal/siteinformation/service"
@@ -112,6 +113,19 @@ import (
 	workplandaoimpl "openelis-go/internal/workplan/daoimpl"
 	workplanservice "openelis-go/internal/workplan/service"
 )
+
+// encryptionPassword reads encryption.general.password from the environment.
+//
+// The default matches Spring's own — the fallback in the @Value expression on
+// SecurityConfig.encryptionPassword is the literal "dev" — so an unconfigured
+// Go service and an unconfigured Java service agree. A real deployment sets
+// its own key; this one uses kspass.
+func encryptionPassword() string {
+	if v := os.Getenv("OE_ENCRYPTION_PASSWORD"); v != "" {
+		return v
+	}
+	return encryption.DefaultPassword
+}
 
 func main() {
 	addr := os.Getenv("OE_GO_ADDR")
@@ -446,6 +460,12 @@ func main() {
 		Service: &siteinfoservice.SiteInformationService{
 			DAO:  &siteinfodaoimpl.SiteInformationDAOImpl{DB: gormDB, Audit: &audittrail.Service{}},
 			Msgs: msgs,
+			// encryption.general.password. Spring defaults it to "dev"; this
+			// deployment sets kspass in volume/properties/common.properties, and
+			// a value encrypted under one password is unreadable under the
+			// other — so the port takes it from the environment rather than
+			// baking either one in.
+			Encryptor: &encryption.TextEncryptor{Password: encryptionPassword()},
 		},
 	})
 	log.Printf("DB-backed routes enabled (c2: sample reads; e1: config CRUD)")
