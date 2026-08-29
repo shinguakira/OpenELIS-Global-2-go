@@ -1,10 +1,9 @@
 # e1 — Admin config CRUD (scoped migration plan)
 
-Status: **ported, in the gate, 16 e2e tests**
-Open items: [open-items.md](open-items.md) — one left, and it is blocked on
-data rather than effort: no localization row in this database has French text
-that differs from its English text, so the locale behaviour has nothing to be
-asserted against.
+Status: **complete — ported, in the gate, 17 e2e tests, nothing open**
+Open items: [open-items.md](open-items.md) — none for this wave. One
+cross-cutting item is carried forward there: the port captures its locale at
+startup everywhere except this controller, while Java resolves it per request.
 Branch: `migration/e1-config-crud` (from `migration-base`).
 Companion docs:
 [endpoint-migration-order.md](endpoint-migration-order.md) (Wave 6),

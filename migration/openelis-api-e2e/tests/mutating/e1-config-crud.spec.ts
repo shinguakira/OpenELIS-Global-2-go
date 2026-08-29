@@ -127,18 +127,25 @@ test.describe("e1 — SiteInformation config CRUD (writes)", () => {
   let settingRestore: { id: string; value: string; roleActive: string } | null =
     null;
   let configRestore: { id: string; value: string } | null = null;
+  let localeRestore: {
+    id: string;
+    value: string;
+    localizationId: string;
+    fr: string;
+  } | null = null;
 
   test.beforeEach(() => {
     touched = probeIds(); // anything a previous crashed run left behind
     localizationRestore = null;
     settingRestore = null;
     configRestore = null;
+    localeRestore = null;
   });
 
   // Cleanup runs even when the test fails — a leftover row here is global
   // configuration, and a leftover audit row makes the next run's assertions
   // ambiguous.
-  test.afterEach(() => {
+  test.afterEach(async ({ request }) => {
     const ids = [...new Set([...touched, ...probeIds()])];
     for (const id of ids) {
       exec(
@@ -156,6 +163,29 @@ test.describe("e1 — SiteInformation config CRUD (writes)", () => {
             WHERE localization_id = ${Number(localizationRestore.id)} AND locale = '${locale}'`,
         );
       }
+    }
+    if (localeRestore) {
+      // Restored THROUGH THE API, not with a direct UPDATE.
+      //
+      // The locale is a CACHED setting — which is exactly what the test two
+      // above proves — so putting the row back by hand leaves both servers
+      // still answering in French until something writes through them. An
+      // earlier version of this cleanup did that and left the deployment
+      // French for the rest of the run, which is how the flake was found.
+      await postConfig(request, `${SITE_INFORMATION}?ID=${localeRestore.id}`, {
+        paramName: "default language locale",
+        value: localeRestore.value,
+        siteInfoDomainName: "SiteInformation",
+        valueType: "dictionary",
+      });
+      exec(
+        `UPDATE clinlims.localization_value SET value = '${localeRestore.fr.replace(/'/g, "''")}'
+          WHERE localization_id = ${Number(localeRestore.localizationId)} AND locale = 'fr'`,
+      );
+      exec(
+        `DELETE FROM clinlims.history WHERE reference_table = ${siteInfoTableId()}
+          AND reference_id = ${Number(localeRestore.id)}`,
+      );
     }
     if (configRestore) {
       exec(
@@ -897,6 +927,111 @@ test.describe("e1 — SiteInformation config CRUD (writes)", () => {
     ).toBe(cached);
     expect(after.accessionFormat, "...not the stored one").not.toBe(
       "E2E_CACHE_PROBE",
+    );
+  });
+
+  test("writing the default locale changes the language of the very next response", async ({
+    request,
+  }) => {
+    // Two mechanisms, one visible effect: the write reloads
+    // ConfigurationProperties, and localeResolver.setLocale puts the same
+    // locale on the request. Either way the next response is rendered in the
+    // new language.
+    //
+    // This needs a localization whose French text DIFFERS from its English
+    // text, and the shipped data has none — bannerHeading reads "Test LIMS" in
+    // both. So the test seeds the difference itself and puts it back, rather
+    // than treating "no data" as a reason not to check.
+    const [[localizationId]] = query(
+      `SELECT value FROM clinlims.site_information WHERE name = 'bannerHeading'`,
+    );
+    const [[localeId, originalLocale]] = query(
+      `SELECT id::text, value FROM clinlims.site_information WHERE name = 'default language locale'`,
+    );
+    const frBefore = query(
+      `SELECT value FROM clinlims.localization_value
+        WHERE localization_id = ${Number(localizationId)} AND locale = 'fr'`,
+    );
+    expect(frBefore.length, "the localization has a French row").toBe(1);
+
+    localeRestore = {
+      id: localeId,
+      value: originalLocale,
+      localizationId,
+      fr: frBefore[0][0],
+    };
+
+    const french = "TEXTE FRANCAIS";
+    exec(
+      `UPDATE clinlims.localization_value SET value = '${french}'
+        WHERE localization_id = ${Number(localizationId)} AND locale = 'fr'`,
+    );
+
+    const banner = async () => {
+      const menu = await readJson(
+        await request.get(SITE_INFORMATION_MENU),
+        SITE_INFORMATION_MENU,
+      );
+      const row = menu.menuList.find((m: any) => m.name === "bannerHeading");
+      expect(row, "bannerHeading is on the menu").toBeTruthy();
+      return row.localization;
+    };
+
+    const before = await banner();
+    expect(before.localizedValue, "English to start with").toBe(before.english);
+    expect(
+      before.localesAndValuesOfLocalesWithValues,
+      "and the language NAMES are English too",
+    ).toEqual(["English: " + before.english, "French: " + french]);
+
+    // Flip the deployment's language.
+    const flipped = await postConfig(
+      request,
+      `${SITE_INFORMATION}?ID=${localeId}`,
+      {
+        paramName: "default language locale",
+        value: "fr-FR",
+        siteInfoDomainName: "SiteInformation",
+        valueType: "dictionary",
+      },
+    );
+    expect(flipped.status(), "the locale write").toBe(200);
+
+    const after = await banner();
+    expect(
+      after.localizedValue,
+      "the localized value is now the French text",
+    ).toBe(french);
+    expect(
+      after.localesAndValuesOfLocalesWithValues,
+      "and the language names are rendered IN French",
+    ).toEqual(["anglais: " + before.english, "français: " + french]);
+
+    // INVERSION: the stored values did not change, only the language they are
+    // read in — so this is a locale switch and not a write to the localization.
+    expect(after.english, "the English text is untouched").toBe(before.english);
+    expect(after.french, "and so is the French").toBe(french);
+
+    // Put the language back HERE, and prove it took, rather than leaving it to
+    // cleanup. GlobalLocaleResolver keeps `currentLocale` in a field on the
+    // resolver — one field, for the whole process — so while this test runs the
+    // ENTIRE deployment is in French, and a restore that silently failed would
+    // hand every later test a French server. That is not hypothetical: it is
+    // how this test's first version broke four unrelated specs.
+    const restored = await postConfig(
+      request,
+      `${SITE_INFORMATION}?ID=${localeId}`,
+      {
+        paramName: "default language locale",
+        value: originalLocale,
+        siteInfoDomainName: "SiteInformation",
+        valueType: "dictionary",
+      },
+    );
+    expect(restored.status(), "the restore write").toBe(200);
+    const back = await banner();
+    expect(back.localizedValue, "and the language really is back").toBe(
+      before.english,
     );
   });
 

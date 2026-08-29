@@ -638,12 +638,31 @@ func (s *SiteInformationService) localization(localizationID string, activeLocal
 		rows[0].LocalizationUpdated, values, activeLocales, s.Locale()), nil
 }
 
-// Locale is the configured request locale, defaulting to English.
+// Locale is LocaleContextHolder.getLocale(), read from the CONFIGURATION
+// CACHE rather than from a value captured at startup.
+//
+// Writing the "default language locale" row changes it, and the change is
+// visible on the very next request: the write reloads the cache, and
+// localeResolver.setLocale puts the same locale on the session. Measured — with
+// a French text seeded into a localization, flipping the row to fr-FR turned
+// localizedValue from "Test LIMS" into the French value and the display-language
+// names from "English:"/"French:" into "anglais:"/"français:".
+//
+// The stored value is a language TAG ("en-US"); Locale.forLanguageTag(...)
+// .getLanguage() reduces it to the language, which is what localization_value
+// is keyed by.
 func (s *SiteInformationService) Locale() string {
-	if s.ActiveLocale != "" {
-		return s.ActiveLocale
+	value, ok := s.configValue("default language locale")
+	if !ok {
+		if s.ActiveLocale != "" {
+			return s.ActiveLocale
+		}
+		return "en"
 	}
-	return "en"
+	if i := strings.IndexAny(value, "-_"); i > 0 {
+		return value[:i]
+	}
+	return value
 }
 
 func derefStr(s *string) string {

@@ -45,7 +45,6 @@ Full context in [e1-config-crud-migration.md](e1-config-crud-migration.md).
 
 | # | What | Found by | Effect |
 |---|---|---|---|
-| e1-10 | `localeResolver.setLocale(...)` runs when the row written is `default language locale`, setting the locale on the request itself. **measured — and not observable on this data**: writing the row to fr-FR and re-reading a localized list changed nothing, because no localization row in this database carries a French value that differs from its English one (`bannerHeading` is "Test LIMS" in both). Pinning it needs a seeded row with genuinely different text, and then a per-session locale the port does not have. | 🟡 |
 
 ## Closed
 
@@ -63,6 +62,7 @@ Full context in [e1-config-crud-migration.md](e1-config-crud-migration.md).
 | e1-13 | `GET rest/labUnit/config` was not ported. | Ported, and it drops `labName` when the value is BLANK rather than only when the row is missing — site_information row 33 exists with an empty value and Java still omits the key. |
 | e1-5 | Write-failure paths were not ported. | **measured** by writing a name longer than `site_information.name`'s varchar(32): Java answers Tomcat's `{"timestamp","status":500,"error"}` page, NOT the form the controller looks like it returns — the failure surfaces at the transaction boundary and the saveErrors/UpdateException branch is never reached. The port answered a plain-text 500; it now answers the same envelope. |
 | e1-8 | The configuration cache was not ported — and the register had it BACKWARDS. | Java's ConfigurationProperties is loaded at startup and refreshed only by a write through the application, so a row changed by anything else is invisible. The port read the table per request, which made it MORE correct than Java and therefore wrong: measured by editing `acessionFormat` directly, where Java kept answering the old value and the port answered the new one. The port now caches and reloads on write. |
+| e1-10 | `localeResolver.setLocale` was not ported, and "no data to test it with" was the reason given. That was wrong: the data was two SQL statements away. | The spec seeds the French text itself, flips the locale through the API, and asserts the next response comes back in French — `localizedValue` and the display-language names both. The port's locale now comes from the configuration cache, so a write to the row changes it. The test restores the language INLINE and proves it took: `GlobalLocaleResolver` holds `currentLocale` in one field for the whole process, so while it runs the entire deployment is French, and a restore that silently failed handed every later test a French server — which is how the flake was found. |
 
 Two things surfaced only because those checks existed:
 
@@ -96,7 +96,12 @@ reason rather than a porting one. This deployment's key is `kspass`.
 
 ## Suggested order
 
-Only **e1-10** is left on e1, and it is blocked on data rather than on effort:
-seed a localization row whose French text differs from its English text, and
-the locale behaviour becomes measurable. Until then there is nothing to assert
-against.
+Nothing is open on e1.
+
+The one item worth carrying forward is not an e1 gap but a cross-cutting one:
+every other ported endpoint takes its locale as a value captured at STARTUP
+(`ActiveLocale` is passed to each DAO at construction), while Java resolves it
+per request. A locale change therefore switches Java's other endpoints and not
+the port's. It is invisible today because no localization row outside the one
+this spec seeds has French text that differs from its English text — the same
+condition that hid e1-10, so it should be seeded rather than waited for.

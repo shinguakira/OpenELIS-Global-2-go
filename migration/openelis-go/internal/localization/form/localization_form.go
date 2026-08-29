@@ -13,9 +13,9 @@ import "sort"
 // Field order is the wire contract: stored fields first, then the getters in
 // declaration order.
 type LocalizationDTO struct {
-	Lastupdated *int64                      `json:"lastupdated,omitempty"`
-	ID          string                      `json:"id"`
-	Description string                      `json:"description"`
+	Lastupdated *int64                       `json:"lastupdated,omitempty"`
+	ID          string                       `json:"id"`
+	Description string                       `json:"description"`
 	Values      map[string]LocalizationValue `json:"values"`
 
 	// LocalizedValue is the value for the CURRENT request locale, falling back
@@ -49,22 +49,28 @@ type LocalizationValue struct {
 	Value       string `json:"value"`
 }
 
-// displayLanguage is Locale.getDisplayLanguage(Locale.ENGLISH) for the locales
-// this deployment activates.
+// displayLanguage is Locale.getDisplayLanguage(displayLocale) — the name of a
+// language AS WRITTEN IN another language. English calls them English and
+// French; French calls them anglais and français, and Java renders whichever
+// the request locale asks for.
 //
-// The JDK knows every language tag; this map knows two. A locale outside it
-// falls back to its own code, which is wrong but visible — the alternative,
-// reaching for supported_locale.display_name, would be wrong and invisible,
-// because that column reads "Francais" where Java answers "French".
-var displayLanguage = map[string]string{
-	"en": "English",
-	"fr": "French",
+// The JDK knows every pair; this table knows the four this deployment can
+// produce. A locale outside it falls back to its own code, which is wrong but
+// visible — reaching for supported_locale.display_name instead would be wrong
+// and invisible, because that column reads "Francais" where Java answers
+// "French".
+var displayLanguage = map[string]map[string]string{
+	"en": {"en": "English", "fr": "French"},
+	"fr": {"en": "anglais", "fr": "français"},
 }
 
-// DisplayLanguage resolves a locale code to the name Java renders.
-func DisplayLanguage(code string) string {
-	if name, ok := displayLanguage[code]; ok {
-		return name
+// DisplayLanguage resolves a locale code to the name Java renders for it, in
+// the display locale given.
+func DisplayLanguage(code, displayLocale string) string {
+	if table, ok := displayLanguage[displayLocale]; ok {
+		if name, ok := table[code]; ok {
+			return name
+		}
 	}
 	return code
 }
@@ -99,7 +105,7 @@ func BuildLocalization(id string, description string, lastupdated *int64,
 	sortByDisplay := func(codes []string) []string {
 		out := append([]string(nil), codes...)
 		sort.SliceStable(out, func(i, j int) bool {
-			return DisplayLanguage(out[i]) < DisplayLanguage(out[j])
+			return DisplayLanguage(out[i], requestLocale) < DisplayLanguage(out[j], requestLocale)
 		})
 		return out
 	}
@@ -107,7 +113,7 @@ func BuildLocalization(id string, description string, lastupdated *int64,
 	withValueSorted := sortByDisplay(withValue)
 	pairs := make([]string, 0, len(withValueSorted))
 	for _, code := range withValueSorted {
-		pairs = append(pairs, DisplayLanguage(code)+": "+localized(byLocale, code))
+		pairs = append(pairs, DisplayLanguage(code, requestLocale)+": "+localized(byLocale, code))
 	}
 
 	return &LocalizationDTO{
