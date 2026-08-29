@@ -70,10 +70,10 @@ Controller → Form)
 
 ---
 
-## Migration Work: Two Non-Negotiables
+## Migration Work: Three Non-Negotiables
 
-These apply to the Go migration (`migration/`) and exist because both have been
-violated in practice. Full context:
+These apply to the Go migration (`migration/`) and exist because all three have
+been violated in practice. Full context:
 [OpenELIS-Go-Migration-Plan.md](migration/OpenELIS-Go-Migration-Plan.md).
 
 ### 1. Finish the work. Never commit a failing gate.
@@ -110,6 +110,28 @@ because it certifies parity that does not exist.
 Re-measure against the live Java server before changing any assertion. The
 answer to "what should this return?" is never read off the Java source alone and
 never inferred from what would make the test pass.
+
+### 3. A branch's scope is the whole branch. Do not carve it up and stop.
+
+A migration branch owns a unit of the endpoint list — `migration/e2-testcatalog-writes`
+owns every test-catalog write, all 38 of them. That is the deliverable. It is
+finished when the branch covers it.
+
+Breaking a large unit into groups to work through it is fine and often
+necessary. **Announcing a reduced scope and stopping there is not.** Do not
+port one module, declare the rest a later phase, and hand the branch back. Do
+not invent a phase vocabulary the repo does not use in order to make a partial
+delivery sound complete. The endpoint list and
+[endpoint-migration-order.md](migration/endpoint-migration-order.md) already say
+what a branch owns; nothing else gets to redefine it.
+
+If the work is genuinely blocked — a decision only the maintainer can make, a
+dependency that is not ported — say which endpoints are blocked and why, finish
+every endpoint that is not, and leave the blocked ones out of `testMatch` per
+rule 1. "This is a lot of work" is not a blocker, and neither is context budget:
+say so plainly and keep going rather than presenting the stopping point as a
+plan.
+
 
 ## Critical Prerequisites
 

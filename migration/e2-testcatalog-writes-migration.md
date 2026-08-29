@@ -1,6 +1,6 @@
 # e2 — Test-catalog writes (scoped migration plan)
 
-Status: **slice 1 ported and in the gate; slices 2-6 open**
+Status: **in progress — the branch owns all 38 writes; UOM is ported and in the gate**
 Branch: `migration/e2-testcatalog-writes` (from `migration/e1-config-crud`, not
 from `migration-base` — see §1).
 Companion docs:
@@ -74,8 +74,9 @@ write mappings in total (`ResultSelectListAdd` has two).
 
 **Total: 38 write endpoints, plus ~30 companion reads that are not ported.**
 
-That is bigger than every previous wave. It does not land in one branch-worth
-of work, and §5 slices it.
+That is bigger than every previous wave, and it is all one branch. §5 is the
+ORDER the work is done in, not a smaller scope: the branch is finished when it
+covers every endpoint above.
 
 ---
 
@@ -117,7 +118,7 @@ fields one row happened to have. There are ~8 entities in e2.
 
 ## 3. Traps
 
-Slice 1's are **measured** against the live server. The rest are read off the
+UOM's are **measured** against the live server. The rest are read off the
 source and still have to be.
 
 ### 3.1 UOM — measured
@@ -217,7 +218,7 @@ catalog is not: a test's ranges, storage, panels and terminology live in
 separate tables reached through joins, and the endpoint that renders them is
 the only practical oracle for the endpoint that changes them.
 
-So each slice below ports **the write and the read that shows it**, even where
+So each group below ports **the write and the read that shows it**, even where
 the read was not on the wave list. The alternative — asserting with hand-written
 SQL against five join tables — is how a spec ends up testing its own query
 instead of the port.
@@ -226,19 +227,19 @@ instead of the port.
 
 ## 5. Order of work
 
-Ordered by how much each slice teaches about the next, and by blast radius.
-Clinical writes last.
+All of it ships on this branch. The order below is what each group teaches the
+next, and blast radius — clinical writes last. It is not a scope boundary.
 
-| # | Slice | Endpoints | Why here |
+| # | Group | Endpoints | Why here |
 |---|---|---|---|
 | 1 ✅ | **UOM** — `UomCreate`, `UomRenameEntry` | 2 W + 2 R | Smallest whole module. Establishes the GET-form/POST-save shape all 24 `testconfiguration` controllers share, the localization question, and the audit payload for a non-`site_information` entity. |
-| 2 | **Method**, **TestSection**, **SampleType**, **Panel** — create / rename / order / assign | 13 W + 13 R | Structurally identical to slice 1. Cheap once the shape is proven; the differences are the join tables in `*TestAssign` and `*Order`. |
+| 2 | **Method**, **TestSection**, **SampleType**, **Panel** — create / rename / order / assign | 13 W + 13 R | Structurally identical to the UOM pair. Cheap once the shape is proven; the differences are the join tables in `*TestAssign` and `*Order`. |
 | 3 | **Select lists** — `ResultSelectListAdd`, `SelectListRenameEntry` | 3 W + 2 R | Dictionary-backed; feeds result entry. |
 | 4 | **Test lifecycle** — `TestAdd`, `TestModifyEntry`, `TestActivation`, `TestOrderability`, `TestRenameEntry`, `POST tests/{id}/activate` | 6 W + 5 R | Touches `test`, which c2 and c3 read. |
 | 5 | **Editor, non-clinical** — `POST /tests`, `POST /panels`, `basic-info`, `terminology`, `storage`, `group/storage`, `sample-types/{id}/test-order`, `tests/{id}/panels`, `sample-results`, `copy-from` | 10 W + ~12 R | The modern editor surface. Bulk writes appear here. |
 | 6 | **Ranges** 🔴 — `PUT /tests/{testId}/ranges`, `PUT /group/ranges` | 2 W + 2 R | Reference ranges decide whether a result reads as normal. Last, and only with the rest green. |
 
-Each slice: measure against live Java → spec that passes on Java and fails on
+Each group: measure against live Java → spec that passes on Java and fails on
 the port → port → gate (`api-readonly`, `api-mutating`, `go-parity`) → record
 what was found in [open-items.md](open-items.md).
 

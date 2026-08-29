@@ -377,6 +377,19 @@ func main() {
 	// site_information-backed configuration, resolved once at startup. Both
 	// stacks read the same rows, so a deployment needs no code change.
 	activeLocale := siteDefaultLocale(gormDB)
+
+	// e2: the *RenameEntry screens. Registered here rather than beside the UOM
+	// block above because their lists are localized and need activeLocale.
+	//
+	// These lists are read LIVE, unlike the UOM ones: DisplayListService.getList
+	// serves them from a map that every application write refreshes, and every
+	// write that changes them goes through the application. UomCreate's
+	// inactiveUomList is the exception, because its refresh is a no-op.
+	renameSvc := &testconfigservice.RenameService{
+		Lists: &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		DAO:   &testconfigdaoimpl.RenameDAO{DB: gormDB},
+	}
+	testconfigrest.RenameRoutes(mux, &testconfigrest.RenameRestController{Service: renameSvc})
 	dateLocale := siteDateLocale(gormDB)
 	// validateTechnicalRejection decides whether technically REJECTED analyses
 	// are offered for validation. Read once, the way ConfigurationProperties does.
