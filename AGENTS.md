@@ -70,9 +70,9 @@ Controller → Form)
 
 ---
 
-## Migration Work: Three Non-Negotiables
+## Migration Work: Four Non-Negotiables
 
-These apply to the Go migration (`migration/`) and exist because all three have
+These apply to the Go migration (`migration/`) and exist because all four have
 been violated in practice. Full context:
 [OpenELIS-Go-Migration-Plan.md](migration/OpenELIS-Go-Migration-Plan.md).
 
@@ -131,6 +131,34 @@ every endpoint that is not, and leave the blocked ones out of `testMatch` per
 rule 1. "This is a lot of work" is not a blocker, and neither is context budget:
 say so plainly and keep going rather than presenting the stopping point as a
 plan.
+
+### 4. A branch plan is checked for self-contradiction BEFORE any code is written.
+
+Every migration branch gets a plan document under `migration/`. Writing it is
+not the end of that step. Read it back and reconcile it against itself, fix what
+disagrees, and only then start implementing.
+
+The check is specifically for **two statements of the same thing that do not
+match** — most often a scope sentence and a working rule written at different
+moments:
+
+- the endpoint counts in the scope section against the endpoints the order-of-work
+  table actually lists
+- the completion criterion ("the branch is finished when…") against what the
+  per-group rule says each group delivers
+- the status line at the top against both of them
+
+`e2-testcatalog-writes` is why this rule exists. Its §0 ended "the branch is
+finished when it covers every endpoint above" — 38 writes AND ~30 unported
+reads — while §4 committed only to "the write and the read that shows it". Both
+sentences were written into the same document and never compared. The work
+followed §4, ~10 reads were left unported, and the status line was then changed
+to "complete" a few dozen lines below a sentence saying it was not. Every one of
+those steps was defensible against one half of the document.
+
+A plan that contradicts itself is worse than no plan: it certifies whichever
+answer the author already wanted. If two statements disagree, one of them is
+wrong — decide which, delete it, and say in the commit that you did.
 
 
 ## Critical Prerequisites

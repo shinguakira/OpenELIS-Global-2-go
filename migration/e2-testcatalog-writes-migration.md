@@ -1,6 +1,6 @@
 # e2 — Test-catalog writes (scoped migration plan)
 
-Status: **complete — all 38 writes ported, with their companion reads; three gates green**
+Status: **in progress — 37 writes and 31 reads ported and green; 10 `testcatalog` reads outstanding (§5 group 7)**
 Branch: `migration/e2-testcatalog-writes` (from `migration/e1-config-crud`, not
 from `migration-base` — see §1).
 Companion docs:
@@ -51,16 +51,28 @@ Two Java packages, both already `@RestController`, both under `/rest`.
 |---|---|
 | POST | `/rest/test-catalog/tests/{testId}/activate` |
 
-Of this controller's 18 **reads**, only three are ported (b1 did `lab-units`,
-`sample-types`, `panels`). The rest are unported, and several are the natural
-oracle for the write beside them — `GET /tests/{testId}/ranges` is how you see
-what `PUT /tests/{testId}/ranges` did.
+Of this controller's **19 reads**, three are ported (b1 did `lab-units`,
+`sample-types`, `panels`). The rest are unported, and several are the only way
+to SEE what the write beside them did — `GET /tests/{testId}/ranges` is how you
+check `PUT /tests/{testId}/ranges`.
+
+Two more controllers in the same package are read-only and unported:
+
+| Method | Path | Controller |
+|---|---|---|
+| GET | `/rest/test-catalog/{testId}/reflex-calc` | `TestReflexCalcRestController` |
+| GET | `/rest/test-catalog/{testId}/storage/history` | `TestStorageHistoryRestController` |
+
+**`testcatalog` totals: 13 writes, 21 reads.**
 
 ### 0.2 `testconfiguration` — the legacy screens, now REST (`/rest/{Name}`)
 
-24 controllers, each a **GET form / POST save** pair. 23 carry a write; 25
-write mappings in total (`ResultSelectListAdd` has two).
-`TestCatalogRestController` is read-only and was ported in b1.
+24 controllers, each a **GET form / POST save** pair. 23 carry a write; **24
+write mappings** in total (`ResultSelectListAdd` has two).
+`TestCatalogRestController` is read-only and was ported in b1, so **23 of the 24
+reads** are unported.
+
+**`testconfiguration` totals: 24 writes, 24 reads.**
 
 | Group | Controllers |
 |---|---|
@@ -72,11 +84,18 @@ write mappings in total (`ResultSelectListAdd` has two).
 | UOM | `UomCreate` · `UomRenameEntry` |
 | Select lists | `ResultSelectListAdd` (2 writes) · `SelectListRenameEntry` |
 
-**Total: 38 write endpoints, plus ~30 companion reads that are not ported.**
+**Total: 37 write endpoints and 45 reads, of which 41 reads are unported**
+(b1 had done four: `lab-units`, `sample-types`, `panels`, `TestCatalog`).
+
+Counted from the source, not estimated — an earlier draft of this section said
+38 writes, 25 `testconfiguration` write mappings, 18 `testcatalog` reads and
+"~30 companion reads", and every one of those numbers was wrong. The counts
+above come from `grep -c '@PostMapping\|@PutMapping\|@DeleteMapping'` and
+`grep -c '@GetMapping'` over both packages.
 
 That is bigger than every previous wave, and it is all one branch. §5 is the
-ORDER the work is done in, not a smaller scope: the branch is finished when it
-covers every endpoint above.
+ORDER the work is done in, not a smaller scope: **the branch is finished when it
+covers every endpoint above — the 37 writes AND the 41 unported reads.**
 
 ---
 
@@ -92,9 +111,11 @@ contain c3, p0-auth or e1 — and e2 needs two of those:
   writer lives, and every write below is audited.
 
 e1 itself was cut this way — its ancestry runs c2 → c3 → p0-auth → e1 — so the
-documented rule already describes something other than the practice. Recorded
-here rather than quietly repeated; the rule should either be amended or the
-branches should be rebased, and that is a call for the maintainer.
+documented rule already describes something other than the practice.
+
+**Settled by the maintainer: forking from e1 is accepted for this branch, this
+time.** It is not a new rule. A later branch that wants the same has to ask
+again, or `branch-naming.md` has to be amended.
 
 ---
 
@@ -218,10 +239,22 @@ catalog is not: a test's ranges, storage, panels and terminology live in
 separate tables reached through joins, and the endpoint that renders them is
 the only practical oracle for the endpoint that changes them.
 
-So each group below ports **the write and the read that shows it**, even where
-the read was not on the wave list. The alternative — asserting with hand-written
-SQL against five join tables — is how a spec ends up testing its own query
-instead of the port.
+So each group below ports **the write and the read that shows it first**, even
+where the read was not on the wave list. The alternative — asserting with
+hand-written SQL against five join tables — is how a spec ends up testing its
+own query instead of the port.
+
+**That is a sequencing rule, not a scope rule.** It says which read to reach for
+while a write is being ported; it does not say the other reads are out. §0's
+completion criterion stands: every endpoint in §0, writes and reads alike. The
+reads that pair with no write are group 7 in §5 — last, because nothing depends
+on them, not because they are optional.
+
+An earlier version of this paragraph said only "the write and the read that
+shows it", with no such qualifier, and it was read as the scope. The 37 writes
+were delivered, ten `testcatalog` reads were left unported, and §7's status line
+was changed to "complete" — all of it defensible against this paragraph and none
+of it against §0. See AGENTS.md rule 4, which exists because of exactly this.
 
 ---
 
@@ -233,11 +266,16 @@ next, and blast radius — clinical writes last. It is not a scope boundary.
 | # | Group | Endpoints | Why here |
 |---|---|---|---|
 | 1 ✅ | **UOM** — `UomCreate`, `UomRenameEntry` | 2 W + 2 R | Smallest whole module. Establishes the GET-form/POST-save shape all 24 `testconfiguration` controllers share, the localization question, and the audit payload for a non-`site_information` entity. |
-| 2 ✅ | **Method**, **TestSection**, **SampleType**, **Panel** — create / rename / order / assign | 13 W + 13 R | Structurally identical to the UOM pair. Cheap once the shape is proven; the differences are the join tables in `*TestAssign` and `*Order`. |
+| 2 ✅ | **Method**, **TestSection**, **SampleType**, **Panel** — create / rename / order / assign | 14 W + 14 R | Structurally identical to the UOM pair. Cheap once the shape is proven; the differences are the join tables in `*TestAssign` and `*Order`. |
 | 3 ✅ | **Select lists** — `ResultSelectListAdd`, `SelectListRenameEntry` | 3 W + 2 R | Dictionary-backed; feeds result entry. |
 | 4 ✅ | **Test lifecycle** — `TestAdd`, `TestModifyEntry`, `TestActivation`, `TestOrderability`, `TestRenameEntry`, `POST tests/{id}/activate` | 6 W + 5 R | Touches `test`, which c2 and c3 read. |
-| 5 ✅ | **Editor, non-clinical** — `POST /tests`, `POST /panels`, `basic-info`, `terminology`, `storage`, `group/storage`, `sample-types/{id}/test-order`, `tests/{id}/panels`, `sample-results`, `copy-from` | 10 W + ~12 R | The modern editor surface. Bulk writes appear here. |
-| 6 ✅ | **Ranges** 🔴 — `PUT /tests/{testId}/ranges`, `PUT /group/ranges` | 2 W + 2 R | Reference ranges decide whether a result reads as normal. Last, and only with the rest green. |
+| 5 ✅ | **Editor, non-clinical** — `POST /tests`, `POST /panels`, `basic-info`, `terminology`, `storage`, `group/storage`, `sample-types/{id}/test-order`, `tests/{id}/panels`, `sample-results`, `copy-from` | 10 W + 7 R | The modern editor surface. Bulk writes appear here. |
+| 6 ✅ | **Ranges** 🔴 — `PUT /tests/{testId}/ranges`, `PUT /group/ranges` | 2 W + 1 R | Reference ranges decide whether a result reads as normal. Last, and only with the rest green. |
+| 7 | **The reads that pair with no write** — `GET /tests`, `/tests/{testId}`, `/tests/{testId}/localization`, `/tests/{testId}/loinc-integrity`, `/dictionary`, `/tests/{testId}/siblings`, `/group/summary`, `/tests/{testId}/analyzers`, `/{testId}/reflex-calc`, `/{testId}/storage/history` | 0 W + 10 R | Last because nothing depends on them, NOT because they are optional — §0 counts them. All ten are `testcatalog`; every `testconfiguration` read came with its write. |
+
+Writes: 2 + 14 + 3 + 6 + 10 + 2 = **37**. Reads: 2 + 14 + 2 + 5 + 7 + 1 + 10 =
+**41**, the count §0 gives as unported. Both sums are here so the next edit to
+this table has to keep them adding up.
 
 Each group: measure against live Java → spec that passes on Java and fails on
 the port → port → gate (`api-readonly`, `api-mutating`, `go-parity`) → record
@@ -245,26 +283,28 @@ what was found in [open-items.md](open-items.md).
 
 ---
 
-## 6. Open question for the maintainer
+## 6. Where the specs live — settled
 
 [branch-naming.md](branch-naming.md) says, in bold: *"Before adding or updating
 any e2e test, ASK the user whether it should be added to e2e. Do not add e2e
 specs unprompted."* e1's parity specs nonetheless live on the migration branch,
 in `openelis-api-e2e`, which is how they run in the `go-parity` gate.
 
-e2 needs the same thing 38 times. Before the first spec is written, confirm:
-specs land on `migration/e2-testcatalog-writes` alongside the port, as e1 did —
-or on a separate `e2e/` branch off `develop`, in which case the gate cannot run
-against the port until both are merged.
+**Settled by the maintainer: everything for this branch stays ON this branch —
+the port and the parity specs alike.** There is no separate `e2e/` branch for
+e2, and nothing here is to be deferred elsewhere. The `go-parity` gate runs
+against the port in the same commit, which is the point.
 
 ---
 
-## 7. Outcome — all 38 writes ported
+## 7. Progress — the writes are done, ten reads are not
 
-The branch covers its whole scope. Every commit below passed all three gates
-before it was made — `api-readonly`, `api-mutating`, `go-parity`, zero failures —
-and each carries its own parity spec, written against the LIVE Java server and
-run against both stacks.
+All 37 writes are ported, with the 31 reads that came with them. The 10 reads
+in §5 group 7 are NOT — the branch is not finished until they are.
+
+Every commit below passed all three gates before it was made — `api-readonly`,
+`api-mutating`, `go-parity`, zero failures — and each carries its own parity
+spec, written against the LIVE Java server and run against both stacks.
 
 ### 7.1 The commits
 
@@ -283,8 +323,8 @@ run against both stacks.
 | `60b4f22e4` | editor sections: `storage`, `group/storage`, `terminology`, `sample-types/{id}/test-order`, `tests/{id}/panels`, `POST /panels` | 6 |
 | (this one) | editor tests: `POST /tests`, `basic-info`, `sample-results`, `copy-from`, `ranges` 🔴, `group/ranges` 🔴, `activate` | 7 |
 
-25 in `testconfiguration`, 13 in `testcatalog`. The companion reads each write
-needed came with it, for the reason §4 gives.
+24 in `testconfiguration`, 13 in `testcatalog`. The reads that show a write came
+with it, for the reason §4 gives. The ten that show no write are outstanding.
 
 ### 7.2 What the measurements changed
 
