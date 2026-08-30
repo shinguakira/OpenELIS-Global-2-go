@@ -70,10 +70,10 @@ Controller → Form)
 
 ---
 
-## Migration Work: Two Non-Negotiables
+## Migration Work: Four Non-Negotiables
 
-These apply to the Go migration (`migration/`) and exist because both have been
-violated in practice. Full context:
+These apply to the Go migration (`migration/`) and exist because all four have
+been violated in practice. Full context:
 [OpenELIS-Go-Migration-Plan.md](migration/OpenELIS-Go-Migration-Plan.md).
 
 ### 1. Finish the work. Never commit a failing gate.
@@ -110,6 +110,56 @@ because it certifies parity that does not exist.
 Re-measure against the live Java server before changing any assertion. The
 answer to "what should this return?" is never read off the Java source alone and
 never inferred from what would make the test pass.
+
+### 3. A branch's scope is the whole branch. Do not carve it up and stop.
+
+A migration branch owns a unit of the endpoint list — `migration/e2-testcatalog-writes`
+owns every test-catalog write, all 38 of them. That is the deliverable. It is
+finished when the branch covers it.
+
+Breaking a large unit into groups to work through it is fine and often
+necessary. **Announcing a reduced scope and stopping there is not.** Do not
+port one module, declare the rest a later phase, and hand the branch back. Do
+not invent a phase vocabulary the repo does not use in order to make a partial
+delivery sound complete. The endpoint list and
+[endpoint-migration-order.md](migration/endpoint-migration-order.md) already say
+what a branch owns; nothing else gets to redefine it.
+
+If the work is genuinely blocked — a decision only the maintainer can make, a
+dependency that is not ported — say which endpoints are blocked and why, finish
+every endpoint that is not, and leave the blocked ones out of `testMatch` per
+rule 1. "This is a lot of work" is not a blocker, and neither is context budget:
+say so plainly and keep going rather than presenting the stopping point as a
+plan.
+
+### 4. A branch plan is checked for self-contradiction BEFORE any code is written.
+
+Every migration branch gets a plan document under `migration/`. Writing it is
+not the end of that step. Read it back and reconcile it against itself, fix what
+disagrees, and only then start implementing.
+
+The check is specifically for **two statements of the same thing that do not
+match** — most often a scope sentence and a working rule written at different
+moments:
+
+- the endpoint counts in the scope section against the endpoints the order-of-work
+  table actually lists
+- the completion criterion ("the branch is finished when…") against what the
+  per-group rule says each group delivers
+- the status line at the top against both of them
+
+`e2-testcatalog-writes` is why this rule exists. Its §0 ended "the branch is
+finished when it covers every endpoint above" — 38 writes AND ~30 unported
+reads — while §4 committed only to "the write and the read that shows it". Both
+sentences were written into the same document and never compared. The work
+followed §4, ~10 reads were left unported, and the status line was then changed
+to "complete" a few dozen lines below a sentence saying it was not. Every one of
+those steps was defensible against one half of the document.
+
+A plan that contradicts itself is worse than no plan: it certifies whichever
+answer the author already wanted. If two statements disagree, one of them is
+wrong — decide which, delete it, and say in the commit that you did.
+
 
 ## Critical Prerequisites
 

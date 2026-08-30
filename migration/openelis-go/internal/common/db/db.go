@@ -19,13 +19,24 @@ import (
 // a2 domains (localization, status-types) extract *sql.DB via gormDB.DB().
 func OpenGORM() (*gorm.DB, error) {
 	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s search_path=%s",
 		env("OE_DB_HOST", "localhost"),
 		env("OE_DB_PORT", "5432"),
 		env("OE_DB_USER", "postgres"),
 		env("OE_DB_PASSWORD", "admin"),
 		env("OE_DB_NAME", "clinlims"),
 		env("OE_DB_SSLMODE", "disable"),
+		// clinlims must be ON THE SEARCH PATH, not merely qualified in every
+		// query. The `test` table carries a BEFORE INSERT trigger whose plpgsql
+		// body calls UNACCENT() unqualified, and unaccent lives in clinlims —
+		// so an insert from a session without it on the path fails with
+		// "function unaccent(text) does not exist" and no test can be created.
+		//
+		// Java never has to say this: it connects as the `clinlims` user and
+		// the server default search_path is `"$user", public`, which resolves
+		// `$user` to the clinlims schema. Naming the schema outright gets the
+		// same session for any user the port is deployed with.
+		env("OE_DB_SEARCH_PATH", "clinlims,public"),
 	)
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		// Silence GORM's default logger in production; enable with OE_DB_LOG=true.

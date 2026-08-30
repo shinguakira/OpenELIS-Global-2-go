@@ -154,10 +154,20 @@ func (d *DisplayListDAOImpl) ActiveHumanSampleTypes() ([]util.IdValuePair, error
 	// SQL yields 30,32,31,… while Java yields 31,32,30,…
 	//
 	// So the filter runs after the scan, exactly where Java runs it.
+	//
+	// And the localized name is a SCALAR SUBQUERY, not a join, for the same
+	// reason. A LEFT JOIN to localization_value gives the planner a hash join
+	// whose output order inside a sort_order tie is its own; the subquery leaves
+	// the row source a plain scan of type_of_sample, which is the shape Java's
+	// HQL produces. The two forms return the same rows and a different ORDER,
+	// and the order is the part callers read.
 	rows := []activeFlagRow{}
 	err := d.DB.Table("clinlims.type_of_sample AS t").
-		Select("t.id AS id, COALESCE(NULLIF(lv.value, ''), t.description) AS value, t.is_active AS is_active").
-		Joins("LEFT JOIN clinlims.localization_value AS lv ON lv.localization_id = t.name_localization_id AND lv.locale = ?", d.Locale()).
+		Select(`t.id AS id,
+		        COALESCE(NULLIF((SELECT lv.value FROM clinlims.localization_value AS lv
+		                          WHERE lv.localization_id = t.name_localization_id
+		                            AND lv.locale = ?), ''), t.description) AS value,
+		        t.is_active AS is_active`, d.Locale()).
 		Where("t.domain = 'H'").
 		Order("t.sort_order").
 		Scan(&rows).Error

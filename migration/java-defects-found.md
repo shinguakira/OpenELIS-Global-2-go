@@ -329,6 +329,95 @@ set, and both bounds stay at the bean default `0.0`.
   band answers lowerCritical \"Infinity\"".
 
 
+---
+
+## 14. `POST rest/test-catalog/panels` — cannot succeed, ever
+
+`TestCatalogEditorRestController.createPanel` is the inline "create a panel
+without leaving the editor" shortcut (OGC-1112 FR-43). It builds a `Panel` from
+the submitted name and inserts it:
+
+```java
+Panel panel = new Panel();
+panel.setPanelName(body.name.trim());
+panel.setDescription(body.name.trim());
+panel.setIsActive("Y");
+panel.setSortOrderInt(Integer.MAX_VALUE);
+panel.setSysUserId(ControllerUtills.getSysUserId(request));
+String id = panelService.insert(panel);
+```
+
+`clinlims.panel.name_localization_id` is **NOT NULL**, and nothing on that path
+creates a localization. The insert therefore violates the constraint for every
+request, and the endpoint answers **500**:
+
+```
+ERROR: null value in column "name_localization_id" of relation "panel"
+       violates not-null constraint
+Detail: Failing row contains (30, ZZEDPanel, ZZEDPanel, …, 2147483647, Y, null, null).
+```
+
+Measured live: a blank name is a clean 422, and **every non-blank name is a
+500**. Nothing is written — the transaction rolls back — but `panel_seq` is
+consumed on each attempt.
+
+The legacy screen next door gets this right. `PanelCreate`
+(`testconfiguration`) writes a `localization` row and its two
+`localization_value` rows first, then points the panel at it — nine rows in one
+transaction. The editor's shortcut writes one row and omits the localization the
+column requires.
+
+**Not repaired in the port.** `internal/testcatalog/daoimpl.CreatePanel` issues
+the same insert and fails the same way, because a port that supplied a
+localization would create panel rows this Java deployment cannot, and the
+editor's own panel list reads that localization back. Pinned by
+`e2-editor-section-writes.spec.ts`, which asserts the 500 and that nothing
+survives it.
+
+Fixing it upstream is a one-line change in shape — create the localization the
+way `PanelCreateController` does — but it is a behaviour change to a shipped
+endpoint and belongs in its own PR against `develop`, not in a migration branch.
+
+
+---
+
+## 15. `PUT rest/test-catalog/tests/{testId}/sample-results` — 500 when a component is re-sent without its id
+
+`TestResultComponentServiceImpl.saveComponentsForTest` decides whether an
+incoming component is an update or an insert on the ID ALONE:
+
+```java
+TestResultComponent match = (d.getId() != null && existingById.containsKey(d.getId()))
+        ? baseObjectDAO.get(d.getId()).orElse(null)
+        : null;
+```
+
+When the id is absent it falls through to the reactivate branch, which looks for
+a row with the same `(test_id, code)` that is NOT active. An ACTIVE row with that
+code fails that test too, so the method inserts a fresh component — and collides
+with the unique index:
+
+```
+ERROR: duplicate key value violates unique constraint "uq_test_result_component_test_code"
+Detail: Key (test_id, code)=(810, PRIMARY) already exists.
+```
+
+Measured live. A save that re-sends an existing component **with** its id is a
+clean 200; the same save with the id omitted is a **500**, and the whole request
+rolls back — so a caller that drops the id loses the entire save, not just that
+component.
+
+The editor UI always echoes the id, which is why this has not been noticed. It
+is reachable from any hand-written client, and from any UI change that rebuilds
+the component list from scratch rather than from the loaded document. The
+`(test_id, code)` pair is the natural key and the DB enforces it; matching on it
+instead of, or as well as, the id would make the endpoint idempotent.
+
+**Not repaired in the port.** `internal/testcatalog/daoimpl.saveComponents`
+matches on the same id-only rule and fails the same way. Pinned by
+`e2-editor-test-writes.spec.ts`, "an id-less re-save of an existing code".
+
+
 ## Not defects — deliberate asymmetries worth knowing
 
 - **`result` is TWO different objects under one key.** `LogbookResults` nests a

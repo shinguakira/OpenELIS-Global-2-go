@@ -85,6 +85,7 @@ import (
 
 	// testcatalog editor controller
 	testcatalogrest "openelis-go/internal/testcatalog/controller/rest"
+	testcatalogdaoimpl "openelis-go/internal/testcatalog/daoimpl"
 	testcatalogservice "openelis-go/internal/testcatalog/service"
 
 	// testconfiguration layers (TestCatalog)
@@ -286,12 +287,56 @@ func main() {
 	}
 	testcatalogrest.Routes(mux, &testcatalogrest.TestCatalogEditorRestController{Service: testcatalogEditorSvc})
 
+	// e2: the editor section SAVES — storage, terminology, display order and
+	// panel membership. None of them is audited into clinlims.history; storage
+	// keeps a JSON snapshot trail of its own instead.
+	testcatalogWriteSvc := &testcatalogservice.EditorWriteService{
+		DAO: &testcatalogdaoimpl.EditorWriteDAO{DB: gormDB},
+	}
+	testcatalogrest.WriteRoutes(mux, &testcatalogrest.EditorWriteRestController{Service: testcatalogWriteSvc})
+
+	// e2: the test-level editor writes — create-in-place, Basic Info,
+	// Sample & Results with its copy-from shortcut, and the activation gate.
+	testcatalogTestSvc := &testcatalogservice.EditorTestService{
+		DAO:          &testcatalogdaoimpl.EditorTestDAO{DB: gormDB, Audit: &audittrail.Service{}},
+		ActiveLocale: siteDefaultLocale(gormDB),
+	}
+	testcatalogrest.TestRoutes(mux, &testcatalogrest.EditorTestRestController{Service: testcatalogTestSvc})
+	// 🔴 clinical: the reference ranges a result is judged against.
+	testcatalogrest.RangeRoutes(mux, &testcatalogrest.EditorTestRestController{Service: testcatalogTestSvc})
+
+	// e2 group 7: the ten editor reads that pair with no write.
+	testcatalogReadSvc := &testcatalogservice.EditorReadService{
+		DAO: &testcatalogdaoimpl.EditorReadDAO{
+			DB: gormDB, ActiveLocale: siteDefaultLocale(gormDB),
+			AugmentNames: siteAugmentTestNames(gormDB),
+		},
+	}
+	testcatalogrest.ReadRoutes(mux, &testcatalogrest.EditorReadRestController{Service: testcatalogReadSvc})
+
 	// testconfiguration: TestCatalog (full catalog read)
 	testconfigDAO := &testconfigdaoimpl.TestCatalogDAOImpl{DB: gormDB}
 	testconfigSvc := &testconfigservice.TestCatalogService{DAO: testconfigDAO}
 	testconfigrest.Routes(mux, &testconfigrest.TestCatalogRestController{Service: testconfigSvc})
 
 	log.Printf("DB-backed routes enabled (b1: dictionary-categories, uom, test-catalog, TestCatalog)")
+
+	// -----------------------------------------------------------------------
+	// e2 slice 1: UOM create + rename (testconfiguration writes).
+	// -----------------------------------------------------------------------
+
+	// The display lists this service answers are CACHES loaded here, at
+	// startup, exactly as DisplayListService loads them — and one of the two is
+	// never reloaded afterwards, because the refresh Java performs on it is a
+	// no-op. Reading the table per request would be more correct than Java and
+	// therefore wrong; see the service.
+	uomConfigSvc := &testconfigservice.UomConfigService{DAO: uomDAO}
+	if err := uomConfigSvc.Load(); err != nil {
+		log.Fatalf("uom display lists: %v", err)
+	}
+	testconfigrest.UomRoutes(mux, &testconfigrest.UomConfigRestController{Service: uomConfigSvc})
+
+	log.Printf("DB-backed routes enabled (e2: UomCreate, UomRenameEntry)")
 
 	// -----------------------------------------------------------------------
 	// b2: organization + provider reference reads.
@@ -360,6 +405,80 @@ func main() {
 	// site_information-backed configuration, resolved once at startup. Both
 	// stacks read the same rows, so a deployment needs no code change.
 	activeLocale := siteDefaultLocale(gormDB)
+
+	// e2: the *RenameEntry screens. Registered here rather than beside the UOM
+	// block above because their lists are localized and need activeLocale.
+	//
+	// These lists are read LIVE, unlike the UOM ones: DisplayListService.getList
+	// serves them from a map that every application write refreshes, and every
+	// write that changes them goes through the application. UomCreate's
+	// inactiveUomList is the exception, because its refresh is a no-op.
+	renameSvc := &testconfigservice.RenameService{
+		Lists: &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		DAO:   &testconfigdaoimpl.RenameDAO{DB: gormDB},
+	}
+	testconfigrest.RenameRoutes(mux, &testconfigrest.RenameRestController{Service: renameSvc})
+
+	// The *Create screens. Each write is eight rows across six tables in one
+	// transaction, with a single history row for the entity — see the DAO.
+	createSvc := &testconfigservice.CreateService{
+		Lists: &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		DAO:   &testconfigdaoimpl.CreateDAO{DB: gormDB, Audit: &audittrail.Service{}},
+	}
+	testconfigrest.CreateRoutes(mux, &testconfigrest.CreateRestController{Service: createSvc})
+
+	// The *Order screens: they move sort_order and write nothing else.
+	orderSvc := &testconfigservice.OrderService{
+		Lists: &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		DAO:   &testconfigdaoimpl.OrderDAO{DB: gormDB, Audit: &audittrail.Service{}},
+	}
+	testconfigrest.OrderRoutes(mux, &testconfigrest.OrderRestController{Service: orderSvc})
+
+	// TestActivation and TestOrderability: the two screens that turn tests and
+	// sample types on and off.
+	activationSvc := &testconfigservice.ActivationService{
+		Lists: &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		DAO: &testconfigdaoimpl.ActivationDAO{
+			DB: gormDB, Audit: &audittrail.Service{}, ActiveLocale: activeLocale,
+		},
+	}
+	testconfigrest.ActivationRoutes(mux, &testconfigrest.ActivationRestController{Service: activationSvc})
+
+	// The three *TestAssign screens.
+	assignSvc := &testconfigservice.AssignService{
+		Lists:      &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		Activation: &testconfigdaoimpl.ActivationDAO{DB: gormDB, Audit: &audittrail.Service{}, ActiveLocale: activeLocale},
+		DAO:        &testconfigdaoimpl.AssignDAO{DB: gormDB, Audit: &audittrail.Service{}},
+	}
+	testconfigrest.AssignRoutes(mux, &testconfigrest.AssignRestController{Service: assignSvc})
+
+	// TestRenameEntry, SelectListRenameEntry and the result select list.
+	selectListSvc := &testconfigservice.SelectListService{
+		Lists:      &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		Activation: &testconfigdaoimpl.ActivationDAO{DB: gormDB, Audit: &audittrail.Service{}, ActiveLocale: activeLocale},
+		DAO:        &testconfigdaoimpl.SelectListDAO{DB: gormDB, Audit: &audittrail.Service{}, ActiveLocale: activeLocale},
+	}
+	testconfigrest.SelectListRoutes(mux, &testconfigrest.SelectListRestController{Service: selectListSvc})
+
+	// TestAdd: one submission, one test per sample type named, and a fan of
+	// rows behind each — see the DAO for the measured write surface.
+	testAddSvc := &testconfigservice.TestAddService{
+		Lists:    &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		DAO:      &testconfigdaoimpl.TestAddDAO{DB: gormDB, Audit: &audittrail.Service{}},
+		Messages: msgs,
+	}
+	testconfigrest.TestAddRoutes(mux, &testconfigrest.TestAddRestController{Service: testAddSvc})
+
+	// TestModifyEntry: a delete-then-insert rewrite of everything hanging off
+	// one test, plus the filtered catalogue its screen lists.
+	testModifySvc := &testconfigservice.TestModifyService{
+		Lists:    &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		Read:     &testconfigdaoimpl.TestModifyReadDAO{DB: gormDB, ActiveLocale: activeLocale},
+		DAO:      &testconfigdaoimpl.TestModifyDAO{DB: gormDB, Audit: &audittrail.Service{}},
+		TestAdd:  testAddSvc,
+		Messages: msgs,
+	}
+	testconfigrest.TestModifyRoutes(mux, &testconfigrest.TestModifyRestController{Service: testModifySvc})
 	dateLocale := siteDateLocale(gormDB)
 	// validateTechnicalRejection decides whether technically REJECTED analyses
 	// are offered for validation. Read once, the way ConfigurationProperties does.
@@ -550,4 +669,24 @@ func siteValidateRejected(db *gorm.DB) bool {
 		return true
 	}
 	return values[0] != "false"
+}
+
+// siteAugmentTestNames is ConfigurationProperties.TEST_NAME_AUGMENTED — the
+// site_information row `augmentTestNameWithType`. Read once at startup because
+// Java reads it from a cache loaded at startup; a direct edit to the row is
+// invisible to both stacks until a restart.
+func siteAugmentTestNames(db *gorm.DB) bool {
+	values := []string{}
+	if err := db.Table("clinlims.site_information").
+		Select("value").
+		Where("name = ?", "augmentTestNameWithType").
+		Limit(1).
+		Scan(&values).Error; err != nil {
+		log.Printf("WARN: could not read augmentTestNameWithType (%v); assuming true", err)
+		return true
+	}
+	if len(values) == 0 {
+		return true
+	}
+	return strings.TrimSpace(values[0]) == "true"
 }
