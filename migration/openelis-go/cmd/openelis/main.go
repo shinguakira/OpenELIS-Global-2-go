@@ -405,6 +405,16 @@ func main() {
 		DAO:   &testconfigdaoimpl.OrderDAO{DB: gormDB, Audit: &audittrail.Service{}},
 	}
 	testconfigrest.OrderRoutes(mux, &testconfigrest.OrderRestController{Service: orderSvc})
+
+	// TestActivation and TestOrderability: the two screens that turn tests and
+	// sample types on and off.
+	activationSvc := &testconfigservice.ActivationService{
+		Lists: &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		DAO: &testconfigdaoimpl.ActivationDAO{
+			DB: gormDB, Audit: &audittrail.Service{}, ActiveLocale: activeLocale,
+		},
+	}
+	testconfigrest.ActivationRoutes(mux, &testconfigrest.ActivationRestController{Service: activationSvc})
 	dateLocale := siteDateLocale(gormDB)
 	// validateTechnicalRejection decides whether technically REJECTED analyses
 	// are offered for validation. Read once, the way ConfigurationProperties does.

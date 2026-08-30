@@ -22,6 +22,11 @@ type OrderService struct {
 type activateSet struct {
 	ID        json.Number `json:"id"`
 	SortOrder json.Number `json:"sortOrder"`
+	// Activated is REQUIRED by TestActivationFormValidator —
+	// validateField(..., true, 5, "^$|^true$|^false$") — and is not read by the
+	// handler at all. Omitting it refuses the whole request, at 200 with no
+	// write. The *Order screens do not have it.
+	Activated *string `json:"activated"`
 }
 
 // ErrChangeListShape is the ClassCastException Java throws when the value under
@@ -50,7 +55,9 @@ func parseChangeList(changeList, key string) ([]activateSet, error) {
 	}
 	raw, ok := root[key]
 	if !ok {
-		return nil, nil
+		// A missing key is `parser.parse(null)` — NullPointerException, not the
+		// ParseException the catch is written for. 500.
+		return nil, ErrChangeListShape
 	}
 	var inner string
 	if err := json.Unmarshal(raw, &inner); err != nil {
