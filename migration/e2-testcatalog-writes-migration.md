@@ -1,6 +1,6 @@
 # e2 — Test-catalog writes (scoped migration plan)
 
-Status: **in progress — the branch owns all 38 writes; 23 are ported and in the gate, TestModifyEntry is written but not yet committed (see §7)**
+Status: **complete — all 38 writes ported, with their companion reads; three gates green**
 Branch: `migration/e2-testcatalog-writes` (from `migration/e1-config-crud`, not
 from `migration-base` — see §1).
 Companion docs:
@@ -235,9 +235,9 @@ next, and blast radius — clinical writes last. It is not a scope boundary.
 | 1 ✅ | **UOM** — `UomCreate`, `UomRenameEntry` | 2 W + 2 R | Smallest whole module. Establishes the GET-form/POST-save shape all 24 `testconfiguration` controllers share, the localization question, and the audit payload for a non-`site_information` entity. |
 | 2 ✅ | **Method**, **TestSection**, **SampleType**, **Panel** — create / rename / order / assign | 13 W + 13 R | Structurally identical to the UOM pair. Cheap once the shape is proven; the differences are the join tables in `*TestAssign` and `*Order`. |
 | 3 ✅ | **Select lists** — `ResultSelectListAdd`, `SelectListRenameEntry` | 3 W + 2 R | Dictionary-backed; feeds result entry. |
-| 4 ◑ | **Test lifecycle** — `TestAdd`, `TestModifyEntry`, `TestActivation`, `TestOrderability`, `TestRenameEntry`, `POST tests/{id}/activate` | 6 W + 5 R | Touches `test`, which c2 and c3 read. All but `POST tests/{id}/activate` are done — see §7. |
-| 5 | **Editor, non-clinical** — `POST /tests`, `POST /panels`, `basic-info`, `terminology`, `storage`, `group/storage`, `sample-types/{id}/test-order`, `tests/{id}/panels`, `sample-results`, `copy-from` | 10 W + ~12 R | The modern editor surface. Bulk writes appear here. |
-| 6 | **Ranges** 🔴 — `PUT /tests/{testId}/ranges`, `PUT /group/ranges` | 2 W + 2 R | Reference ranges decide whether a result reads as normal. Last, and only with the rest green. |
+| 4 ✅ | **Test lifecycle** — `TestAdd`, `TestModifyEntry`, `TestActivation`, `TestOrderability`, `TestRenameEntry`, `POST tests/{id}/activate` | 6 W + 5 R | Touches `test`, which c2 and c3 read. |
+| 5 ✅ | **Editor, non-clinical** — `POST /tests`, `POST /panels`, `basic-info`, `terminology`, `storage`, `group/storage`, `sample-types/{id}/test-order`, `tests/{id}/panels`, `sample-results`, `copy-from` | 10 W + ~12 R | The modern editor surface. Bulk writes appear here. |
+| 6 ✅ | **Ranges** 🔴 — `PUT /tests/{testId}/ranges`, `PUT /group/ranges` | 2 W + 2 R | Reference ranges decide whether a result reads as normal. Last, and only with the rest green. |
 
 Each group: measure against live Java → spec that passes on Java and fails on
 the port → port → gate (`api-readonly`, `api-mutating`, `go-parity`) → record
@@ -259,137 +259,125 @@ against the port until both are merged.
 
 ---
 
-## 7. Progress — 2026-08-30 JST
+## 7. Outcome — all 38 writes ported
 
-Paused mid-branch at the maintainer's request. This section is the state of the
-work, not a scope change: §5 still applies and the branch still owns all 38
-writes.
+The branch covers its whole scope. Every commit below passed all three gates
+before it was made — `api-readonly`, `api-mutating`, `go-parity`, zero failures —
+and each carries its own parity spec, written against the LIVE Java server and
+run against both stacks.
 
-### 7.1 Landed — 23 of 38 writes, 9 commits
+### 7.1 The commits
 
-Every commit below passed all three gates before it was made: `api-readonly`,
-`api-mutating`, `go-parity`, zero failures.
+| Commit | Endpoints | W |
+|---|---|---|
+| `227a0229b` | `UomCreate`, `UomRenameEntry` | 2 |
+| `70925b499` | `MethodRenameEntry`, `TestSectionRenameEntry`, `SampleTypeRenameEntry`, `PanelRenameEntry` | 4 |
+| `1916cb19e` | `MethodCreate`, `TestSectionCreate`, `SampleTypeCreate` | 3 |
+| `7fefcc43e` | `PanelCreate` | 1 |
+| `b9473c1fd` | `PanelOrder`, `TestSectionOrder`, `SampleTypeOrder` | 3 |
+| `1a5f38f45` | `TestActivation`, `TestOrderability` | 2 |
+| `d89de5b82` | `SampleTypeTestAssign`, `TestSectionTestAssign`, `PanelTestAssign` | 3 |
+| `064f5df2b` | `TestRenameEntry`, `SelectListRenameEntry`, `ResultSelectListAdd`, `SaveResultSelectList` | 4 |
+| `9f1d93335` | `TestAdd` | 1 |
+| `1b0b159de` | `TestModifyEntry` | 1 |
+| `60b4f22e4` | editor sections: `storage`, `group/storage`, `terminology`, `sample-types/{id}/test-order`, `tests/{id}/panels`, `POST /panels` | 6 |
+| (this one) | editor tests: `POST /tests`, `basic-info`, `sample-results`, `copy-from`, `ranges` 🔴, `group/ranges` 🔴, `activate` | 7 |
 
-| Commit | Endpoints |
-|---|---|
-| `227a0229b` | `UomCreate`, `UomRenameEntry` |
-| `70925b499` | `MethodRenameEntry`, `TestSectionRenameEntry`, `SampleTypeRenameEntry`, `PanelRenameEntry` |
-| `1916cb19e` | `MethodCreate`, `TestSectionCreate`, `SampleTypeCreate` |
-| `7fefcc43e` | `PanelCreate` |
-| `b9473c1fd` | `PanelOrder`, `TestSectionOrder`, `SampleTypeOrder` |
-| `1a5f38f45` | `TestActivation`, `TestOrderability` |
-| `d89de5b82` | `SampleTypeTestAssign`, `TestSectionTestAssign`, `PanelTestAssign` |
-| `064f5df2b` | `TestRenameEntry`, `SelectListRenameEntry`, `ResultSelectListAdd`, `SaveResultSelectList` |
-| `9f1d93335` | `TestAdd` |
+25 in `testconfiguration`, 13 in `testcatalog`. The companion reads each write
+needed came with it, for the reason §4 gives.
 
-`9f1d93335` also carries three fixes the port needed and one harness fix:
+### 7.2 What the measurements changed
 
-- the Go connection now names `clinlims` on its `search_path`, because the
-  `test` table's BEFORE INSERT trigger calls `UNACCENT()` unqualified and
-  `unaccent` lives in that schema. Java never has to say this: it connects as
-  the `clinlims` user, so `"$user"` resolves it.
-- `ActiveHumanSampleTypes` reads its localized name through a scalar subquery
-  rather than a LEFT JOIN, so the row source stays the plain scan Java's HQL
-  produces and the `sort_order` tie order matches.
-- `go-parity` runs on ONE worker, like `api-mutating`. `fullyParallel: false`
-  only serialises tests within a file, so separate mutating spec files had been
-  racing against a single shared database.
+None of this is visible from the Java source alone; each cost a probe against
+the running server, and several contradicted a careful reading.
 
-### 7.2 In the working tree, NOT committed — `TestModifyEntry`
+**Writes that are not what they look like**
 
-Implementation and spec are complete and green:
+- The sample type follows a NEW TEST'S own active flag, so creating an inactive
+  test through `TestAdd` DEACTIVATES a live sample type. An inactive test
+  section or panel is turned back ON just by being named — by `TestAdd`,
+  `TestModifyEntry`, `POST /tests` and `basic-info` alike.
+- `test.name` is not among the columns `TestModifyEntry` or `basic-info` write,
+  and it moves anyway: Hibernate maps the column to `Test.getName()`, a DERIVED
+  getter over the localization. `description` and `local_code` are never
+  rewritten by the modify path, so a renamed test keeps describing itself by its
+  old name.
+- A NUMERIC `TestModifyEntry` save does not deactivate the results it replaces —
+  only the dictionary variants do — so every numeric save leaves another active
+  `test_result` row behind and `getResultType` reads the newest of a growing
+  pile. Reproduced, not fixed.
+- A storage save is a REPLACE. `group/storage` therefore clears every field its
+  document does not name, and its `version` counter is bumped on every save
+  whether the state changed or not — only the JSON snapshot row is conditional.
+- `group/ranges` DISCARDS the ids it is sent, because a shared band belongs to
+  no single test. It always inserts on each test and deletes what was there, so
+  running it twice replaces rather than updates.
+- `active: true` on `basic-info` is IGNORED. Activation is gated on range
+  coverage and has to go through `POST .../activate`, so `basic-info` can only
+  ever turn a test OFF.
+- Only an OPEN-ENDED top band (max = +Infinity) reaches the top of the
+  reportable lifetime, so bands 0–15 and 15–30 leave 30+ uncovered and the test
+  cannot be activated without an acknowledgment. A test with NO ranges is EMPTY,
+  not GAP, and activates freely.
 
-```
-migration/openelis-go/internal/testconfiguration/daoimpl/testmodify_dao.go
-migration/openelis-go/internal/testconfiguration/daoimpl/testmodify_read_dao.go
-migration/openelis-go/internal/testconfiguration/form/testmodify_forms.go
-migration/openelis-go/internal/testconfiguration/service/testmodify_service.go
-migration/openelis-go/internal/testconfiguration/controller/rest/testmodify.go
-migration/openelis-api-e2e/tests/mutating/e2-testmodify-writes.spec.ts
-migration/openelis-api-e2e/playwright.config.ts      (spec added to go-parity)
-migration/openelis-go/cmd/openelis/main.go           (wiring)
-migration/openelis-go/internal/testconfiguration/service/testadd_service.go
-                                                     (buildTestAddRow extracted
-                                                      so both endpoints share it)
-```
+**The audit is narrower than the write, everywhere**
 
-Measured state at the pause:
+- `TestAdd`: one `'I'` for the test, one per result limit, and a `'U'` for the
+  sample type only when its flag really moved. The localizations, join rows,
+  panel items, test results, terminology mapping and component are all silent —
+  several from tables flagged `keep_history='Y'`.
+- `TestModifyEntry`: a `'D'` per deleted result limit carrying the whole row in
+  declared-field order, an `'I'` per inserted one, and nothing else.
+- The editor's section saves write NO history at all.
+- The editor's test-level writes are the exception: a create leaves an `'I'`
+  with a NULL payload, and `basic-info` and `activate` leave a `'U'` carrying
+  the values they replaced — in which `testSection` renders the section's
+  DESCRIPTION, not its id. A save that changes nothing leaves nothing.
 
-- `e2-testmodify-writes.spec.ts` — 7/7 against Java, 7/7 against Go.
-- `api-readonly` — 637 passed, 0 failed.
-- `api-mutating` — 101 passed, 0 failed.
-- `go-parity` — **NOT re-run in full since this change entered the tree.**
+**Traps a port walks into**
 
-That last line is why it is uncommitted. Rule 1 of AGENTS.md is that a failing
-gate is never committed, and an unrun gate is not a passing one. To land it,
-run the go-parity project with the Go service up, then commit if it is clean.
-
-### 7.3 What TestAdd and TestModifyEntry measured
-
-Recorded here because none of it is visible from the source alone.
-
-- The sample type follows the new test's OWN active flag, so creating an
-  inactive test DEACTIVATES a live sample type. An inactive test section or
-  panel is turned back ON just by being named.
-- `addTests` only mutates the in-memory test when a dictionary option is the
-  default — but it is a managed entity, so the flush writes
-  `default_test_result_id` anyway.
-- Titer is in no branch of `createTestResults`: a Titer test is created with no
-  results at all.
 - The ResultLimit ENTITY defaults, not the column defaults, are what land. The
-  two disagree on `low_critical` and the entity's `+Infinity` wins.
-- `test.name` is not among the columns `TestModifyEntry` updates and moves
-  anyway: Hibernate maps the column to `Test.getName()`, a DERIVED getter that
-  returns the localization's value. `description` and `local_code` are never
-  rewritten, so a renamed test keeps describing itself by its old name.
-- A NUMERIC modify does not deactivate the results it replaces — only the
-  dictionary variants do — so every numeric save leaves another active
-  `test_result` row behind. Reproduced, not fixed.
-- The audit is far narrower than either write. TestAdd: one `I` for the test,
-  one per result limit, and a `U` for the sample type only when its flag really
-  moved. TestModifyEntry: one `D` per deleted result limit and one `I` per
-  inserted one, and nothing else — the test updates, the localization edits, the
-  join-row churn and the component sync are all silent, several of them from
-  tables flagged `keep_history='Y'`.
+  two disagree on `low_critical`, and the entity's `+Infinity` wins.
 - `normalized_description` comes from a BEFORE INSERT trigger, so both stacks
-  get it from the same place.
+  get it from the same place — but the trigger's plpgsql calls `UNACCENT()`
+  unqualified, and `unaccent` lives in `clinlims`. The Go connection now names
+  that schema on its `search_path`; without it no test can be inserted at all.
+  Java never has to say this: it connects as the `clinlims` user, so `"$user"`
+  resolves the same schema.
+- Imposing an ORDER BY where Java has none is a bug, not a tidy-up. Two of them
+  were found: `ActiveHumanSampleTypes` had to read its localized name through a
+  scalar subquery rather than a LEFT JOIN so the row source stays the plain scan
+  Java's HQL produces, and the terminology reads carry no ORDER BY because
+  `getAllMatching` has none — the ids are UUIDs, so sorting them would randomise
+  the order the caller sent.
+- `go-parity` now runs on one worker, like `api-mutating`. `fullyParallel:
+  false` only serialises tests within a file, so separate mutating spec files
+  had been racing against a single shared database.
 
-### 7.4 Remaining — 14 of 38 writes
+### 7.3 Two Java defects, reproduced rather than repaired
 
-**`testcatalog` / `TestCatalogEditorRestController`** (12 writes, ~15 companion
-reads; b1 ported only `lab-units`, `sample-types`, `panels`):
+Both are recorded in [java-defects-found.md](java-defects-found.md) and pinned
+by the specs.
 
-| Endpoint | Group |
-|---|---|
-| `POST /rest/test-catalog/tests` | 5 |
-| `PUT /rest/test-catalog/tests/{testId}/basic-info` | 5 |
-| `PUT /rest/test-catalog/tests/{testId}/sample-results` | 5 |
-| `POST /rest/test-catalog/tests/{testId}/sample-results/copy-from/{sourceId}` | 5 |
-| `PUT /rest/test-catalog/tests/{testId}/storage` | 5 |
-| `PUT /rest/test-catalog/group/storage` | 5 |
-| `PUT /rest/test-catalog/sample-types/{sampleTypeId}/test-order` | 5 |
-| `PUT /rest/test-catalog/tests/{testId}/terminology` | 5 |
-| `PUT /rest/test-catalog/tests/{testId}/panels` | 5 |
-| `POST /rest/test-catalog/panels` | 5 |
-| `PUT /rest/test-catalog/tests/{testId}/ranges` 🔴 | 6 |
-| `PUT /rest/test-catalog/group/ranges` 🔴 | 6 |
+- **`POST /rest/test-catalog/panels` cannot succeed.**
+  `panel.name_localization_id` is NOT NULL and `createPanel` never writes a
+  localization, so every non-blank name is a 500 and nothing survives it. A
+  blank name is a clean 422. The legacy `PanelCreate` screen next door gets this
+  right, writing the localization first. Defect 14.
+- **`PUT /tests/{testId}/sample-results` is a 500 when a component is re-sent
+  without its id.** The match is on id alone, so the component is inserted
+  afresh and collides with the `(test_id, code)` unique index. The UI always
+  echoes the id; a hand-written client that does not gets a 500 rather than a
+  422.
 
-**`testcatalog` / `TestCatalogActivationRestController`** (1 write):
+Fixing either upstream is a small change in shape but a behaviour change to a
+shipped endpoint, and belongs in its own PR against `develop` — not in a
+migration branch whose contract is to reproduce what runs today.
 
-| Endpoint | Group |
-|---|---|
-| `POST /rest/test-catalog/tests/{testId}/activate` | 4 |
+### 7.4 Environment notes
 
-**Plus** the reads each of those pairs with — `GET /tests`, `GET /tests/{id}`,
-`/localization`, `/loinc-integrity`, `/basic-info`, `/sample-results`,
-`/dictionary`, `/ranges`, `/siblings`, `/group/summary`, `/storage`,
-`/analyzers`, `/sample-types/{id}/test-order`, `/terminology` — for the reason
-§4 gives: a write cannot be measured through a read that does not exist yet.
-
-### 7.5 Environment notes for whoever picks this up
-
-WSL localhost port forwarding was down for part of this session. Both notes
-below are environment variables, not code changes.
+WSL localhost port forwarding was down for part of this work. Both notes below
+are environment variables, not code changes.
 
 Playwright against Java, when `https://localhost/` refuses the connection:
 

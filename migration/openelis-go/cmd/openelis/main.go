@@ -295,6 +295,16 @@ func main() {
 	}
 	testcatalogrest.WriteRoutes(mux, &testcatalogrest.EditorWriteRestController{Service: testcatalogWriteSvc})
 
+	// e2: the test-level editor writes — create-in-place, Basic Info,
+	// Sample & Results with its copy-from shortcut, and the activation gate.
+	testcatalogTestSvc := &testcatalogservice.EditorTestService{
+		DAO:          &testcatalogdaoimpl.EditorTestDAO{DB: gormDB, Audit: &audittrail.Service{}},
+		ActiveLocale: siteDefaultLocale(gormDB),
+	}
+	testcatalogrest.TestRoutes(mux, &testcatalogrest.EditorTestRestController{Service: testcatalogTestSvc})
+	// 🔴 clinical: the reference ranges a result is judged against.
+	testcatalogrest.RangeRoutes(mux, &testcatalogrest.EditorTestRestController{Service: testcatalogTestSvc})
+
 	// testconfiguration: TestCatalog (full catalog read)
 	testconfigDAO := &testconfigdaoimpl.TestCatalogDAOImpl{DB: gormDB}
 	testconfigSvc := &testconfigservice.TestCatalogService{DAO: testconfigDAO}
