@@ -415,6 +415,14 @@ func main() {
 		},
 	}
 	testconfigrest.ActivationRoutes(mux, &testconfigrest.ActivationRestController{Service: activationSvc})
+
+	// The three *TestAssign screens.
+	assignSvc := &testconfigservice.AssignService{
+		Lists:      &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		Activation: &testconfigdaoimpl.ActivationDAO{DB: gormDB, Audit: &audittrail.Service{}, ActiveLocale: activeLocale},
+		DAO:        &testconfigdaoimpl.AssignDAO{DB: gormDB, Audit: &audittrail.Service{}},
+	}
+	testconfigrest.AssignRoutes(mux, &testconfigrest.AssignRestController{Service: assignSvc})
 	dateLocale := siteDateLocale(gormDB)
 	// validateTechnicalRejection decides whether technically REJECTED analyses
 	// are offered for validation. Read once, the way ConfigurationProperties does.

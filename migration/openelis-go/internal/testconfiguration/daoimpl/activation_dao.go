@@ -30,9 +30,14 @@ type TestRow struct {
 	SampleTypeID string `gorm:"column:sample_type_id"`
 	ID           string `gorm:"column:id"`
 	Name         string `gorm:"column:name"`
-	IsActive     string `gorm:"column:is_active"`
-	Orderable    bool   `gorm:"column:orderable"`
-	SortOrder    string `gorm:"column:sort_order"`
+	// AugmentedName is getLocalizedTestNameWithType: the localized test name
+	// with the sample type appended in brackets. Several shipped tests already
+	// carry the type in their own name, so the result reads doubled —
+	// "WBC(Whole Blood)(Whole Blood)" — and that is the wire value.
+	AugmentedName string `gorm:"column:augmented_name"`
+	IsActive      string `gorm:"column:is_active"`
+	Orderable     bool   `gorm:"column:orderable"`
+	SortOrder     string `gorm:"column:sort_order"`
 }
 
 // TestsBySampleType ports typeOfSampleService.getAllTestsBySampleTypeId for
@@ -47,10 +52,15 @@ func (d *ActivationDAO) TestsBySampleType() ([]TestRow, error) {
 		Select(`tost.sample_type_id::text AS sample_type_id,
 		        t.id::text AS id,
 		        COALESCE(NULLIF(lv.value, ''), t.name) AS name,
+		        COALESCE(NULLIF(lv.value, ''), t.name) ||
+		          '(' || COALESCE(NULLIF(stlv.value, ''), st.description) || ')' AS augmented_name,
 		        COALESCE(t.is_active, '') AS is_active,
 		        COALESCE(t.orderable, false) AS orderable,
 		        COALESCE(t.sort_order::text, '') AS sort_order`).
 		Joins("JOIN clinlims.test AS t ON t.id = tost.test_id").
+		Joins("JOIN clinlims.type_of_sample AS st ON st.id = tost.sample_type_id").
+		Joins(`LEFT JOIN clinlims.localization_value AS stlv
+		         ON stlv.localization_id = st.name_localization_id AND stlv.locale = ?`, d.locale()).
 		Joins(`LEFT JOIN clinlims.localization_value AS lv
 		         ON lv.localization_id = t.name_localization_id AND lv.locale = ?`, d.locale()).
 		Order("tost.id").
@@ -62,7 +72,7 @@ func (d *ActivationDAO) TestsBySampleType() ([]TestRow, error) {
 func (d *ActivationDAO) AllTests() ([]TestRow, error) {
 	rows := []TestRow{}
 	err := d.DB.Table("clinlims.test AS t").
-		Select(`'' AS sample_type_id, t.id::text AS id,
+		Select(`'' AS sample_type_id, '' AS augmented_name, t.id::text AS id,
 		        COALESCE(NULLIF(lv.value, ''), t.name) AS name,
 		        COALESCE(t.is_active, '') AS is_active,
 		        COALESCE(t.orderable, false) AS orderable,
@@ -236,4 +246,40 @@ func SortTestsForDisplay(tests []TestRow) []TestRow {
 		}
 	})
 	return out
+}
+
+// TestsByTestSection is the section equivalent of TestsBySampleType: the tests
+// under each test_section, keyed by section id.
+//
+// test.test_section_id is the link — there is no join table — but the augmented
+// name still needs the test's SAMPLE type, so the join to sampletype_test is
+// still here. A test with no sample type drops out, exactly as it does from
+// getAllTestsBySampleTypeId's side.
+func (d *ActivationDAO) TestsByTestSection() (map[string][]TestRow, error) {
+	rows := []TestRow{}
+	err := d.DB.Table("clinlims.test AS t").
+		Select(`COALESCE(t.test_section_id::text, '') AS sample_type_id,
+		        t.id::text AS id,
+		        COALESCE(NULLIF(lv.value, ''), t.name) AS name,
+		        COALESCE(NULLIF(lv.value, ''), t.name) ||
+		          '(' || COALESCE(NULLIF(stlv.value, ''), st.description) || ')' AS augmented_name,
+		        COALESCE(t.is_active, '') AS is_active,
+		        COALESCE(t.orderable, false) AS orderable,
+		        COALESCE(t.sort_order::text, '') AS sort_order`).
+		Joins("JOIN clinlims.sampletype_test AS tost ON tost.test_id = t.id").
+		Joins("JOIN clinlims.type_of_sample AS st ON st.id = tost.sample_type_id").
+		Joins(`LEFT JOIN clinlims.localization_value AS lv
+		         ON lv.localization_id = t.name_localization_id AND lv.locale = ?`, d.locale()).
+		Joins(`LEFT JOIN clinlims.localization_value AS stlv
+		         ON stlv.localization_id = st.name_localization_id AND stlv.locale = ?`, d.locale()).
+		Order("t.id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]TestRow{}
+	for _, r := range rows {
+		out[r.SampleTypeID] = append(out[r.SampleTypeID], r)
+	}
+	return out, nil
 }
