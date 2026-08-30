@@ -85,6 +85,7 @@ import (
 
 	// testcatalog editor controller
 	testcatalogrest "openelis-go/internal/testcatalog/controller/rest"
+	testcatalogdaoimpl "openelis-go/internal/testcatalog/daoimpl"
 	testcatalogservice "openelis-go/internal/testcatalog/service"
 
 	// testconfiguration layers (TestCatalog)
@@ -285,6 +286,14 @@ func main() {
 		PanelService:        panelSvc,
 	}
 	testcatalogrest.Routes(mux, &testcatalogrest.TestCatalogEditorRestController{Service: testcatalogEditorSvc})
+
+	// e2: the editor section SAVES — storage, terminology, display order and
+	// panel membership. None of them is audited into clinlims.history; storage
+	// keeps a JSON snapshot trail of its own instead.
+	testcatalogWriteSvc := &testcatalogservice.EditorWriteService{
+		DAO: &testcatalogdaoimpl.EditorWriteDAO{DB: gormDB},
+	}
+	testcatalogrest.WriteRoutes(mux, &testcatalogrest.EditorWriteRestController{Service: testcatalogWriteSvc})
 
 	// testconfiguration: TestCatalog (full catalog read)
 	testconfigDAO := &testconfigdaoimpl.TestCatalogDAOImpl{DB: gormDB}
