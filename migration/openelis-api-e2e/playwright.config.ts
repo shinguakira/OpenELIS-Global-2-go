@@ -61,13 +61,22 @@ export default defineConfig({
       // cannot live in tests/readonly/ — but the Go port still needs the
       // coverage (it pins the UTC-vs-host-local site-code date fix).
       testMatch:
-        /(readonly[\\/](p0-auth|p0-authz|a1-server-time|a2-static-reads|b1-testcatalog|b2-organization|b2-provider|c1-patient-reads|c2-sample-order-reads|c2-sample-form-loads|c3-result-reads)|mutating[\\/](b2-organization-sitecode|c1-patient-edge-cases|e1-config-crud|e1-config-parity-gaps|e2-uom-writes|e2-rename-writes|e2-create-writes|e2-panel-create|e2-order-writes|e2-activation-writes|e2-assign-writes|e2-selectlist-writes))\.spec\.ts/,
+        /(readonly[\\/](p0-auth|p0-authz|a1-server-time|a2-static-reads|b1-testcatalog|b2-organization|b2-provider|c1-patient-reads|c2-sample-order-reads|c2-sample-form-loads|c3-result-reads)|mutating[\\/](b2-organization-sitecode|c1-patient-edge-cases|e1-config-crud|e1-config-parity-gaps|e2-uom-writes|e2-rename-writes|e2-create-writes|e2-panel-create|e2-order-writes|e2-activation-writes|e2-assign-writes|e2-selectlist-writes|e2-testadd-writes))\.spec\.ts/,
       dependencies: ["setup-go"],
       use: {
         baseURL: GO_BASE_URL,
         ignoreHTTPSErrors: true,
         storageState: GO_AUTH_STATE,
       },
+      // One worker, for the same reason api-mutating has one: this project is
+      // no longer read-only. `fullyParallel: false` only serialises tests
+      // WITHIN a file, so with the default worker count separate mutating spec
+      // FILES run at once against a single shared database — one suite's
+      // fixture row is another's leftover. The failures that produces are
+      // whichever files happen to overlap, which is why the list grew when the
+      // twelfth mutating spec joined the project rather than when the first
+      // did.
+      workers: 1,
     },
   ],
 });

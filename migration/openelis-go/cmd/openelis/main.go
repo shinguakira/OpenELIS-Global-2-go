@@ -431,6 +431,15 @@ func main() {
 		DAO:        &testconfigdaoimpl.SelectListDAO{DB: gormDB, Audit: &audittrail.Service{}, ActiveLocale: activeLocale},
 	}
 	testconfigrest.SelectListRoutes(mux, &testconfigrest.SelectListRestController{Service: selectListSvc})
+
+	// TestAdd: one submission, one test per sample type named, and a fan of
+	// rows behind each — see the DAO for the measured write surface.
+	testAddSvc := &testconfigservice.TestAddService{
+		Lists:    &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		DAO:      &testconfigdaoimpl.TestAddDAO{DB: gormDB, Audit: &audittrail.Service{}},
+		Messages: msgs,
+	}
+	testconfigrest.TestAddRoutes(mux, &testconfigrest.TestAddRestController{Service: testAddSvc})
 	dateLocale := siteDateLocale(gormDB)
 	// validateTechnicalRejection decides whether technically REJECTED analyses
 	// are offered for validation. Read once, the way ConfigurationProperties does.
