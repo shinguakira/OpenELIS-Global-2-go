@@ -423,6 +423,14 @@ func main() {
 		DAO:        &testconfigdaoimpl.AssignDAO{DB: gormDB, Audit: &audittrail.Service{}},
 	}
 	testconfigrest.AssignRoutes(mux, &testconfigrest.AssignRestController{Service: assignSvc})
+
+	// TestRenameEntry, SelectListRenameEntry and the result select list.
+	selectListSvc := &testconfigservice.SelectListService{
+		Lists:      &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		Activation: &testconfigdaoimpl.ActivationDAO{DB: gormDB, Audit: &audittrail.Service{}, ActiveLocale: activeLocale},
+		DAO:        &testconfigdaoimpl.SelectListDAO{DB: gormDB, Audit: &audittrail.Service{}, ActiveLocale: activeLocale},
+	}
+	testconfigrest.SelectListRoutes(mux, &testconfigrest.SelectListRestController{Service: selectListSvc})
 	dateLocale := siteDateLocale(gormDB)
 	// validateTechnicalRejection decides whether technically REJECTED analyses
 	// are offered for validation. Read once, the way ConfigurationProperties does.
