@@ -306,51 +306,9 @@ func (s *TestAddService) Add(post form.TestAddPost, sysUserID int64) (*form.Test
 		return nil, errBadJSONWad
 	}
 
-	row := daoimpl.TestAddRow{
-		NameEnglish:             params.TestNameEnglish,
-		NameFrench:              params.TestNameFrench,
-		ReportNameEnglish:       params.TestReportNameEnglish,
-		ReportNameFrench:        params.TestReportNameFrench,
-		TestSectionID:           params.TestSection,
-		UomID:                   params.Uom,
-		Loinc:                   params.Loinc,
-		Active:                  params.Active,
-		Orderable:               params.Orderable == "Y",
-		NotifyResults:           params.NotifyResults == "Y",
-		InLabOnly:               params.InLabOnly == "Y",
-		AntimicrobialResistance: params.AntimicrobialResistance == "Y",
-		ResultTypeID:            params.ResultType,
-		ResultTypeChar:          resultTypeChars[params.ResultType],
-		DictionaryReferenceID:   params.DictionaryReference,
-	}
-	for _, p := range params.Panels {
-		row.PanelIDs = append(row.PanelIDs, p.ID)
-	}
-
-	switch {
-	case isNumericByID(params.ResultType):
-		row.SignificantDigits = rawToString(params.SignificantDigits)
-		row.LowValid = doubleWithInfinity(rawToString(params.LowValid))
-		row.HighValid = doubleWithInfinity(rawToString(params.HighValid))
-		row.LowReporting = doubleWithInfinity(rawToString(params.LowReportingRange))
-		row.HighReporting = doubleWithInfinity(rawToString(params.HighReportingRange))
-		row.LowCritical = doubleWithInfinity(rawToString(params.LowCritical))
-		row.HighCritical = doubleWithInfinity(rawToString(params.HighCritical))
-		limits, err := extractLimits(params)
-		if err != nil {
-			return nil, err
-		}
-		row.Limits = limits
-	case isDictionaryVariantByID(params.ResultType):
-		for _, d := range params.Dictionary {
-			row.Dictionaries = append(row.Dictionaries, daoimpl.TestAddDictionary{
-				DictionaryID:   d.ID,
-				IsQuantifiable: d.Qualified == "Y",
-				// isDefault compares the option id to defaultTestResult, so a
-				// blank defaultTestResult matches a blank option id.
-				IsDefault: d.ID == params.DefaultTestResult,
-			})
-		}
+	row, err := buildTestAddRow(params)
+	if err != nil {
+		return nil, err
 	}
 
 	sets := make([]daoimpl.TestAddSet, 0, len(params.SampleTypes))
@@ -466,3 +424,56 @@ func rawToString(raw json.RawMessage) string {
 var errBadJSONWad = errors.New("testconfiguration: jsonWad cannot be built into a test")
 
 func inf(sign int) float64 { return math.Inf(sign) }
+
+// buildTestAddRow turns the parsed jsonWad into the row both TestAdd and
+// TestModifyEntry write. createTestSets is duplicated between the two
+// controllers character for character in this part, so the port is not.
+func buildTestAddRow(params testAddParams) (daoimpl.TestAddRow, error) {
+	row := daoimpl.TestAddRow{
+		NameEnglish:             params.TestNameEnglish,
+		NameFrench:              params.TestNameFrench,
+		ReportNameEnglish:       params.TestReportNameEnglish,
+		ReportNameFrench:        params.TestReportNameFrench,
+		TestSectionID:           params.TestSection,
+		UomID:                   params.Uom,
+		Loinc:                   params.Loinc,
+		Active:                  params.Active,
+		Orderable:               params.Orderable == "Y",
+		NotifyResults:           params.NotifyResults == "Y",
+		InLabOnly:               params.InLabOnly == "Y",
+		AntimicrobialResistance: params.AntimicrobialResistance == "Y",
+		ResultTypeID:            params.ResultType,
+		ResultTypeChar:          resultTypeChars[params.ResultType],
+		DictionaryReferenceID:   params.DictionaryReference,
+	}
+	for _, p := range params.Panels {
+		row.PanelIDs = append(row.PanelIDs, p.ID)
+	}
+
+	switch {
+	case isNumericByID(params.ResultType):
+		row.SignificantDigits = rawToString(params.SignificantDigits)
+		row.LowValid = doubleWithInfinity(rawToString(params.LowValid))
+		row.HighValid = doubleWithInfinity(rawToString(params.HighValid))
+		row.LowReporting = doubleWithInfinity(rawToString(params.LowReportingRange))
+		row.HighReporting = doubleWithInfinity(rawToString(params.HighReportingRange))
+		row.LowCritical = doubleWithInfinity(rawToString(params.LowCritical))
+		row.HighCritical = doubleWithInfinity(rawToString(params.HighCritical))
+		limits, err := extractLimits(params)
+		if err != nil {
+			return row, err
+		}
+		row.Limits = limits
+	case isDictionaryVariantByID(params.ResultType):
+		for _, d := range params.Dictionary {
+			row.Dictionaries = append(row.Dictionaries, daoimpl.TestAddDictionary{
+				DictionaryID:   d.ID,
+				IsQuantifiable: d.Qualified == "Y",
+				// isDefault compares the option id to defaultTestResult, so a
+				// blank defaultTestResult matches a blank option id.
+				IsDefault: d.ID == params.DefaultTestResult,
+			})
+		}
+	}
+	return row, nil
+}

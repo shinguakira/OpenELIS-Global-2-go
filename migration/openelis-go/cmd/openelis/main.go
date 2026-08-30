@@ -440,6 +440,17 @@ func main() {
 		Messages: msgs,
 	}
 	testconfigrest.TestAddRoutes(mux, &testconfigrest.TestAddRestController{Service: testAddSvc})
+
+	// TestModifyEntry: a delete-then-insert rewrite of everything hanging off
+	// one test, plus the filtered catalogue its screen lists.
+	testModifySvc := &testconfigservice.TestModifyService{
+		Lists:    &commondaoimpl.DisplayListDAOImpl{DB: gormDB, ActiveLocale: activeLocale},
+		Read:     &testconfigdaoimpl.TestModifyReadDAO{DB: gormDB, ActiveLocale: activeLocale},
+		DAO:      &testconfigdaoimpl.TestModifyDAO{DB: gormDB, Audit: &audittrail.Service{}},
+		TestAdd:  testAddSvc,
+		Messages: msgs,
+	}
+	testconfigrest.TestModifyRoutes(mux, &testconfigrest.TestModifyRestController{Service: testModifySvc})
 	dateLocale := siteDateLocale(gormDB)
 	// validateTechnicalRejection decides whether technically REJECTED analyses
 	// are offered for validation. Read once, the way ConfigurationProperties does.
