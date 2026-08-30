@@ -1,6 +1,6 @@
 # e2 — Test-catalog writes (scoped migration plan)
 
-Status: **in progress — 37 writes and 31 reads ported and green; 10 `testcatalog` reads outstanding (§5 group 7)**
+Status: **complete — all 37 writes and all 45 reads ported; three gates green**
 Branch: `migration/e2-testcatalog-writes` (from `migration/e1-config-crud`, not
 from `migration-base` — see §1).
 Companion docs:
@@ -271,7 +271,7 @@ next, and blast radius — clinical writes last. It is not a scope boundary.
 | 4 ✅ | **Test lifecycle** — `TestAdd`, `TestModifyEntry`, `TestActivation`, `TestOrderability`, `TestRenameEntry`, `POST tests/{id}/activate` | 6 W + 5 R | Touches `test`, which c2 and c3 read. |
 | 5 ✅ | **Editor, non-clinical** — `POST /tests`, `POST /panels`, `basic-info`, `terminology`, `storage`, `group/storage`, `sample-types/{id}/test-order`, `tests/{id}/panels`, `sample-results`, `copy-from` | 10 W + 7 R | The modern editor surface. Bulk writes appear here. |
 | 6 ✅ | **Ranges** 🔴 — `PUT /tests/{testId}/ranges`, `PUT /group/ranges` | 2 W + 1 R | Reference ranges decide whether a result reads as normal. Last, and only with the rest green. |
-| 7 | **The reads that pair with no write** — `GET /tests`, `/tests/{testId}`, `/tests/{testId}/localization`, `/tests/{testId}/loinc-integrity`, `/dictionary`, `/tests/{testId}/siblings`, `/group/summary`, `/tests/{testId}/analyzers`, `/{testId}/reflex-calc`, `/{testId}/storage/history` | 0 W + 10 R | Last because nothing depends on them, NOT because they are optional — §0 counts them. All ten are `testcatalog`; every `testconfiguration` read came with its write. |
+| 7 ✅ | **The reads that pair with no write** — `GET /tests`, `/tests/{testId}`, `/tests/{testId}/localization`, `/tests/{testId}/loinc-integrity`, `/dictionary`, `/tests/{testId}/siblings`, `/group/summary`, `/tests/{testId}/analyzers`, `/{testId}/reflex-calc`, `/{testId}/storage/history` | 0 W + 10 R | Last because nothing depends on them, NOT because they are optional — §0 counts them. All ten are `testcatalog`; every `testconfiguration` read came with its write. |
 
 Writes: 2 + 14 + 3 + 6 + 10 + 2 = **37**. Reads: 2 + 14 + 2 + 5 + 7 + 1 + 10 =
 **41**, the count §0 gives as unported. Both sums are here so the next edit to
@@ -297,10 +297,10 @@ against the port in the same commit, which is the point.
 
 ---
 
-## 7. Progress — the writes are done, ten reads are not
+## 7. Outcome — every endpoint in §0
 
-All 37 writes are ported, with the 31 reads that came with them. The 10 reads
-in §5 group 7 are NOT — the branch is not finished until they are.
+All 37 writes and all 45 reads are ported: the 31 reads that came with a write,
+the 4 b1 had already done, and the 10 of §5 group 7 that pair with none.
 
 Every commit below passed all three gates before it was made — `api-readonly`,
 `api-mutating`, `go-parity`, zero failures — and each carries its own parity
@@ -321,10 +321,12 @@ spec, written against the LIVE Java server and run against both stacks.
 | `9f1d93335` | `TestAdd` | 1 |
 | `1b0b159de` | `TestModifyEntry` | 1 |
 | `60b4f22e4` | editor sections: `storage`, `group/storage`, `terminology`, `sample-types/{id}/test-order`, `tests/{id}/panels`, `POST /panels` | 6 |
-| (this one) | editor tests: `POST /tests`, `basic-info`, `sample-results`, `copy-from`, `ranges` 🔴, `group/ranges` 🔴, `activate` | 7 |
+| `0e620f436` | editor tests: `POST /tests`, `basic-info`, `sample-results`, `copy-from`, `ranges` 🔴, `group/ranges` 🔴, `activate` | 7 |
+| (this one) | group 7 — the ten reads that pair with no write | 0 |
 
-24 in `testconfiguration`, 13 in `testcatalog`. The reads that show a write came
-with it, for the reason §4 gives. The ten that show no write are outstanding.
+24 writes in `testconfiguration`, 13 in `testcatalog`. The reads that show a
+write came with it, for the reason §4 gives; the ten that show none came last,
+as §5 group 7.
 
 ### 7.2 What the measurements changed
 
@@ -394,7 +396,56 @@ the running server, and several contradicted a careful reading.
   false` only serialises tests within a file, so separate mutating spec files
   had been racing against a single shared database.
 
-### 7.3 Two Java defects, reproduced rather than repaired
+### 7.3 What the ten reads measured
+
+They share the AUGMENTED name — the localized test name with the first sample
+type in brackets — and most of what is worth recording is where they differ from
+each other about it.
+
+- **`GET /tests` sorts on a name it does not show.** The sort is by the RAW
+  localized name; the augmented one is substituted onto the PAGE SLICE
+  afterwards, along with the sample type. So `search` matches the analyte and
+  not the specimen: `search=Urines` finds nothing while every row's `name` ends
+  in `(Urines)`. A port that sorts on the augmented name pages the catalogue in
+  a different order.
+- **`page` and `pageSize` are clamped UP to 1**, so `?page=0&pageSize=0` is a
+  200 carrying one row, not a 400. A page past the end echoes the page it was
+  asked for and returns nothing.
+- **`siblings` says every sibling is inactive.** It reuses the list page's row
+  type and fills only `testId`, `name` and `sampleType`; `active`, `amr` and
+  `coverageIncomplete` are primitive booleans that serialise as false because
+  nothing set them. `coverageIncomplete` is hardcoded false on the list page
+  too — the decoration was left for a later milestone and never wired.
+- **`siblings` is also the only endpoint here that answers 200 for an unknown
+  test.** It returns the accumulator rather than a `ResponseEntity`, so a
+  missing test is an empty list. Every other one is a 404.
+- **There are two 404 SHAPES under one path prefix.** The editor's own are
+  `ResponseEntity.notFound()` with no body; the two read-only controllers throw
+  `ResponseStatusException`, which Spring renders as an RFC 7807 ProblemDetail
+  carrying unresolved message keys (`problemDetail.type.org.springframework…`).
+- **`/dictionary` matches the abbreviation and the entry as ONE string.** The
+  query is `upper(local_abbrev || ': ' || dict_entry) LIKE upper('X%')`, so
+  searching `pos` returns "College or University" through its abbreviation. The
+  label is the RAW `dict_entry`, not the localized name — the only dictionary
+  list in this package that is not localized. A blank search returns nothing, so
+  the control does not dump the whole dictionary on focus.
+- **`reflex-calc` renders the added test's name UNaugmented**, while everything
+  else on the same screen is augmented. Two name rules, one view.
+- **`storage/history` serialises the ENTITY**, so its two `jsonb` columns arrive
+  as STRINGS of JSON rather than as objects — the entity types them as `String`
+  and Jackson has nothing to parse them into. A test with no storage config is
+  an empty list; only a missing TEST is a 404.
+
+One routing difference had to be handled rather than reproduced directly.
+`tests/{testId}` and `{testId}/reflex-calc` are both two segments, and Go's
+`ServeMux` refuses to register a pair where neither pattern is more specific —
+it panics at startup rather than guess. Spring does guess, and MEASURED it
+prefers the literal SUFFIX: `GET /rest/test-catalog/tests/reflex-calc` answers
+500 from reflex-calc looking up a test named "tests", not the envelope for a
+test named "reflex-calc". The port dispatches both from one handler in that
+order, which reproduces the answer for every path including that one.
+
+### 7.4 Two Java defects, reproduced rather than repaired
 
 Both are recorded in [java-defects-found.md](java-defects-found.md) and pinned
 by the specs.
@@ -414,7 +465,7 @@ Fixing either upstream is a small change in shape but a behaviour change to a
 shipped endpoint, and belongs in its own PR against `develop` — not in a
 migration branch whose contract is to reproduce what runs today.
 
-### 7.4 Environment notes
+### 7.5 Environment notes
 
 WSL localhost port forwarding was down for part of this work. Both notes below
 are environment variables, not code changes.

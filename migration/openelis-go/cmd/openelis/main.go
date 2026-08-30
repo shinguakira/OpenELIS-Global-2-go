@@ -305,6 +305,15 @@ func main() {
 	// 🔴 clinical: the reference ranges a result is judged against.
 	testcatalogrest.RangeRoutes(mux, &testcatalogrest.EditorTestRestController{Service: testcatalogTestSvc})
 
+	// e2 group 7: the ten editor reads that pair with no write.
+	testcatalogReadSvc := &testcatalogservice.EditorReadService{
+		DAO: &testcatalogdaoimpl.EditorReadDAO{
+			DB: gormDB, ActiveLocale: siteDefaultLocale(gormDB),
+			AugmentNames: siteAugmentTestNames(gormDB),
+		},
+	}
+	testcatalogrest.ReadRoutes(mux, &testcatalogrest.EditorReadRestController{Service: testcatalogReadSvc})
+
 	// testconfiguration: TestCatalog (full catalog read)
 	testconfigDAO := &testconfigdaoimpl.TestCatalogDAOImpl{DB: gormDB}
 	testconfigSvc := &testconfigservice.TestCatalogService{DAO: testconfigDAO}
@@ -660,4 +669,24 @@ func siteValidateRejected(db *gorm.DB) bool {
 		return true
 	}
 	return values[0] != "false"
+}
+
+// siteAugmentTestNames is ConfigurationProperties.TEST_NAME_AUGMENTED — the
+// site_information row `augmentTestNameWithType`. Read once at startup because
+// Java reads it from a cache loaded at startup; a direct edit to the row is
+// invisible to both stacks until a restart.
+func siteAugmentTestNames(db *gorm.DB) bool {
+	values := []string{}
+	if err := db.Table("clinlims.site_information").
+		Select("value").
+		Where("name = ?", "augmentTestNameWithType").
+		Limit(1).
+		Scan(&values).Error; err != nil {
+		log.Printf("WARN: could not read augmentTestNameWithType (%v); assuming true", err)
+		return true
+	}
+	if len(values) == 0 {
+		return true
+	}
+	return strings.TrimSpace(values[0]) == "true"
 }

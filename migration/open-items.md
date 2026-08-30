@@ -32,6 +32,45 @@ them deliberately instead of discovering them by accident.
 
 ---
 
+## e2 — test-catalog writes and reads (Wave 6)
+
+Full context in
+[e2-testcatalog-writes-migration.md](e2-testcatalog-writes-migration.md).
+
+Nothing on this branch is unported. The three items below are places where the
+port and Java can answer DIFFERENTLY without either being wrong — all three are
+Java reading from a cache or an unordered query, and all three are worked around
+in the specs rather than in the port.
+
+### 🟡 Agree today, and would not under other data
+
+| # | What | Found by | Effect |
+|---|---|---|---|
+| e2-1 | `groupedDictionaryList` — the equal-SIZE ordering cannot be reproduced. `createGroupedDictionaryList` deduplicates the option groups through a `HashSet<String>` and then sorts by size with a STABLE sort, so groups of equal size come out in Java's HashSet bucket order — an accident of `String.hashCode` and the table size. The port emits first-appearance order instead. | **measured** — the two lists carry the same 19 groups with the same sizes and the same order WITHIN each group, in a different order between equal sizes. | 🟡 The set, the sizes and the intra-group order are identical, and those are what the screen reads. `e2-testadd-writes.spec.ts` and `e2-testmodify-writes.spec.ts` therefore assert the groups as a SET and the sizes as non-decreasing, not the sequence. Reproducing the bucket order is possible — Java's hash is deterministic — and buys nothing. |
+| e2-2 | `DisplayListService`'s cached lists go stale against a direct SQL edit; the port reads live. Java loads `SAMPLE_TYPE_ACTIVE`, `TEST_SECTION_ACTIVE`, `PANELS`, `DICTIONARY_TEST_RESULTS` and the rest into a map refreshed only by a write THROUGH the application. | **measured** — a spec that activated a test section through the API and restored it with SQL left Java serving a section it no longer had, while Go answered from the table. | 🟡 In production nothing edits these tables out of band, so the two agree. Under the suite they do not, which is why `e2-testadd-writes` and `e2-editor-section-writes` end their `afterEach` with a throwaway create through the endpoint: one more application write rebuilds every list Java caches. A spec that restores fixture state with SQL and does NOT resync leaves the next suite reading Java's stale copy — that is how this was found, two files away from the spec that caused it. |
+| e2-3 | Tie order under a `sort_order` with heavy duplicates is the query plan's, on both sides. `type_of_sample` has three rows at 0 and seven at `Integer.MAX_VALUE`; `test_section` has thirteen at `MAX_VALUE`. Neither Java's HQL nor the port adds a tiebreak. | **measured** — the order changed between runs after rows were updated, because an UPDATE moves a tuple to the end of the heap. | 🟡 Fixed once already, in the direction of matching Java's row SOURCE rather than imposing an order: `ActiveHumanSampleTypes` now reads its localized name through a scalar subquery instead of a LEFT JOIN, so the plan stays the plain scan Java's HQL produces. The same rule caught the terminology reads, which carry no `ORDER BY` because `getAllMatching` has none. Specs in this wave assert these lists as sets. |
+
+### Not gaps — decisions recorded so they are not re-litigated
+
+- **`POST /rest/test-catalog/panels` answers 500 in the port, on purpose.**
+  `panel.name_localization_id` is NOT NULL and Java's `createPanel` never writes
+  a localization, so the endpoint cannot succeed. Reproduced rather than
+  repaired: a port that supplied the localization would create panel rows this
+  Java deployment cannot. Defect 14 in
+  [java-defects-found.md](java-defects-found.md).
+- **`PUT /tests/{testId}/sample-results` answers 500 for a component re-sent
+  without its id, on purpose.** Same reasoning; defect 15.
+- **A NUMERIC `TestModifyEntry` save leaves the result it replaced ACTIVE.** Only
+  the dictionary variants deactivate the old rows, so every numeric save adds
+  another. The port does the same. Not raised as a defect because the editor
+  that supersedes this screen does not use the path.
+- **`Test.getName()` is derived from the localization, so `test.name` moves on a
+  flush that never names the column** — while `description` and `local_code` are
+  never rewritten by the modify path. Both stacks behave identically; it is
+  written down because it looks like a port bug from either side.
+
+---
+
 ## e1 — admin config CRUD (Wave 6)
 
 Full context in [e1-config-crud-migration.md](e1-config-crud-migration.md).
@@ -111,11 +150,20 @@ The Go service must be started with `OE_ENCRYPTION_PASSWORD` set to the same
 key Java uses, or the encrypted-row test fails against Go for a configuration
 reason rather than a porting one. This deployment's key is `kspass`.
 
+The Java side must be reachable. When WSL localhost forwarding is down, pass the
+WSL IP instead: `OE_BASE_URL="https://<wsl-ip>/api/OpenELIS-Global/"` for the
+Playwright projects, and `OE_DB_HOST=<wsl-ip> OE_DB_PORT=15432` for the Go
+service. The Go service also needs `TZ=UTC` — `rest/server-time` reads the `TZ`
+environment variable first and falls through to the zone ABBREVIATION when it is
+unset, which answers `JST` on a Japanese host and fails the IANA check in
+`a1-server-time`. The Java container runs `TZ=UTC`.
+
 ---
 
 ## Suggested order
 
-Nothing is open on e1.
+Nothing is open on e1 or e2 — e2-1 through e2-3 are agreements that hold on the
+shipped data and are pinned as such, not work left undone.
 
 The one item worth carrying forward is not an e1 gap but a cross-cutting one:
 every other ported endpoint takes its locale as a value captured at STARTUP
